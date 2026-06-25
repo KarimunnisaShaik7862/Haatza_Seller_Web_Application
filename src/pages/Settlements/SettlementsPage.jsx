@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Search, Calendar, ChevronDown, X, Info, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, X, Info, AlertTriangle, RefreshCw, Calendar } from "lucide-react";
+import { DayPicker } from "react-day-picker";
 import { sellerService } from "../../services/sellerService";
-import { resolveSellerId, resolveSellerEmail } from "../../utils/sellerSession";
+import { resolveSellerEmail } from "../../utils/sellerSession";
+import "react-day-picker/style.css";
 import "./SettlementsPage.css";
 
 const formatCurrency = (value) => {
@@ -9,108 +11,599 @@ const formatCurrency = (value) => {
   return `₹${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"}`;
 };
 
-// Module-level cache for request deduplication and last fetched parameter key
-// eslint-disable-next-line no-unused-vars
+const safeNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const safeString = (value, fallback = "") => {
+  if (value === null || value === undefined) return fallback;
+  return String(value);
+};
+
+const safeArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") return [value];
+  return [];
+};
+
+const normalizeStatus = (status) => safeString(status).trim();
+const isPaidStatus = (status) => normalizeStatus(status).toLowerCase() === "paid";
+
+const getPayoutDetails = (payment) => {
+  if (payment?.rawPayout) return payment.rawPayout;
+  if (payment?.payoutDetails) return payment.payoutDetails;
+  if (payment?.payout_details) return payment.payout_details;
+  if (payment?.payout) return payment.payout;
+  return payment;
+};
+
+const extractPaymentsFromResponse = (response) => {
+  const apiData = response?.data ?? response;
+  const possiblePayments =
+    apiData?.message?.payments ??
+    apiData?.payments ??
+    apiData?.data?.payments ??
+    apiData?.data?.message?.payments ??
+    [];
+  return safeArray(possiblePayments);
+};
+
+const normalizeSettlementPayments = (apiResponse) => {
+  const message = apiResponse?.message || apiResponse || {};
+  const payments = Array.isArray(message?.payments)
+    ? message.payments
+    : Array.isArray(apiResponse?.payments)
+      ? apiResponse.payments
+      : Array.isArray(apiResponse)
+        ? apiResponse
+        : [];
+
+  const rows = [];
+
+  payments.forEach((item, index) => {
+    const payout = item?.payoutDetails || item || {};
+    const breakupList = Array.isArray(payout?.settlementBreakup) ? payout.settlementBreakup : [];
+
+    if (breakupList.length > 0) {
+      breakupList.forEach((breakup, breakupIndex) => {
+        rows.push({
+          id: `${payout.sellerId || "seller"}_${breakup.orderId || payout.ordersPaid || index}_${payout.paymentDate || index}_${breakupIndex}`,
+          sellerId: payout.sellerId || "-",
+          ordersPaid: payout.ordersPaid || "-",
+          orderId: breakup.orderId || payout.ordersPaid || "-",
+          totalAmount: Number(payout.totalAmount || 0),
+          orderAmount: Number(breakup.orderAmount || payout.totalAmount || 0),
+          settlementAmount: Number(breakup.settlementAmount || payout.totalAmount || 0),
+          productGST: Number(breakup.productGST || 0),
+          shippingFee: Number(breakup.shippingFee || 0),
+          shippingGST: Number(breakup.shippingGST || 0),
+          totalDebit: Number(breakup.totalDebit || 0),
+          rtopenalty: Number(breakup.rtopenalty || breakup.rtoPenalty || 0),
+          status: payout.status || "-",
+          paymentDate: payout.paymentDate || null,
+          rawPayout: payout,
+          payoutDetails: payout,
+        });
+      });
+    } else {
+      rows.push({
+        id: `${payout.sellerId || "seller"}_${payout.ordersPaid || index}_${payout.paymentDate || index}`,
+        sellerId: payout.sellerId || "-",
+        ordersPaid: payout.ordersPaid || "-",
+        orderId: payout.ordersPaid || "-",
+        totalAmount: Number(payout.totalAmount || 0),
+        orderAmount: Number(payout.totalAmount || 0),
+        settlementAmount: Number(payout.totalAmount || 0),
+        productGST: 0,
+        shippingFee: 0,
+        shippingGST: 0,
+        totalDebit: 0,
+        rtopenalty: 0,
+        status: payout.status || "-",
+        paymentDate: payout.paymentDate || null,
+        rawPayout: payout,
+        payoutDetails: payout,
+      });
+    }
+  });
+
+  const totalSettlements = rows.reduce((sum, r) => sum + r.settlementAmount, 0);
+  const totalOrderAmount = rows.reduce((sum, r) => sum + r.orderAmount, 0);
+  const totalDebits = rows.reduce((sum, r) => sum + r.totalDebit, 0);
+  const paidCount = rows.filter((r) => isPaidStatus(r.status)).length;
+
+  return {
+    fromDate: message.fromDate,
+    toDate: message.toDate,
+    totalItems: Number(message.totalItems || rows.length),
+    lastFetched: Number(message.lastFetched || rows.length),
+    rows,
+    summary: { totalSettlements, totalOrderAmount, totalDebits, paidCount },
+  };
+};
+
+const formatDateForApi = (date) => {
+  if (!date) return "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const getThisMonthRange = () => {
+  const today = new Date();
+  const from = new Date(today.getFullYear(), today.getMonth(), 1);
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(today);
+  to.setHours(23, 59, 59, 999);
+  return { from, to };
+};
+
 const activeRequests = new Map();
-// eslint-disable-next-line no-unused-vars
 const lastFetchedParams = { key: null };
+
+// ─── DateRangePicker ──────────────────────────────────────────────────────────
+
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+const formatTriggerDate = (date) => {
+  if (!date) return "";
+  const d = String(date.getDate()).padStart(2, "0");
+  const m = MONTH_SHORT[date.getMonth()];
+  const y = date.getFullYear();
+  return `${m} ${d}, ${y}`;
+};
+
+const startOfDay = (date) => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const MonthCalendar = () => null;
+
+// eslint-disable-next-line no-unused-vars
+const DateRangePicker = ({ fromDate, toDate, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const [tempFrom, setTempFrom] = useState(null);
+  const [tempTo, setTempTo] = useState(null);
+  const [hoverDate, setHoverDate] = useState(null);
+
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const [leftMonth, setLeftMonth] = useState(() => {
+    const d = fromDate || new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+
+  const rightMonth = useMemo(() => {
+    return new Date(leftMonth.getFullYear(), leftMonth.getMonth() + 1, 1);
+  }, [leftMonth]);
+
+  const popoverRef = useRef(null);
+  const triggerRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e) => {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    const handleEscape = (e) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
+  const handleOpen = useCallback(() => {
+    setTempFrom(fromDate ? startOfDay(fromDate) : null);
+    setTempTo(toDate ? startOfDay(toDate) : null);
+    setHoverDate(null);
+    setLeftMonth(new Date((fromDate || new Date()).getFullYear(), (fromDate || new Date()).getMonth(), 1));
+    setOpen(true);
+  }, [fromDate, toDate]);
+
+  const handleDayClick = useCallback((date) => {
+    if (!tempFrom || (tempFrom && tempTo)) {
+      setTempFrom(date);
+      setTempTo(null);
+      setHoverDate(null);
+    } else {
+      if (date < tempFrom) {
+        setTempTo(tempFrom);
+        setTempFrom(date);
+      } else {
+        setTempTo(date);
+      }
+      setHoverDate(null);
+    }
+  }, [tempFrom, tempTo]);
+
+  const handleApply = useCallback(() => {
+    if (!tempFrom) return;
+    const finalFrom = tempFrom;
+    const finalTo = new Date(tempTo || tempFrom);
+    finalTo.setHours(23, 59, 59, 999);
+    onChange({ from: finalFrom, to: finalTo });
+    setOpen(false);
+  }, [tempFrom, tempTo, onChange]);
+
+  const handleClear = useCallback(() => {
+    setTempFrom(null);
+    setTempTo(null);
+    setHoverDate(null);
+  }, []);
+
+  const triggerLabel = useMemo(() => {
+    if (!fromDate || !toDate) return "Select date range";
+    return `${formatTriggerDate(fromDate)} – ${formatTriggerDate(toDate)}`;
+  }, [fromDate, toDate]);
+
+  const selectionLabel = useMemo(() => {
+    if (!tempFrom && !tempTo) return "Select a start date";
+    if (tempFrom && !tempTo) return `${formatTriggerDate(tempFrom)} – Select end date`;
+    return `${formatTriggerDate(tempFrom)} – ${formatTriggerDate(tempTo)}`;
+  }, [tempFrom, tempTo]);
+
+  return (
+    <div className="drp-root">
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`drp-trigger${open ? " drp-trigger--open" : ""}`}
+        onClick={open ? () => setOpen(false) : handleOpen}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
+        <Calendar size={15} aria-hidden="true" />
+        <span>{triggerLabel}</span>
+        {fromDate && toDate && (
+          <span
+            className="drp-trigger-clear"
+            role="button"
+            tabIndex={0}
+            aria-label="Clear date range"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange({ from: null, to: null });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.stopPropagation();
+                onChange({ from: null, to: null });
+              }
+            }}
+          >
+            <X size={13} />
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          ref={popoverRef}
+          className="drp-popover"
+          role="dialog"
+          aria-label="Select date range"
+        >
+          <div className="drp-popover-header">
+            <span className="drp-selection-label">{selectionLabel}</span>
+          </div>
+
+          <div className="drp-calendars">
+            <div className="drp-calendar-col">
+              <div className="drp-cal-header">
+                <button
+                  type="button"
+                  className="drp-nav-btn"
+                  onClick={() => setLeftMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="drp-month-label">
+                  {MONTH_NAMES[leftMonth.getMonth()]} {leftMonth.getFullYear()}
+                </span>
+                <span style={{ width: 28 }} />
+              </div>
+              <MonthCalendar
+                year={leftMonth.getFullYear()}
+                month={leftMonth.getMonth()}
+                tempFrom={tempFrom}
+                tempTo={tempTo}
+                hoverDate={hoverDate}
+                onDayClick={handleDayClick}
+                onDayHover={setHoverDate}
+                today={today}
+              />
+            </div>
+
+            <div className="drp-divider" />
+
+            <div className="drp-calendar-col">
+              <div className="drp-cal-header">
+                <span style={{ width: 28 }} />
+                <span className="drp-month-label">
+                  {MONTH_NAMES[rightMonth.getMonth()]} {rightMonth.getFullYear()}
+                </span>
+                <button
+                  type="button"
+                  className="drp-nav-btn"
+                  onClick={() => setLeftMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+                  aria-label="Next month"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <MonthCalendar
+                year={rightMonth.getFullYear()}
+                month={rightMonth.getMonth()}
+                tempFrom={tempFrom}
+                tempTo={tempTo}
+                hoverDate={hoverDate}
+                onDayClick={handleDayClick}
+                onDayHover={setHoverDate}
+                today={today}
+              />
+            </div>
+          </div>
+
+          <div className="drp-footer">
+            <button type="button" className="drp-btn-clear" onClick={handleClear}>
+              Clear
+            </button>
+            <button
+              type="button"
+              className="drp-btn-apply"
+              onClick={handleApply}
+              disabled={!tempFrom}
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const [draftRange, setDraftRange] = useState({ from: undefined, to: undefined });
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const base = fromDate || new Date();
+    return new Date(base.getFullYear(), base.getMonth(), 1);
+  });
+  const [isMobile, setIsMobile] = useState(() => (
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 720px)").matches : false
+  ));
+
+  const triggerRef = useRef(null);
+  const popoverRef = useRef(null);
+
+  const today = useMemo(() => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const media = window.matchMedia("(max-width: 720px)");
+    const handleMediaChange = () => setIsMobile(media.matches);
+    handleMediaChange();
+    media.addEventListener("change", handleMediaChange);
+    return () => media.removeEventListener("change", handleMediaChange);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(event.target) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(event.target)
+      ) {
+        setOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const openPicker = useCallback(() => {
+    const from = fromDate ? startOfDay(fromDate) : undefined;
+    const to = toDate ? startOfDay(toDate) : undefined;
+    const base = from || new Date();
+    setDraftRange({ from, to });
+    setVisibleMonth(new Date(base.getFullYear(), base.getMonth(), 1));
+    setOpen(true);
+  }, [fromDate, toDate]);
+
+  const triggerLabel = useMemo(() => {
+    if (!fromDate || !toDate) return "Select date range";
+    return `${formatTriggerDate(fromDate)} - ${formatTriggerDate(toDate)}`;
+  }, [fromDate, toDate]);
+
+  const draftLabel = useMemo(() => {
+    if (!draftRange?.from) return "Select a start date";
+    if (!draftRange?.to) return `${formatTriggerDate(draftRange.from)} - Select end date`;
+    return `${formatTriggerDate(draftRange.from)} - ${formatTriggerDate(draftRange.to)}`;
+  }, [draftRange]);
+
+  const handleApply = useCallback(() => {
+    if (!draftRange?.from) return;
+    const from = startOfDay(draftRange.from);
+    const to = new Date(draftRange.to || draftRange.from);
+    to.setHours(23, 59, 59, 999);
+    onChange({ from, to });
+    setOpen(false);
+    triggerRef.current?.focus();
+  }, [draftRange, onChange]);
+
+  const handleClear = useCallback(() => {
+    setDraftRange({ from: undefined, to: undefined });
+  }, []);
+
+  return (
+    <div className="drp-root">
+      <label className="drp-label" htmlFor="settlement-date-range">
+        Settlement dates
+      </label>
+      <button
+        id="settlement-date-range"
+        ref={triggerRef}
+        type="button"
+        className={`drp-trigger${open ? " drp-trigger--open" : ""}`}
+        onClick={open ? () => setOpen(false) : openPicker}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
+        <span>{triggerLabel}</span>
+        <span className="drp-trigger-icon" aria-hidden="true">
+          <Calendar size={20} />
+        </span>
+      </button>
+
+      {open && (
+        <div
+          ref={popoverRef}
+          className="drp-popover"
+          role="dialog"
+          aria-label="Select settlement date range"
+        >
+          <div className="drp-popover-header">
+            <span className="drp-selection-label">{draftLabel}</span>
+            {(fromDate || toDate) && (
+              <button
+                type="button"
+                className="drp-icon-clear"
+                aria-label="Clear applied date range"
+                onClick={() => {
+                  onChange({ from: null, to: null });
+                  setOpen(false);
+                }}
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+
+          <DayPicker
+            mode="range"
+            selected={draftRange}
+            onSelect={(range) => setDraftRange(range || { from: undefined, to: undefined })}
+            month={visibleMonth}
+            onMonthChange={setVisibleMonth}
+            numberOfMonths={isMobile ? 1 : 2}
+            captionLayout="dropdown"
+            startMonth={new Date(today.getFullYear() - 5, 0, 1)}
+            endMonth={today}
+            disabled={{ after: today }}
+            showOutsideDays
+            fixedWeeks
+            className="drp-daypicker"
+          />
+
+          <div className="drp-footer">
+            <button type="button" className="drp-btn-clear" onClick={handleClear}>
+              Clear
+            </button>
+            <button
+              type="button"
+              className="drp-btn-apply"
+              onClick={handleApply}
+              disabled={!draftRange?.from}
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const SettlementsPage = () => {
   const [rawTransactions, setRawTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState("previous"); // "upcoming" or "previous"
+  const [activeTab, setActiveTab] = useState("previous");
   const [selectedTx, setSelectedTx] = useState(null);
-  const [settlementSummary, setSettlementSummary] = useState(null);
-  const [loadingSummary, setLoadingSummary] = useState(false);
 
   const abortControllerRef = useRef(null);
 
-  // Clean up abort controller on unmount
   useEffect(() => {
     return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      const controller = abortControllerRef.current;
-      if (controller) {
-        controller.abort();
-      }
+      const c = abortControllerRef.current;
+      if (c) c.abort();
     };
   }, []);
 
-  // Helper to format Date to YYYY-MM-DD
-  const formatDateString = useCallback((date) => {
-    if (!date) return "";
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const d = String(date.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
+  const thisMonth = useMemo(() => getThisMonthRange(), []);
+  const [appliedFromDate, setAppliedFromDate] = useState(thisMonth.from);
+  const [appliedToDate, setAppliedToDate] = useState(thisMonth.to);
+
+  const handleDateChange = useCallback(({ from, to }) => {
+    if (!from) {
+      const range = getThisMonthRange();
+      lastFetchedParams.key = null;
+      setAppliedFromDate(range.from);
+      setAppliedToDate(range.to);
+      return;
+    }
+    lastFetchedParams.key = null;
+    setAppliedFromDate(from);
+    setAppliedToDate(to);
   }, []);
 
-  // Date Range States
-  const [selectedFromDate, setSelectedFromDate] = useState(() => {
-    const today = new Date();
-    return new Date(today.getFullYear(), today.getMonth(), 1);
-  });
-  const [selectedToDate, setSelectedToDate] = useState(() => {
-    return new Date();
-  });
-  const [isDateRangeOpen, setIsDateRangeOpen] = useState(false);
-
-  // Active filter state used for API calls
-  const [appliedFromDate, setAppliedFromDate] = useState(selectedFromDate);
-  const [appliedToDate, setAppliedToDate] = useState(selectedToDate);
-
-  const [selectedMonth, setSelectedMonth] = useState(() => new Date());
-
-  useEffect(() => {
-    if (isDateRangeOpen) {
-      setSelectedFromDate(appliedFromDate);
-      setSelectedToDate(appliedToDate);
-    }
-  }, [isDateRangeOpen, appliedFromDate, appliedToDate]);
-
-  const dateFilterLabel = useMemo(() => {
-    const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    
-    const isDefault = 
-      appliedFromDate.getDate() === firstDay.getDate() &&
-      appliedFromDate.getMonth() === firstDay.getMonth() &&
-      appliedFromDate.getFullYear() === firstDay.getFullYear() &&
-      appliedToDate.getDate() === today.getDate() &&
-      appliedToDate.getMonth() === today.getMonth() &&
-      appliedToDate.getFullYear() === today.getFullYear();
-
-    if (isDefault) {
-      return "This Month";
-    }
-
-    const options = { day: "2-digit", month: "short", year: "numeric" };
-    return `${appliedFromDate.toLocaleDateString("en-US", options)} - ${appliedToDate.toLocaleDateString("en-US", options)}`;
-  }, [appliedFromDate, appliedToDate]);
-
-  // Fetch data
   const loadSettlements = useCallback(async (force = false) => {
     const email = (resolveSellerEmail() || "").trim();
-    const fromStr = formatDateString(appliedFromDate);
-    const toStr = formatDateString(appliedToDate);
-    const paramKey = `${email}_${fromStr}_${toStr}`;
+    const fromStr = formatDateForApi(appliedFromDate);
+    const toStr = formatDateForApi(appliedToDate);
+    const paramKey = `${email}_${fromStr}_${toStr}_50_0`;
 
-    if (!force && lastFetchedParams.key === paramKey) {
-      console.log("[SettlementsPage] API AUDIT - blocked unnecessary refetch");
-      return;
-    }
+    if (!force && lastFetchedParams.key === paramKey) return;
+    if (!force && activeRequests.has(paramKey)) return;
 
-    if (!force && activeRequests.has(paramKey)) {
-      console.log("[SettlementsPage] API AUDIT - skipped duplicate request");
-      return;
-    }
-
-    // Cancel previous request if any
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -118,62 +611,33 @@ const SettlementsPage = () => {
     setError(null);
     activeRequests.set(paramKey, controller);
 
-    console.log("[SettlementsPage] API AUDIT - called sellerpayments");
+    const fetchParams = {
+      email,
+      fromDate: fromStr,
+      toDate: toStr,
+      count: 50,
+      lastFetched: 0,
+    };
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[SettlementsPage] Fetch Params:", fetchParams);
+    }
 
     try {
-      const response = await sellerService.getSellerPayments({
-        email,
-        fromDate: fromStr,
-        toDate: toStr,
-        count: 50,
-        lastFetched: 0,
-      }, { signal: controller.signal });
-
+      const response = await sellerService.getSellerPayments(fetchParams, { signal: controller.signal });
       lastFetchedParams.key = paramKey;
-
-      // Safe response parsing
-      let list = [];
-      if (response) {
-        if (response.message?.payments?.data && Array.isArray(response.message.payments.data)) {
-          list = response.message.payments.data;
-        } else if (response.message?.payments && Array.isArray(response.message.payments)) {
-          list = response.message.payments;
-        } else if (response.message?.data && Array.isArray(response.message.data)) {
-          list = response.message.data;
-        } else if (response.payments && Array.isArray(response.payments)) {
-          list = response.payments;
-        } else if (response.message && Array.isArray(response.message)) {
-          list = response.message;
-        } else if (response.data && Array.isArray(response.data)) {
-          list = response.data;
-        } else if (Array.isArray(response)) {
-          list = response;
-        }
-      }
-
-      setRawTransactions(list);
+      const payments = extractPaymentsFromResponse(response);
+      setRawTransactions(payments);
     } catch (err) {
-      if (err.name === "CanceledError" || err.name === "AbortError" || err.message === "canceled" || err.code === "ERR_CANCELED") {
-        return;
-      }
-      console.error("[SettlementsPage] Load error:", err);
-      
+      if (
+        err.name === "CanceledError" || err.name === "AbortError" ||
+        err.message === "canceled" || err.code === "ERR_CANCELED"
+      ) return;
+
+      console.error("[SettlementsPage] Load Error", err);
       const is400 = err.response?.status === 400;
       if (is400) {
-        const fullUrl = err.config?.url || "https://haatza.com/_functions/sellerpayments";
-        const payload = err.config?.params || {
-          email,
-          fromDate: fromStr,
-          toDate: toStr,
-          count: 50,
-          lastFetched: 0
-        };
-        console.error("[SettlementsPage] Seller Payments 400 Bad Request", {
-          url: fullUrl,
-          payload: payload,
-          responseData: err.response?.data
-        });
-        setError("Failed to load settlements: Invalid request configuration (400 Bad Request). Please check parameters.");
+        setError("Failed to load settlements: Invalid request configuration (400). Please check parameters.");
       } else {
         setError(err.message || "Failed to load settlements from server.");
       }
@@ -182,202 +646,85 @@ const SettlementsPage = () => {
       activeRequests.delete(paramKey);
       setLoading(false);
     }
-  }, [appliedFromDate, appliedToDate, formatDateString]);
+  }, [appliedFromDate, appliedToDate]);
 
   useEffect(() => {
     loadSettlements();
   }, [loadSettlements]);
 
-  // Format Date for Table display
   const formatDate = (dateStr) => {
     if (!dateStr) return "-";
     try {
       const d = new Date(dateStr);
       if (isNaN(d.getTime())) return dateStr;
-      const options = { day: "2-digit", month: "short", year: "numeric" };
-      return d.toLocaleDateString("en-GB", options); // e.g. "29 May 2026"
+      return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
     } catch {
       return dateStr;
     }
   };
 
-  // Map raw transactions to UI schema
   const mappedTransactions = useMemo(() => {
-    return rawTransactions.map((tx, idx) => {
-      // Create pseudo-ID derived from index/date if missing to look exactly like the screenshot
-      const orderId = tx.orderId || tx.order_id || tx.id || `10${340 + (idx * 3) % 45}`;
-      const amount = Number(tx.amount || tx.settlementAmount || 0);
-      const dateVal = tx.paymentDate || tx.createdDate || tx.date;
-      const status = tx.status || "Paid";
-      const type = tx.type || "Debit";
+    const apiResponse = { message: { payments: rawTransactions } };
+    const { rows } = normalizeSettlementPayments(apiResponse);
 
-      const categoryId = tx.categoryId || tx.category_id || tx.category || "";
-      const deliveryCharges = tx.deliveryCharges ?? tx.delivery_charges ?? tx.deliveryCharge ?? true;
-      const shippingWeight = tx.shippingWeight ?? tx.shipping_weight ?? tx.weight ?? 0;
+    return rows.map((payment, idx) => {
+      const payoutDetails = getPayoutDetails(payment);
+      if (!payoutDetails || typeof payoutDetails !== "object") return null;
 
-      // Separate into upcoming vs previous based on date
-      const txDate = dateVal ? new Date(dateVal) : new Date();
-      const isUpcoming = txDate > new Date("2026-06-15T00:00:00Z");
+      const ordersPaid = safeString(
+        payoutDetails.ordersPaid ?? payoutDetails.orderPaid ?? payoutDetails.orderId ?? ""
+      );
+      const totalAmount = safeNumber(
+        payoutDetails.totalAmount ?? payoutDetails.amount ?? payoutDetails.settlementAmount ?? 0
+      );
+      const status = normalizeStatus(payoutDetails.status || "Pending");
+      const paymentDate =
+        payoutDetails.paymentDate ?? payoutDetails.paidDate ??
+        payoutDetails.settlementDate ?? payoutDetails.createdAt ?? "";
+
+      const settlementBreakup = safeArray(
+        payoutDetails.settlementBreakup ?? payoutDetails.breakup ?? []
+      );
 
       return {
-        id: tx._id || tx.id || `tx-${idx}-${Date.now()}`,
-        orderId,
-        amount,
-        paymentDate: formatDate(dateVal),
-        rawDate: txDate,
+        id: `${ordersPaid || "order"}-${paymentDate || "date"}-${status || "status"}-${idx}`,
+        orderId: payment?.orderId || ordersPaid || "-",
+        amount: totalAmount,
+        sellerId: payoutDetails.sellerId || "-",
+        ordersPaid: ordersPaid || "-",
+        totalAmount,
+        orderAmount: safeNumber(payment?.orderAmount ?? totalAmount),
+        settlementAmount: safeNumber(payment?.settlementAmount ?? totalAmount),
+        productGST: safeNumber(payment?.productGST ?? 0),
+        shippingFee: safeNumber(payment?.shippingFee ?? 0),
+        shippingGST: safeNumber(payment?.shippingGST ?? 0),
+        totalDebit: safeNumber(payment?.totalDebit ?? 0),
+        rtopenalty: safeNumber(payment?.rtopenalty ?? 0),
         status,
-        type,
-        isUpcoming,
-        categoryId,
-        deliveryCharges,
-        shippingWeight,
+        paymentDate: formatDate(paymentDate),
+        rawPaymentDate: paymentDate,
+        isUpcoming: !isPaidStatus(status),
+        settlementBreakup,
+        rawPayout: payoutDetails,
       };
-    });
+    }).filter(Boolean);
   }, [rawTransactions]);
 
-  // Filtered and partitioned items
+  const matchesSearch = useCallback((tx) => {
+    const term = search.trim().toLowerCase();
+    if (!term) return true;
+    return (
+      safeString(tx.orderId).toLowerCase().includes(term) ||
+      safeString(tx.status).toLowerCase().includes(term) ||
+      safeString(tx.sellerId).toLowerCase().includes(term)
+    );
+  }, [search]);
+
   const filteredTransactions = useMemo(() => {
-    return mappedTransactions.filter((tx) => {
-      // 1. Tab partitioning
-      const tabMatch = activeTab === "upcoming" ? tx.isUpcoming : !tx.isUpcoming;
-
-      // 2. Search query filter
-      const searchMatch =
-        search.trim() === "" ||
-        tx.orderId.toLowerCase().includes(search.toLowerCase());
-
-      return tabMatch && searchMatch;
-    });
-  }, [mappedTransactions, activeTab, search]);
-
-  const handleOpenDetails = useCallback(async (tx) => {
-    setSelectedTx(tx);
-    setSettlementSummary(null);
-    setLoadingSummary(true);
-
-    const resolvedSellerId = (resolveSellerId() || "").trim();
-    const resolvedPin = sellerService.getCachedSellerPinCode() || "";
-
-    const orderAmount = tx.amount || tx.orderAmount || 0;
-    const categoryId = tx.categoryId || tx.category_id || tx.category || "";
-    const deliveryCharges = tx.deliveryCharges ?? tx.delivery_charges ?? true;
-    const shippingWeight = tx.shippingWeight ?? tx.shipping_weight ?? "";
-
-    // Validate parameters (Task 5)
-    if (!resolvedSellerId) {
-      setError("Seller session not found. Please login again.");
-      setLoadingSummary(false);
-      return;
-    }
-    if (!resolvedPin || resolvedPin === "000000") {
-      setError("sellerPinCode is required for settlement summary.");
-      setLoadingSummary(false);
-      return;
-    }
-    if (orderAmount === undefined || orderAmount === null || orderAmount === "" || Number(orderAmount) === 0) {
-      setError("orderAmount is required for settlement summary.");
-      setLoadingSummary(false);
-      return;
-    }
-    if (!categoryId || categoryId === "CATEGORY_ID") {
-      setError("categoryId is required for settlement summary.");
-      setLoadingSummary(false);
-      return;
-    }
-    if (shippingWeight === undefined || shippingWeight === null || shippingWeight === "") {
-      setError("shippingWeight is required for settlement summary.");
-      setLoadingSummary(false);
-      return;
-    }
-
-    const params = {
-      orderAmount,
-      categoryId,
-      deliveryCharges,
-      shippingWeight,
-      sellerPinCode: resolvedPin,
-      sellerId: resolvedSellerId,
-    };
-
-    console.log("[SettlementsPage] API AUDIT - called settlementsummary");
-
-    try {
-      const normalizedData = await sellerService.fetchSettlementSummary(params);
-      const response = normalizedData.raw;
-
-      if (process.env.NODE_ENV === "development" || window.location.hostname === "localhost") {
-        console.log("[SettlementsPage] settlement response", response);
-        console.log("[SettlementsPage] normalized settlement", normalizedData);
-      }
-
-      setSettlementSummary(normalizedData);
-    } catch (err) {
-      console.error("[SettlementsPage] fetchSettlementSummary failed:", err);
-      setError(err.message || "Failed to load settlement details.");
-    } finally {
-      setLoadingSummary(false);
-    }
-  }, []);
-
-  const handleCloseDetails = () => {
-    setSelectedTx(null);
-    setSettlementSummary(null);
-  };
-
-  // Date picker navigation helpers
-  const handlePrevMonth = () => {
-    setSelectedMonth(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1));
-  };
-
-  const handleNextMonth = () => {
-    setSelectedMonth(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1));
-  };
-
-  const handleDayClick = (dayNum) => {
-    const clickedDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), dayNum);
-
-    if (!selectedFromDate || (selectedFromDate && selectedToDate)) {
-      setSelectedFromDate(clickedDate);
-      setSelectedToDate(null);
-    } else {
-      if (clickedDate < selectedFromDate) {
-        setSelectedToDate(selectedFromDate);
-        setSelectedFromDate(clickedDate);
-      } else {
-        setSelectedToDate(clickedDate);
-      }
-    }
-  };
-
-  const handleConfirmDates = () => {
-    let finalToDate = selectedToDate;
-    if (!finalToDate) {
-      finalToDate = selectedFromDate;
-      setSelectedToDate(selectedFromDate);
-    }
-    setAppliedFromDate(selectedFromDate);
-    setAppliedToDate(finalToDate);
-    setIsDateRangeOpen(false);
-  };
-
-  const getDaysInMonth = (date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const days = new Date(year, month + 1, 0).getDate();
-
-    // Get starting day of the week (0 = Sunday, 1 = Monday, etc.)
-    const startDay = new Date(year, month, 1).getDay();
-
-    return { days, startDay };
-  };
-
-  const { days: daysCount, startDay: startingDay } = useMemo(() => {
-    return getDaysInMonth(selectedMonth);
-  }, [selectedMonth]);
-
-  const monthYearLabel = useMemo(() => {
-    return selectedMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  }, [selectedMonth]);
+    const prev = mappedTransactions.filter((tx) => !tx.isUpcoming && matchesSearch(tx));
+    const upcoming = mappedTransactions.filter((tx) => tx.isUpcoming && matchesSearch(tx));
+    return activeTab === "upcoming" ? upcoming : prev;
+  }, [mappedTransactions, activeTab, matchesSearch]);
 
   return (
     <div className="settlements-page-root">
@@ -398,10 +745,9 @@ const SettlementsPage = () => {
         </div>
       )}
 
-      {/* Main card list / table */}
       <div className="settlements-card">
         <div className="settlements-card-body">
-          {/* Filters Row */}
+
           <div className="settlements-filters-row">
             <div className="search-bar-wrapper">
               <Search className="search-icon" size={18} />
@@ -414,99 +760,22 @@ const SettlementsPage = () => {
               />
             </div>
 
-            <div className="date-filter-container">
-              <button
-                type="button"
-                className="btn-date-filter"
-                onClick={() => setIsDateRangeOpen(prev => !prev)}
-              >
-                <Calendar size={16} />
-                <span>{dateFilterLabel}</span>
-                <ChevronDown size={14} className={`chevron ${isDateRangeOpen ? "rotate" : ""}`} />
-              </button>
+            <ModernDateRangePicker
+              fromDate={appliedFromDate}
+              toDate={appliedToDate}
+              onChange={handleDateChange}
+            />
 
-              {/* Floating Date Picker Dropdown */}
-              {isDateRangeOpen && (
-                <div className="datepicker-popover">
-                  <div className="datepicker-title" style={{ textAlign: "center", fontWeight: "700", fontSize: "15px", marginBottom: "12px", color: "#111827" }}>
-                    Select Date Range
-                  </div>
-                  <div className="datepicker-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                    <span className="calendar-month-year">{monthYearLabel}</span>
-                    <div style={{ display: "flex", gap: "8px" }}>
-                      <button type="button" onClick={handlePrevMonth} className="btn-nav-cal">
-                        <ChevronLeft size={16} />
-                      </button>
-                      <button type="button" onClick={handleNextMonth} className="btn-nav-cal">
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="calendar-weekdays">
-                    {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-                      <span key={i} className="weekday-label" style={d === "F" ? { color: "#2962ff" } : {}}>{d}</span>
-                    ))}
-                  </div>
-
-                  <div className="calendar-days-grid">
-                    {/* Render empty cells for padding */}
-                    {Array.from({ length: startingDay }).map((_, i) => (
-                      <span key={`empty-${i}`} className="calendar-day-empty" />
-                    ))}
-
-                    {/* Render days of month */}
-                    {Array.from({ length: daysCount }).map((_, i) => {
-                      const dayNum = i + 1;
-                      const currentDayDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), dayNum);
-                      
-                      const isSelectedStart = selectedFromDate && currentDayDate.getTime() === selectedFromDate.getTime();
-                      const isSelectedEnd = selectedToDate && currentDayDate.getTime() === selectedToDate.getTime();
-                      const isInRange = selectedFromDate && selectedToDate && 
-                                        currentDayDate.getTime() > selectedFromDate.getTime() && 
-                                        currentDayDate.getTime() < selectedToDate.getTime();
-
-                      let btnClass = "calendar-day-btn";
-                      if (isSelectedStart) {
-                        btnClass += " calendar-day-btn--range-start";
-                      } else if (isSelectedEnd) {
-                        btnClass += " calendar-day-btn--range-end";
-                      } else if (isInRange) {
-                        btnClass += " calendar-day-btn--in-range";
-                      }
-
-                      return (
-                        <button
-                          key={dayNum}
-                          type="button"
-                          className={btnClass}
-                          onClick={() => handleDayClick(dayNum)}
-                        >
-                          {dayNum}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="datepicker-footer">
-                    <button
-                      type="button"
-                      className="datepicker-btn-confirm"
-                      onClick={handleConfirmDates}
-                    >
-                      Confirm
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <button type="button" className="btn-refresh" onClick={() => loadSettlements(true)} title="Refresh Payouts">
+            <button
+              type="button"
+              className="btn-refresh"
+              onClick={() => loadSettlements(true)}
+              title="Refresh Payouts"
+            >
               <RefreshCw size={16} />
             </button>
           </div>
 
-          {/* Tabs */}
           <div className="settlements-tabs">
             <button
               type="button"
@@ -524,7 +793,6 @@ const SettlementsPage = () => {
             </button>
           </div>
 
-          {/* Loading / Data Table */}
           {loading ? (
             <div className="settlements-loading">
               <div className="settlements-spinner" />
@@ -551,19 +819,17 @@ const SettlementsPage = () => {
                 <tbody>
                   {filteredTransactions.map((tx) => (
                     <tr key={tx.id}>
-                      <td className="font-semibold text-gray-800">#{tx.orderId}</td>
+                      <td className="font-semibold text-gray-800">{tx.orderId}</td>
                       <td className="font-bold text-emerald-600">{formatCurrency(tx.amount)}</td>
                       <td>{tx.paymentDate}</td>
                       <td>
-                        <span className="settlement-status-badge">
-                          {tx.status}
-                        </span>
+                        <span className="settlement-status-badge">{tx.status}</span>
                       </td>
                       <td>
                         <button
                           type="button"
                           className="btn-view-details"
-                          onClick={() => handleOpenDetails(tx)}
+                          onClick={() => setSelectedTx(tx)}
                         >
                           View Details
                         </button>
@@ -577,104 +843,88 @@ const SettlementsPage = () => {
         </div>
       </div>
 
-      {/* Payment Detail Modal */}
       {selectedTx && (
-        <div className="settlements-modal-overlay" onClick={handleCloseDetails}>
+        <div className="settlements-modal-overlay" onClick={() => setSelectedTx(null)}>
           <div className="settlements-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Payment Detail</h2>
-              <button type="button" className="btn-close-modal" onClick={handleCloseDetails}>
+              <button type="button" className="btn-close-modal" onClick={() => setSelectedTx(null)}>
                 <X size={20} />
               </button>
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ maxHeight: "70vh", overflowY: "auto" }}>
               <div className="modal-info-row">
-                <span className="info-label font-bold">Order ID:</span>
-                <span className="info-value font-bold text-gray-800">#{selectedTx.orderId}</span>
+                <span className="info-label font-bold">Orders Paid:</span>
+                <span className="info-value font-bold text-gray-800">{selectedTx.ordersPaid}</span>
               </div>
-
+              <div className="modal-info-row">
+                <span className="info-label font-bold">Payment Date:</span>
+                <span className="info-value text-gray-800">{selectedTx.paymentDate}</span>
+              </div>
+              <div className="modal-info-row">
+                <span className="info-label font-bold">Status:</span>
+                <span className="info-value text-gray-800">
+                  <span className="settlement-status-badge">{selectedTx.status}</span>
+                </span>
+              </div>
+              <div className="modal-info-row">
+                <span className="info-label font-bold">Total Amount:</span>
+                <span className="info-value font-bold text-emerald-600">{formatCurrency(selectedTx.totalAmount)}</span>
+              </div>
               <div className="modal-divider" />
+              <h3 style={{ fontSize: "15px", fontWeight: "700", color: "#111827", marginBottom: "12px" }}>
+                Settlement Breakup
+              </h3>
+              {selectedTx.settlementBreakup && selectedTx.settlementBreakup.length > 0 ? (
+                <div className="breakup-list" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  {selectedTx.settlementBreakup.map((item, idx) => {
+                    const breakupOrderId = item.orderId ?? item.orderID ?? item.id ?? "-";
+                    const orderAmount = safeNumber(item.orderAmount ?? item.amount ?? 0);
+                    const productGST = safeNumber(item.productGST ?? item.productGst ?? 0);
+                    const shippingFee = safeNumber(item.shippingFee ?? 0);
+                    const shippingGST = safeNumber(item.shippingGST ?? 0);
+                    const totalDebit = safeNumber(item.totalDebit ?? 0);
+                    const settlementAmt = safeNumber(item.settlementAmount ?? 0);
 
-              {loadingSummary ? (
-                <div className="settlements-loading" style={{ minHeight: "150px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                  <div className="settlements-spinner" />
-                  <p style={{ marginTop: "12px", fontSize: "14px", color: "#6b7280" }}>Calculating settlement summary...</p>
+                    return (
+                      <div
+                        key={idx}
+                        className="breakup-item"
+                        style={{ padding: "14px", background: "#f9fafb", borderRadius: "10px", border: "1px solid #f1f3f6" }}
+                      >
+                        <div className="modal-info-row" style={{ marginBottom: "8px" }}>
+                          <span className="info-label font-semibold">Order ID:</span>
+                          <span className="info-value font-semibold text-gray-800">#{breakupOrderId}</span>
+                        </div>
+                        {[
+                          ["Order Amount", formatCurrency(orderAmount)],
+                          ["Product GST", formatCurrency(productGST)],
+                          ["Shipping Fee", formatCurrency(shippingFee)],
+                          ["Shipping GST", formatCurrency(shippingGST)],
+                          ["Total Debit", formatCurrency(totalDebit)],
+                        ].map(([label, val]) => (
+                          <div key={label} className="modal-info-row" style={{ marginBottom: "6px", fontSize: "13.5px" }}>
+                            <span className="info-label">{label}:</span>
+                            <span className="info-value">{val}</span>
+                          </div>
+                        ))}
+                        {item.rtopenalty != null && (
+                          <div className="modal-info-row" style={{ marginBottom: "6px", fontSize: "13.5px" }}>
+                            <span className="info-label">RTO Penalty:</span>
+                            <span className="info-value">{formatCurrency(item.rtopenalty)}</span>
+                          </div>
+                        )}
+                        <div className="modal-divider" style={{ margin: "10px 0" }} />
+                        <div className="modal-info-row" style={{ marginBottom: 0 }}>
+                          <span className="info-label font-semibold text-emerald-600">Settlement Amount:</span>
+                          <span className="info-value font-bold text-emerald-600">{formatCurrency(settlementAmt)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ) : settlementSummary ? (
-                <>
-                  <div className="modal-info-row">
-                    <span className="info-label">Selling Price</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.sellingPrice)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">Product GST</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.productGST)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">TCS</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.tcs)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">TDS</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.tds)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">Haatza Commission</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.commission)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">GST on Commission</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.gstOnCommission)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">Payment Gateway Charges</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.pgCharges)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">GST on PG Charges</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.gstOnPgCharges)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">Shipping Fee</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.shippingFee)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">GST on Shipping</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.gstOnShippingFee)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">Fixed Fee</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.fixedFee)}</span>
-                  </div>
-                  <div className="modal-info-row">
-                    <span className="info-label">Handling Fee</span>
-                    <span className="info-value">{formatCurrency(settlementSummary.handlingFee)}</span>
-                  </div>
-
-                  <div className="modal-divider" />
-
-                  <div className="modal-info-row debit-row">
-                    <span className="info-label font-bold">Total Debit</span>
-                    <span className="info-value font-bold">{formatCurrency(settlementSummary.totalDebit)}</span>
-                  </div>
-
-                  <div className="modal-info-row settlement-row">
-                    <span className="info-label font-bold text-emerald-600">Settlement Amount</span>
-                    <span className="info-value font-bold text-emerald-600">{formatCurrency(settlementSummary.settlementAmount)}</span>
-                  </div>
-
-                  {settlementSummary.note && (
-                    <div style={{ marginTop: "12px", padding: "10px", background: "#f9fafb", borderRadius: "8px", border: "1px solid #f1f3f6" }}>
-                      <p style={{ margin: 0, fontSize: "12px", color: "#6b7280", fontStyle: "italic" }}>
-                        <strong>Note:</strong> {settlementSummary.note}
-                      </p>
-                    </div>
-                  )}
-                </>
               ) : (
-                <div style={{ padding: "20px", textAlign: "center", color: "#ef4444" }}>
-                  Failed to load settlement details.
-                </div>
+                <p style={{ color: "#6b7280", fontSize: "13.5px", fontStyle: "italic" }}>No breakup details available.</p>
               )}
             </div>
           </div>

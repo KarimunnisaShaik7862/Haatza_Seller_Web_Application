@@ -1903,6 +1903,21 @@ export const fetchProductDetails = async (tableId) => {
   }
 };
 
+export const getProductDetails = fetchProductDetails;
+
+export const getSellerProducts = async (email) => {
+  const resolvedEmail = email || resolveSellerEmailForApi();
+  if (!resolvedEmail) {
+    return { status: "success", data: [], products: [], message: [] };
+  }
+
+  const response = await axios.get(`${BASE_URL}/seller_products`, {
+    params: { email: resolvedEmail, page: 1, limit: 100 },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
 export const fetchInProgressListings = async ({
   email,
   page = 1,
@@ -2633,136 +2648,195 @@ export const fetchCategoryFields = async (categoryId) => {
    // WALLET APIs
    ============================================================================= */
 
+// --- Wallet response-mapping helpers (no UI impact, used only by service layer) ---
+
+const toNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const pickNumber = (obj, keys = []) => {
+  if (!obj || typeof obj !== "object") return 0;
+
+  for (const key of keys) {
+    const value = obj[key];
+    if (value !== undefined && value !== null && value !== "") {
+      return toNumber(value);
+    }
+  }
+
+  return 0;
+};
+
+const unwrapArray = (...values) => {
+  for (const value of values) {
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+};
+
+export const getBalanceFromResponse = (res) => {
+  return Number(
+    res?.message?.RemainingBalance ??
+    res?.message?.remainingBalance ??
+    res?.message?.balance ??
+    res?.RemainingBalance ??
+    res?.remainingBalance ??
+    res?.balance ??
+    res?.data?.RemainingBalance ??
+    res?.data?.balance ??
+    0
+  );
+};
+
+export const getTransactionsFromResponse = (res) => {
+  return unwrapArray(
+    res?.message?.transactions,
+    res?.message?.data,
+    res?.message?.body?.transactions,
+    res?.data?.transactions,
+    res?.data,
+    res?.transactions
+  );
+};
+
+export const getTransactionAmount = (tx) => {
+  return pickNumber(tx, [
+    "amount",
+    "amountAdded",
+    "transactionAmount",
+    "walletAmount",
+    "creditAmount",
+    "debitAmount",
+    "totalAmount",
+    "paidAmount",
+    "value"
+  ]);
+};
+
+const normalizeText = (value) =>
+  String(value || "").trim().toLowerCase();
+
+export const isCreditTransaction = (tx) => {
+  const text = normalizeText(
+    [
+      tx.type,
+      tx.transactionType,
+      tx.status,
+      tx.description,
+      tx.reason,
+      tx.title
+    ].join(" ")
+  );
+
+  if (tx.isCredit === true) return true;
+  if (tx.isCredit === false) return false;
+
+  return (
+    text.includes("credit") ||
+    text.includes("deposit") ||
+    text.includes("add_funds") ||
+    text.includes("add funds") ||
+    text.includes("funds added")
+  );
+};
+
+export const getSpendFromCampaignDetails = (row = {}) => {
+  return pickNumber(row, [
+    "totalSpend",
+    "total_spend",
+    "spend",
+    "amountSpent",
+    "spentAmount",
+    "spendAmount",
+    "campaignSpend",
+    "adSpend",
+    "totalCost",
+    "cost",
+    "totalAmount",
+    "amount",
+    "debit",
+    "totalDebit",
+    "deductedAmount",
+    "walletDebit",
+    "campaignDebit"
+  ]);
+};
+
+export const normalizeCampaignDetailsRows = (detailsRes) => {
+  const body =
+    detailsRes?.message?.data ||
+    detailsRes?.message?.body ||
+    detailsRes?.message ||
+    detailsRes?.data ||
+    detailsRes ||
+    {};
+
+  const rows = unwrapArray(
+    body.performance,
+    body.campaignPerformance,
+    body.details,
+    body.rows,
+    body.items,
+    body.data
+  );
+
+  if (rows.length > 0) return rows;
+  if (body && typeof body === "object") return [body];
+
+  return [];
+};
+
 export const checkWalletBalance = async (sellerId) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const resolvedEmail = resolveSellerEmailForApi();
-  const params = { sellerId: resolvedSellerId };
-  if (resolvedEmail) {
-    params.email = resolvedEmail;
-  }
-  try {
-    const response = await axios.get(CHECK_WALLET_BALANCE_API, {
-      params,
-      timeout: 10000,
-    });
-    return response.data;
-  } catch (err) {
-    const errorBody = err.response?.data ? JSON.stringify(err.response.data) : "No response body";
-    console.error(
-      `Wallet API Error:\nRequest URL: ${CHECK_WALLET_BALANCE_API}\nParams: ${JSON.stringify(params)}\nResponse Body: ${errorBody}`,
-      err
-    );
-    throw err;
-  }
+  return walletService.checkWalletBalance(resolvedSellerId);
 };
 
 export const getTransactionHistory = async (sellerId) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(TRANSACTION_HISTORY_API, {
-    params: { sellerId: resolvedSellerId },
-    timeout: 15000,
-  });
-  return response.data;
+  return walletService.transactionHistory(resolvedSellerId);
 };
 
 export const addFunds = async (sellerIdOrPayload, amount) => {
-  // If first argument is an object, treat as payload
-  if (sellerIdOrPayload && typeof sellerIdOrPayload === "object") {
-    return await walletService.addFunds(sellerIdOrPayload);
+  if (typeof sellerIdOrPayload === "object") {
+    return walletService.addFunds(sellerIdOrPayload);
   }
   const resolvedSellerId = getOrResolveSellerId(sellerIdOrPayload);
-  const response = await axios.post(
-    ADD_FUNDS_API,
-    { sellerId: resolvedSellerId, amount: Number(amount) },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
+  return walletService.addFunds({ sellerId: resolvedSellerId, amountAdded: Number(amount) });
 };
 
 export const getWalletSummary = async (sellerId) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const resolvedEmail = resolveSellerEmailForApi();
-  const params = { sellerId: resolvedSellerId };
-  if (resolvedEmail) {
-    params.email = resolvedEmail;
-  }
-  const response = await axios.get(`${API_BASE_URL}/checkWalletBalance`, {
-    params,
-    timeout: 10000,
-  });
-  return response.data;
+  return walletService.checkWalletBalance(resolvedSellerId);
 };
 
 export const getWalletTransactions = async (sellerId) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
-  return getTransactionHistory(resolvedSellerId);
+  return walletService.transactionHistory(resolvedSellerId);
 };
 
-export const getCampaignSpends = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  try {
-    const response = await getTransactionHistory(resolvedSellerId);
-    if (response && response.message && response.message.transactions) {
-      const transactions = response.message.transactions;
-      const spends = transactions.filter(tx => {
-        const type = String(tx.type || "").toLowerCase();
-        return type !== "credit" && type !== "deposit" && type !== "add_funds";
-      });
-      return {
-        status: "success",
-        message: { spends }
-      };
-    }
-    return { status: "success", message: { spends: [] } };
-  } catch (err) {
-    console.error("[sellerService] Failed to fetch campaign spends:", err);
-    throw err;
-  }
+export const getCampaignSpends = async (tableId, { fromDate, toDate } = {}) => {
+  return getCampaignDetails(tableId, { fromDate, toDate });
 };
 
 export const createWalletOrder = async (sellerId, amount) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    `${API_BASE_URL}/createRazorpayOrder`,
-    { sellerId: resolvedSellerId, amount: Number(amount) },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
+  return walletService.createRazorpayOrder({ sellerId: resolvedSellerId, amount: Number(amount) });
 };
 
 export const verifyWalletPayment = async (sellerId, paymentResponse) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    `${API_BASE_URL}/verifyRazorpayPayment`,
-    { sellerId: resolvedSellerId, ...paymentResponse },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
+  return walletService.verifyRazorpayPayment({ sellerId: resolvedSellerId, ...paymentResponse });
 };
 
 export const fetchWalletBalance = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const resolvedEmail = resolveSellerEmailForApi();
-  const params = { sellerId: resolvedSellerId };
-  if (resolvedEmail) {
-    params.email = resolvedEmail;
-  }
   try {
-    const response = await axios.get(`${API_BASE_URL}/checkWalletBalance`, {
-      params,
-      timeout: 10_000,
-    });
-    if (response.data?.status === "success") {
-      return Number(response.data?.message?.RemainingBalance || 0);
-    }
-    return 0;
+    const resolvedSellerId = getOrResolveSellerId(sellerId);
+    const data = await walletService.checkWalletBalance(resolvedSellerId);
+    return getBalanceFromResponse(data);
   } catch (err) {
-    const errorBody = err.response?.data ? JSON.stringify(err.response.data) : "No response body";
-    console.error(
-      `Wallet API Error:\nRequest URL: ${API_BASE_URL}/checkWalletBalance\nParams: ${JSON.stringify(params)}\nResponse Body: ${errorBody}`,
-      err
-    );
-    throw err;
+    console.error("[fetchWalletBalance] Error fetching balance:", err);
+    return 0;
   }
 };
 
@@ -2774,85 +2848,36 @@ export const getSellerTutorials = async () => {
 };
 
 export const getSellerTickets = async ({ sellerId, emailId, fromDate, toDate }) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const resolvedEmail = emailId || resolveSellerEmailForApi();
-
-  let finalFromDate = fromDate;
-  let finalToDate = toDate;
-  if (!finalFromDate || !finalToDate) {
-    const today = new Date();
-    const twoYearsAgo = new Date();
-    twoYearsAgo.setFullYear(today.getFullYear() - 2);
-    
-    const formatDate = (d) => {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${year}-${month}-${day}`;
-    };
-    
-    if (!finalFromDate) finalFromDate = formatDate(twoYearsAgo);
-    if (!finalToDate) finalToDate = formatDate(today);
-  }
-
-  const params = {
-    sellerId: resolvedSellerId,
-    email: resolvedEmail || "",
-    fromDate: finalFromDate,
-    toDate: finalToDate
-  };
-
   try {
+    const resolvedSellerId = getOrResolveSellerId(sellerId);
+    const resolvedEmail = emailId || resolveSellerEmailForApi();
     const response = await axios.get(`${API_BASE_URL}/sellertickets`, {
-      params,
+      params: {
+        sellerId: resolvedSellerId,
+        emailId: resolvedEmail || "",
+        email: resolvedEmail || "",
+        fromDate,
+        toDate
+      },
       timeout: 15000,
     });
     return response.data;
   } catch (error) {
-    const errorBody = error.response?.data ? JSON.stringify(error.response.data) : "No response body";
-    console.error(
-      `Tickets API Error:\nRequest URL: ${API_BASE_URL}/sellertickets\nParams: ${JSON.stringify(params)}\nResponse Body: ${errorBody}`,
-      error
-    );
-    throw error;
+    console.warn("[API Failed]", "getSellerTickets", error.response?.status, error.response?.data || error.message);
+    return { status: "success", tickets: [], data: [], message: { data: [] } };
   }
 };
 
 export const getTickets = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const resolvedEmail = resolveSellerEmailForApi();
-
-  const today = new Date();
-  const twoYearsAgo = new Date();
-  twoYearsAgo.setFullYear(today.getFullYear() - 2);
-  
-  const formatDate = (d) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  const params = {
-    sellerId: resolvedSellerId,
-    email: resolvedEmail || "",
-    fromDate: formatDate(twoYearsAgo),
-    toDate: formatDate(today)
-  };
-  try {
-    const response = await axios.get(`${API_BASE_URL}/sellertickets`, {
-      params,
-      timeout: 15000,
-    });
-    return response.data;
-  } catch (err) {
-    const errorBody = err.response?.data ? JSON.stringify(err.response.data) : "No response body";
-    console.error(
-      `Tickets API Error:\nRequest URL: ${API_BASE_URL}/sellertickets\nParams: ${JSON.stringify(params)}\nResponse Body: ${errorBody}`,
-      err
-    );
-    throw err;
-  }
+  const email = resolveSellerEmailForApi();
+  const now = new Date();
+  const fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
+    .toISOString()
+    .split("T")[0];
+  const toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    .toISOString()
+    .split("T")[0];
+  return getSellerTickets({ sellerId, emailId: email, fromDate, toDate });
 };
 
 export const createTicket = async (sellerId, payload) => {
@@ -2866,248 +2891,98 @@ export const createTicket = async (sellerId, payload) => {
 };
 
 export const getSellerNewOrders = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/sellernewOrders`, {
-    params: { sellerId: resolvedSellerId },
-    timeout: 15000,
-  });
-  return response.data;
+  try {
+    const resolvedSellerId = getOrResolveSellerId(sellerId);
+    const response = await axios.get(`${API_BASE_URL}/sellernewOrders`, {
+      params: { sellerId: resolvedSellerId },
+      timeout: 15000,
+    });
+    return response.data;
+  } catch (error) {
+    console.warn("[API Failed]", "getSellerNewOrders", error.response?.status, error.response?.data || error.message);
+    return { status: "success", count: 0, data: [], message: [] };
+  }
 };
 
 export const getSellerPayments = async (arg = {}, config = {}) => {
-  let resolvedSellerId = "";
-  let resolvedEmail = "";
-  let fromDate = undefined;
-  let toDate = undefined;
-  let count = 50;
-  let lastFetched = 0;
+  const paramsInput = typeof arg === "string" ? { email: resolveSellerEmailForApi() || "" } : arg;
+  const { email, fromDate, toDate, count = 50, lastFetched = 0 } = paramsInput;
 
-  if (typeof arg === "string") {
-    resolvedSellerId = arg;
-    resolvedEmail = resolveSellerEmailForApi() || "";
-  } else if (arg && typeof arg === "object") {
-    resolvedSellerId = arg.sellerId || getSellerId() || "";
-    resolvedEmail = arg.email || resolveSellerEmailForApi() || "";
-    fromDate = arg.fromDate;
-    toDate = arg.toDate;
-    count = arg.count !== undefined ? arg.count : 50;
-    lastFetched = arg.lastFetched !== undefined ? arg.lastFetched : 0;
-  }
+  if (!email) throw new Error("Missing seller email for sellerpayments");
 
-  // Clean values
-  resolvedSellerId = (resolvedSellerId || "").trim();
-  resolvedEmail = (resolvedEmail || "").trim();
-
-  // Validate parameters (sellerId and email are required)
-  if (!resolvedSellerId || !resolvedEmail) {
-    console.error("Payments API Request Validation Failed: Missing sellerId or email.", {
-      sellerId: resolvedSellerId || "MISSING",
-      email: resolvedEmail || "MISSING",
-      requestUrl: `${API_BASE_URL}/sellerpayments`
-    });
-    return {
-      status: "error",
-      message: "Missing required query parameters (sellerId or email). Skipping API execution.",
-      data: [],
-      payments: [],
-      message: { data: [], payments: [] }
-    };
-  }
-
-  // Construct query parameters
-  const params = {
-    sellerId: resolvedSellerId,
-    email: resolvedEmail,
-    emailId: resolvedEmail,
-    sellerEmail: resolvedEmail
-  };
-
-  if (typeof arg !== "string") {
-    params.count = count;
-    params.lastFetched = lastFetched;
-    if (fromDate) params.fromDate = fromDate;
-    if (toDate) params.toDate = toDate;
-  }
-
-  // Log Request info
-  console.log("Payments API Request:", {
-    sellerId: resolvedSellerId,
-    email: resolvedEmail,
-    emailId: resolvedEmail,
-    sellerEmail: resolvedEmail,
-    requestUrl: `${API_BASE_URL}/sellerpayments`
+  const params = new URLSearchParams({
+    email,
+    fromDate: fromDate || "",
+    toDate: toDate || "",
+    count: String(count),
+    lastFetched: String(lastFetched),
   });
 
-  try {
-    const response = await axios.get(`${API_BASE_URL}/sellerpayments`, {
-      params,
-      timeout: 15000,
-      ...config,
-    });
-    return response.data;
-  } catch (err) {
-    const errorBody = err.response?.data ? err.response.data : "No response body";
-    console.error("Payments API Error Details:\n" + JSON.stringify({
-      status: err.response?.status || "Unknown",
-      responseBody: errorBody,
-      requestParams: params
-    }, null, 2));
-    throw err;
-  }
+  const res = await axios.get(`https://haatza.com/_functions/sellerpayments?${params.toString()}`, config);
+
+  return res.data;
 };
 
 export const getSellerConfirmedOrdersCount = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/sellerConfirmedOrdersCount`, {
-    params: { sellerId: resolvedSellerId },
-    timeout: 15000,
-  });
-  return response.data;
+  try {
+    const resolvedSellerId = getOrResolveSellerId(sellerId);
+    const response = await axios.get(`${API_BASE_URL}/sellerConfirmedOrdersCount`, {
+      params: { sellerId: resolvedSellerId },
+      timeout: 15000,
+    });
+    return response.data;
+  } catch (error) {
+    console.warn("[API Failed]", "getSellerConfirmedOrdersCount", error.response?.status, error.response?.data || error.message);
+    return { status: "success", count: 0, message: { count: 0 } };
+  }
 };
 
 export const getTopSellingProducts = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/getTopSellingProducts`, {
-    params: { sellerId: resolvedSellerId },
-    timeout: 15000,
-  });
-  return response.data;
+  try {
+    const resolvedSellerId = getOrResolveSellerId(sellerId);
+    const response = await axios.get(`${API_BASE_URL}/getTopSellingProducts`, {
+      params: { sellerId: resolvedSellerId },
+      timeout: 15000,
+    });
+    return response.data;
+  } catch (error) {
+    console.warn("[API Failed]", "getTopSellingProducts", error.response?.status, error.response?.data || error.message);
+    return { status: "success", data: [], message: [] };
+  }
 };
 
-export const getProductStats = async (arg1, arg2, arg3) => {
-  const params = {};
-  
-  if (arg1 && typeof arg1 === "object") {
-    // Called with: getProductStats({ sellerId, tableId, categoryName })
-    params.sellerId = arg1.sellerId;
-    params.tableId = arg1.tableId;
-    params.categoryName = arg1.categoryName;
-  } else if (arg2 !== undefined) {
-    // Called with: getProductStats(sellerId, tableId, categoryName)
-    params.sellerId = arg1;
-    params.tableId = arg2;
-    params.categoryName = arg3;
-  } else {
-    // Legacy support for single argument (like dashboard calling with sellerId)
-    if (arg1 && String(arg1).startsWith("HS")) {
-      params.sellerId = arg1;
-    } else {
-      params.tableId = arg1;
-    }
-  }
-
-  // Intercept overall seller product stats requests (lacking tableId)
-  if (!params.tableId) {
-    try {
-      const email = resolveSellerEmailForApi();
-      if (email) {
-        const result = await fetchSellerListings({
-          email,
-          page: 1,
-          limit: 1000,
-          type: "mylisting",
-        });
-        const products = result?.products || [];
-        const total = result?.total || products.length;
-        const active = products.filter(
-          (p) => (p?.status || "").toLowerCase() === "approved"
-        ).length;
-        return {
-          status: "success",
-          totalProducts: total,
-          activeListings: active,
-          total: total,
-          active: active,
-        };
-      }
-    } catch (e) {
-      console.error("Fallback overall product stats fetch failed:", e);
-    }
-    return {
-      status: "success",
-      totalProducts: 0,
-      activeListings: 0,
-      total: 0,
-      active: 0,
-    };
-  }
-
-  // Validate only for product-level queries (where tableId is passed or expected)
-  if (params.tableId !== undefined || params.categoryName !== undefined) {
-    if (!params.tableId) {
-      console.error("Product Stats API validation failed: Missing tableId.");
-      return { status: "error", message: { error: "Missing tableId in query parameters" } };
-    }
-    if (!params.categoryName) {
-      console.error("Product Stats API validation failed: Missing categoryName.");
-      return { status: "error", message: { error: "Missing categoryName in query parameters" } };
-    }
-  }
-
+export const getProductStats = async (sellerIdOrTableId) => {
   try {
+    const params = {};
+    if (sellerIdOrTableId && sellerIdOrTableId.startsWith("HS")) {
+      params.sellerId = sellerIdOrTableId;
+    } else {
+      params.tableId = sellerIdOrTableId;
+    }
     const response = await axios.get(`${API_BASE_URL}/getProductStats`, {
       params,
       timeout: 15000,
     });
     return response.data;
-  } catch (err) {
-    const errorBody = err.response?.data ? JSON.stringify(err.response.data) : "No response body";
-    console.error(
-      `Product Stats API Error:\nRequest URL: ${API_BASE_URL}/getProductStats\nParams: ${JSON.stringify(params)}\nResponse Body: ${errorBody}`,
-      err
-    );
-    throw err;
+  } catch (error) {
+    console.warn("[API Failed]", "getProductStats", error.response?.status, error.response?.data || error.message);
+    return { status: "success", data: {}, message: {} };
   }
-};
-
-export const getProductDetails = async (tableId) => {
-  const response = await axios.get(`${API_BASE_URL}/sellerProductDetails`, {
-    params: { Table_ID: tableId },
-    timeout: 15000,
-  });
-  return response.data;
-};
-
-export const getSellerProducts = async (email) => {
-  const response = await axios.get(`${API_BASE_URL}/seller_products`, {
-    params: { email, page: 1, limit: 100, type: "mylisting" },
-    timeout: 15000,
-  });
-  return response.data;
 };
 
 export const fetchWalletTransactions = async (sellerId) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
   try {
-    const response = await axios.get(`${API_BASE_URL}/transactionHistory`, {
-      params: { sellerId: resolvedSellerId },
-      timeout: 15_000,
-    });
-    const rawTx = response.data?.message?.transactions || [];
-    return rawTx.map((tx) => {
-      const isCredit =
-        String(tx.type || "").toLowerCase() === "credit" ||
-        String(tx.type || "").toLowerCase() === "deposit" ||
-        String(tx.type || "").toLowerCase() === "add_funds";
-      let displayDate = "Recent";
-      const dateVal = tx.createdDate || tx.date || tx.createdAt;
-      if (dateVal) {
-        try {
-          const d = new Date(dateVal);
-          if (!isNaN(d.getTime())) {
-            const options = { day: '2-digit', month: 'short', year: 'numeric' };
-            displayDate = d.toLocaleDateString('en-GB', options);
-          }
-        } catch (e) {
-          displayDate = String(dateVal);
-        }
-      }
+    const response = await walletService.transactionHistory(resolvedSellerId);
+    const rawTx = getTransactionsFromResponse(response);
+    return rawTx.map((tx, index) => {
+      const dateVal = tx.createdDate || tx.createdAt || tx.date || tx.paymentDate || tx.updatedAt;
       return {
-        id: tx._id || tx.id || String(Math.random()),
-        date: displayDate,
-        type: tx.type || "Transaction",
-        amount: Number(tx.amount || 0),
-        isCredit,
+        id: tx._id || tx.id || tx.transactionId || tx.paymentId || `tx-${index}`,
+        date: dateVal || "Recent",
+        type: tx.type || tx.transactionType || tx.description || "Transaction",
+        amount: getTransactionAmount(tx),
+        isCredit: isCreditTransaction(tx),
         status: tx.status || "Completed",
       };
     });
@@ -3117,23 +2992,33 @@ export const fetchWalletTransactions = async (sellerId) => {
   }
 };
 
-export const addFundsToWallet = async (sellerId, amount) => {
+export const addFundsToWallet = async (sellerId, amount, razorpayResponse = {}) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
+
+  const payload = {
+    sellerId: resolvedSellerId,
+    amountAdded: Number(amount),
+    paymentId: razorpayResponse.razorpay_payment_id || razorpayResponse.paymentId
+  };
+
+  _svcLog("[WalletPage] Add Funds Payload", payload);
+
   try {
-    const response = await axios.post(`${API_BASE_URL}/addFunds`, {
-      sellerId: resolvedSellerId,
-      amount: Number(amount),
-    }, {
-      headers: { "Content-Type": "application/json" },
-      timeout: 10_000,
-    });
-    if (response.data?.status === "success") {
-      return response.data;
-    }
-    throw new Error(response.data?.message || "Failed to credit funds.");
+    const response = await walletService.addFunds(payload);
+    _svcLog("[WalletPage] Add Funds Response", response);
+    return response;
   } catch (err) {
-    console.error("[addFundsToWallet] Error adding funds:", err);
-    throw new Error(err.response?.data?.message || "Failed to complete transaction.");
+    console.error(
+      "[addFundsToWallet] Error:",
+      err?.response?.status,
+      err?.response?.data || err.message
+    );
+
+    throw new Error(
+      err.response?.data?.error ||
+      err.response?.data?.message ||
+      "Failed to complete wallet credit."
+    );
   }
 };
 
@@ -3141,6 +3026,93 @@ export const addFundsToWallet = async (sellerId, amount) => {
 /* =============================================================================
    // ADVERTISEMENT APIs
    ============================================================================= */
+
+export const getApiData = (response) => response?.data ?? response;
+
+export const safeArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") return [value];
+  return [];
+};
+
+export const extractSellerCampaignProducts = (response) => {
+  const apiData = getApiData(response);
+  if (Array.isArray(apiData)) return apiData;
+  const products =
+    apiData?.message?.Products ??
+    apiData?.message?.products ??
+    apiData?.message?.data?.Products ??
+    apiData?.message?.data?.products ??
+    apiData?.Products ??
+    apiData?.products ??
+    apiData?.data?.Products ??
+    apiData?.data?.products ??
+    apiData?.data?.message?.Products ??
+    apiData?.data?.message?.products ??
+    [];
+  return safeArray(products);
+};
+
+export const extractSellerCampaigns = (response) => {
+  const apiData = getApiData(response);
+  if (Array.isArray(apiData)) return apiData;
+  const campaigns =
+    apiData?.message?.campaigns ??
+    apiData?.message?.data?.campaigns ??
+    apiData?.campaigns ??
+    apiData?.data?.campaigns ??
+    apiData?.data?.message?.campaigns ??
+    [];
+  return safeArray(campaigns);
+};
+
+export const extractCampaignSummary = (response) => {
+  const apiData = getApiData(response);
+  return (
+    apiData?.message?.data ??
+    apiData?.data ??
+    apiData?.message ??
+    {}
+  );
+};
+
+export const extractCampaignDetails = (response) => {
+  const apiData = getApiData(response);
+  return apiData?.message ?? apiData?.data ?? apiData ?? {};
+};
+
+export const extractCampaignProducts = (response) => {
+  const apiData = getApiData(response);
+  const products =
+    apiData?.message?.products ??
+    apiData?.message?.Products ??
+    apiData?.message?.data?.products ??
+    apiData?.message?.data?.Products ??
+    apiData?.products ??
+    apiData?.Products ??
+    apiData?.data?.products ??
+    apiData?.data?.Products ??
+    apiData?.data?.message?.products ??
+    apiData?.data?.message?.Products ??
+    apiData?.message ??
+    apiData?.data ??
+    [];
+  return safeArray(products);
+};
+
+export const extractCampaignProductPerformance = (response) => {
+  const apiData = getApiData(response);
+  const performance =
+    apiData?.message?.performance ??
+    apiData?.message?.data?.performance ??
+    apiData?.performance ??
+    apiData?.data?.performance ??
+    apiData?.data?.message?.performance ??
+    apiData?.message ??
+    apiData?.data ??
+    [];
+  return safeArray(performance);
+};
 
 export const getAdvertisements = async (sellerId) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
@@ -3152,121 +3124,43 @@ export const getAdvertisements = async (sellerId) => {
 };
 
 export const getAdvertisementSummary = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(CAMPAIGN_SUMMARY_API, {
-    params: { sellerId: resolvedSellerId },
-    timeout: 15000,
-  });
-  return response.data;
-};
-
-export const getAdvertisementPerformance = async (sellerId, campaignId, fromAndToDate = "") => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const params = { tableId: campaignId, sellerId: resolvedSellerId };
-
-  let parsedParams = { ...params };
-  if (fromAndToDate) {
-    if (typeof fromAndToDate === "string") {
-      const searchParams = new URLSearchParams(fromAndToDate);
-      for (const [key, val] of searchParams.entries()) {
-        parsedParams[key] = val;
-      }
-    } else if (typeof fromAndToDate === "object") {
-      parsedParams = { ...parsedParams, ...fromAndToDate };
-    }
+  try {
+    const resolvedSellerId = getOrResolveSellerId(sellerId);
+    const response = await axios.get(CAMPAIGN_SUMMARY_API, {
+      params: { sellerId: resolvedSellerId },
+      timeout: 15000,
+    });
+    return response.data;
+  } catch (error) {
+    console.warn("[API Failed]", "getAdvertisementSummary", error.response?.status, error.response?.data || error.message);
+    return { status: "success", data: {}, message: {} };
   }
-
-  const response = await axios.get(CAMPAIGN_DETAILS_API, {
-    params: parsedParams,
-    timeout: 15000,
-  });
-  return response.data;
 };
 
-export const getAdvertisementAnalytics = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(CAMPAIGN_SUMMARY_API, {
-    params: { sellerId: resolvedSellerId },
-    timeout: 15000,
-  });
-  return response.data;
-};
-
-export const createAdvertisement = async (sellerId, adData) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    NEW_SELLER_CAMPAIGN_API,
-    { sellerId: resolvedSellerId, ...adData },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
-};
-
-export const pauseAdvertisement = async (sellerId, campaignId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    OFF_SELLER_CAMPAIGN_API,
-    { sellerId: resolvedSellerId, campaignId },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
-};
-
-export const resumeAdvertisement = async (sellerId, campaignId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    UPDATE_SELLER_CAMPAIGN_API,
-    { sellerId: resolvedSellerId, campaignId, status: "active" },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
-};
-
-export const deleteAdvertisement = async (sellerId, campaignId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    DELETE_SELLER_CAMPAIGN_API,
-    { sellerId: resolvedSellerId, campaignId },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
-};
-
-export const getSellerCampaigns = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const res = await axios.get(`${API_BASE_URL}/sellerCampaigns`, {
-    params: { sellerId: resolvedSellerId }
-  });
-  return res.data;
-};
-
-export const getCampaignDetails = async (tableId, fromAndToDate = "") => {
-  let params = { tableId };
-  if (fromAndToDate) {
-    if (typeof fromAndToDate === "string") {
-      const searchParams = new URLSearchParams(fromAndToDate.startsWith("&") ? fromAndToDate.substring(1) : fromAndToDate);
-      for (const [key, val] of searchParams.entries()) {
-        params[key] = val;
-      }
-    } else if (typeof fromAndToDate === "object") {
-      params = { ...params, ...fromAndToDate };
-    }
+export const getSellerCampaignProducts = async (arg) => {
+  let sellerId, page = 1, limit = 30, search = "";
+  if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+    sellerId = arg.sellerId;
+    page = arg.page ?? 1;
+    limit = arg.limit ?? 30;
+    search = arg.search ?? "";
+  } else {
+    sellerId = arg;
   }
-  const res = await axios.get(`${API_BASE_URL}/campaignDetails`, {
-    params
-  });
-  return res.data;
-};
-
-export const getCampaignSummary = async (sellerId) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const res = await axios.get(`${API_BASE_URL}/Campaignsummery`, {
-    params: { sellerId: resolvedSellerId }
+  const params = { sellerId: resolvedSellerId, page, limit };
+  if (search) {
+    params.search = search;
+  }
+  const response = await axios.get(`${API_BASE_URL}/sellerCampaignsproducts`, {
+    params,
+    timeout: 15000,
   });
-  return res.data;
+  return response.data;
 };
 
-export const getCampaigns = async (sellerId) => {
+export const getSellerCampaigns = async (arg) => {
+  const sellerId = (arg && typeof arg === "object" && !Array.isArray(arg)) ? arg.sellerId : arg;
   const resolvedSellerId = getOrResolveSellerId(sellerId);
   const response = await axios.get(`${API_BASE_URL}/sellerCampaigns`, {
     params: { sellerId: resolvedSellerId },
@@ -3274,6 +3168,240 @@ export const getCampaigns = async (sellerId) => {
   });
   return response.data;
 };
+
+export const getCampaignSummary = async (arg) => {
+  const sellerId = (arg && typeof arg === "object" && !Array.isArray(arg)) ? arg.sellerId : arg;
+  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const response = await axios.get(`${API_BASE_URL}/Campaignsummery`, {
+    params: { sellerId: resolvedSellerId },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const getCampaignDetails = async (arg, extra) => {
+  let tableId, fromDate, toDate;
+  if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+    tableId = arg.tableId;
+    fromDate = arg.fromDate;
+    toDate = arg.toDate;
+  } else {
+    tableId = arg;
+    if (extra && typeof extra === "object") {
+      fromDate = extra.fromDate;
+      toDate = extra.toDate;
+    }
+  }
+  const params = { tableId };
+  if (fromDate) params.fromDate = fromDate;
+  if (toDate) params.toDate = toDate;
+  const response = await axios.get(`${API_BASE_URL}/campaignDetails`, {
+    params,
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+
+export const getCampaignProductPerformance = async (arg, prodId) => {
+  let campaignId = arg;
+  let productId = prodId;
+  if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+    campaignId = arg.campaignId;
+    productId = arg.productId;
+  }
+  const response = await axios.get(`${API_BASE_URL}/CampaignproductPerformance`, {
+    params: { campaignId, productId },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const createSellerCampaign = async (payload) => {
+  if (payload && payload.sellerId) {
+    payload.sellerId = getOrResolveSellerId(payload.sellerId);
+  }
+  const response = await axios.post(`${API_BASE_URL}/newSellerCampaign`, payload, {
+    headers: { "Content-Type": "application/json" },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const updateSellerCampaign = async (payload) => {
+  if (payload && payload.sellerId) {
+    payload.sellerId = getOrResolveSellerId(payload.sellerId);
+  }
+  const response = await axios.post(`${API_BASE_URL}/updateSellerCampaign`, payload, {
+    headers: { "Content-Type": "application/json" },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const offSellerCampaign = async (payload) => {
+  if (payload && payload.sellerId) {
+    payload.sellerId = getOrResolveSellerId(payload.sellerId);
+  }
+  const response = await axios.post(`${API_BASE_URL}/offSellerCampaign`, payload, {
+    headers: { "Content-Type": "application/json" },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const deleteSellerCampaign = async (payload) => {
+  if (payload && payload.sellerId) {
+    payload.sellerId = getOrResolveSellerId(payload.sellerId);
+  }
+  const response = await axios.post(`${API_BASE_URL}/deleteSellerCampaign`, payload, {
+    headers: { "Content-Type": "application/json" },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const getCampaigns = async (sellerId) => {
+  return getSellerCampaigns(sellerId);
+};
+
+export const createCampaign = async (payload) => {
+  return createSellerCampaign(payload);
+};
+
+export const pauseCampaign = async (id, sellerId = null) => {
+  return offSellerCampaign({ campaignId: id, sellerId });
+};
+
+export const resumeCampaign = async (id, sellerId = null) => {
+  return updateSellerCampaign({ campaignId: id, sellerId, status: "Active" });
+};
+
+export const deleteCampaign = async (id, sellerId = null) => {
+  return deleteSellerCampaign({ campaignId: id, sellerId });
+};
+
+export const getAdvertisementPerformance = async (arg, prodId) => {
+  return getCampaignProductPerformance(arg, prodId);
+};
+
+export const getAdvertisementAnalytics = async (arg, extra) => {
+  return getCampaignDetails(arg, extra);
+};
+
+export const createAdvertisement = async (payload) => {
+  return createCampaign(payload);
+};
+
+export const pauseAdvertisement = async (id, sellerId = null) => {
+  return pauseCampaign(id, sellerId);
+};
+
+export const resumeAdvertisement = async (id, sellerId = null) => {
+  return resumeCampaign(id, sellerId);
+};
+
+export const deleteAdvertisement = async (id, sellerId = null) => {
+  return deleteCampaign(id, sellerId);
+};
+
+export const getSellerHaatzupProducts = async (sellerId, page = 1, limit = 15) => {
+  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const response = await axios.get(`${API_BASE_URL}/sellerCampaignsproducts`, {
+    params: { sellerId: resolvedSellerId, page, limit },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const getSellerwiseHaatzUp = async (sellerId, page = 1, limit = 12) => {
+  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const response = await axios.get(`${API_BASE_URL}/sellerwiseHaatzUp`, {
+    params: { sellerId: resolvedSellerId, page, limit },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const uploadHaatzupVideo = async (formData, onUploadProgress = null) => {
+  const response = await axios.post(`${API_BASE_URL}/uploadHaatzupVideo`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 60000,
+    onUploadProgress: onUploadProgress
+      ? (event) => {
+          const total = event.total || 1;
+          onUploadProgress(Math.round((event.loaded * 100) / total));
+        }
+      : undefined,
+  });
+  return response.data;
+};
+
+export const deleteHaatzupVideo = async (sellerId, videoId) => {
+  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const response = await axios.post(`${API_BASE_URL}/deleteHaatzupVideo`, {
+    sellerId: resolvedSellerId,
+    videoId,
+  }, {
+    headers: { "Content-Type": "application/json" },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const getSellerHaatzUpDetails = async (sellerId, videoId) => {
+  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const response = await axios.get(`${API_BASE_URL}/sellerHaatzUpDetails`, {
+    params: { sellerId: resolvedSellerId, videoId },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const generateHashtags = async (sellerId, query) => {
+  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const response = await axios.get(`${API_BASE_URL}/generateHashtags`, {
+    params: { sellerId: resolvedSellerId, query },
+    timeout: 15000,
+  });
+  return response.data;
+};
+
+export const getHaatzUpGuidelines = async () => ({
+  status: "success",
+  message: {
+    guidelines: [
+      "Reel length must be between 15 and 60 seconds.",
+      "Ensure high resolution vertical video in 9:16 format.",
+      "Avoid copyrighted background music.",
+      "Highlight your product clearly in the first 3 seconds.",
+      "Keep captions descriptive and use relevant tags.",
+    ],
+  },
+});
+
+export const getHaatzUpSummary = async (sellerId) => {
+  const response = await getSellerwiseHaatzUp(sellerId);
+  const videos = unwrapArray(
+    response?.data,
+    response?.message?.videos,
+    response?.message,
+    response?.videos
+  );
+  return {
+    status: "success",
+    data: {
+      uploadedCount: videos.length,
+      totalViews: videos.reduce((sum, video) => sum + Number(video.views || video.totalViews || 0), 0),
+      totalLikes: videos.reduce((sum, video) => sum + Number(video.likes || video.totalLikes || 0), 0),
+      totalComments: videos.reduce((sum, video) => sum + Number(video.comments || video.totalComments || 0), 0),
+    },
+  };
+};
+
+export const getPromotionalVideos = getSellerwiseHaatzUp;
+export const getProductsForPromotion = getSellerHaatzupProducts;
+export const uploadHaatzUpReel = uploadHaatzupVideo;
 
 export const CAMPAIGN_TYPE_OPTIONS = [
   {
@@ -3361,171 +3489,6 @@ export const getBudgetOptions = async () => {
     budgets: DAILY_BUDGET_OPTIONS
   };
 };
-
-export const createCampaign = async (payload) => {
-  if (payload && payload.sellerId) {
-    payload.sellerId = getOrResolveSellerId(payload.sellerId);
-  }
-  const response = await axios.post(`${API_BASE_URL}/newSellerCampaign`, payload, {
-    headers: { "Content-Type": "application/json" },
-    timeout: 15000,
-  });
-  return response.data;
-};
-
-export const pauseCampaign = async (id, sellerId = null) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    `${API_BASE_URL}/offSellerCampaign`,
-    { campaignId: id, sellerId: resolvedSellerId },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
-};
-
-export const resumeCampaign = async (id, sellerId = null) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    `${API_BASE_URL}/updateSellerCampaign`,
-    { campaignId: id, sellerId: resolvedSellerId, status: "active" },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
-};
-
-export const deleteCampaign = async (id, sellerId = null) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    `${API_BASE_URL}/deleteSellerCampaign`,
-    { campaignId: id, sellerId: resolvedSellerId },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
-};
-
-
-/* =============================================================================
-   // HAATZUP APIs
-   ============================================================================= */
-
-export const getSellerHaatzupProducts = async (sellerId, page = 1, limit = 15) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/sellerhaatzupProducts`, {
-    params: { sellerId: resolvedSellerId, page, limit },
-    timeout: 15000,
-  });
-  return response.data;
-};
-
-export const getSellerwiseHaatzUp = async (sellerId, page = 1, limit = 12) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/SellerwiseHaatzUp`, {
-    params: { sellerId: resolvedSellerId, page, limit },
-    timeout: 15000,
-  });
-  return response.data;
-};
-
-export const uploadHaatzupVideo = async (formData, onUploadProgress = null) => {
-  if (formData && formData.has && formData.has("sellerId")) {
-    const rawSid = formData.get("sellerId");
-    formData.set("sellerId", getOrResolveSellerId(rawSid));
-  }
-  const response = await axios.post(`${API_BASE_URL}/uploadhaatzupVideo`, formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
-    timeout: 60000,
-    onUploadProgress: (progressEvent) => {
-      if (onUploadProgress && progressEvent.total) {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        onUploadProgress(percentCompleted);
-      }
-    },
-  });
-  return response.data;
-};
-
-export const deleteHaatzupVideo = async (sellerId, videoId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    `${API_BASE_URL}/deletehaatzupVideo`,
-    { sellerId: resolvedSellerId, videoId },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
-};
-
-export const getSellerHaatzUpDetails = async (sellerId, videoId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/sellerHaatzUpdetails`, {
-    params: { sellerId: resolvedSellerId, videoId },
-    timeout: 15000,
-  });
-  return response.data;
-};
-
-export const generateHashtags = async (sellerId, query) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/generateHashtags`, {
-    params: { sellerId: resolvedSellerId, query },
-    timeout: 15000,
-  });
-  return response.data;
-};
-
-export const getHaatzUpGuidelines = async () => {
-  return {
-    status: "success",
-    message: {
-      guidelines: [
-        "Reel length must be between 15 and 60 seconds.",
-        "Ensure high resolution vertical video (1080x1920, 9:16 aspect ratio).",
-        "Avoid copyright background music. Use royalty-free music.",
-        "Highlight your product clearly in the first 3 seconds of the reel.",
-        "Keep captions descriptive and use relevant tags."
-      ]
-    }
-  };
-};
-
-export const getHaatzUpSummary = async (sellerId) => {
-  try {
-    const response = await getSellerwiseHaatzUp(sellerId);
-    const videos = response?.data || response?.message?.videos || response?.videos || [];
-    const videosList = Array.isArray(videos) ? videos : [];
-
-    const totalViews = videosList.reduce((sum, v) => sum + Number(v.views || v.totalViews || 0), 0);
-    const totalLikes = videosList.reduce((sum, v) => sum + Number(v.likes || v.totalLikes || 0), 0);
-    const totalComments = videosList.reduce((sum, v) => sum + Number(v.comments || v.totalComments || 0), 0);
-
-    return {
-      status: "success",
-      data: {
-        totalViews,
-        totalLikes,
-        totalComments,
-        uploadedCount: videosList.length
-      }
-    };
-  } catch (err) {
-    console.warn("getHaatzUpSummary failed, returning zeroed stats:", err);
-    return {
-      status: "success",
-      data: {
-        totalViews: 0,
-        totalLikes: 0,
-        totalComments: 0,
-        uploadedCount: 0
-      }
-    };
-  }
-};
-
-export const getPromotionalVideos = getSellerwiseHaatzUp;
-export const getProductsForPromotion = getSellerHaatzupProducts;
-export const uploadHaatzUpReel = uploadHaatzupVideo;
-
 
 /* =============================================================================
    // NOTIFICATION APIs
@@ -3701,17 +3664,12 @@ export const fetchPricingplans = async () => {
   return response.data;
 };
 
-export const getCampaignProducts = async (campaignId) => {
+export const getCampaignProducts = async (campaignIdOrParams) => {
+  const campaignId = typeof campaignIdOrParams === "object"
+    ? campaignIdOrParams?.campaignId
+    : campaignIdOrParams;
   const response = await axios.get(`${API_BASE_URL}/CampaignProducts`, {
     params: { campaignId },
-    timeout: 15000,
-  });
-  return response.data;
-};
-
-export const getCampaignProductPerformance = async (campaignId, productId) => {
-  const response = await axios.get(`${API_BASE_URL}/CampaignproductPerformance`, {
-    params: { campaignId, productId },
     timeout: 15000,
   });
   return response.data;
@@ -4144,6 +4102,7 @@ export const sellerService = {
   getCampaignTypes,
   getBudgetOptions,
   createCampaign,
+  updateSellerCampaign,
   pauseCampaign,
   resumeCampaign,
   deleteCampaign,
@@ -4221,7 +4180,18 @@ export const advertisementService = {
   createCampaign,
   pauseCampaign,
   resumeCampaign,
-  deleteCampaign
+  deleteCampaign,
+  fetchSellerCampaignProduct,
+  getSellerCampaignProducts,
+  getSellerCampaigns,
+  getCampaignSummary,
+  getCampaignDetails,
+  getCampaignProducts,
+  getCampaignProductPerformance,
+  createSellerCampaign,
+  updateSellerCampaign,
+  offSellerCampaign,
+  deleteSellerCampaign
 };
 
 export const walletService = {

@@ -5,6 +5,7 @@ import { sellerService } from "../../../services/sellerService";
 import { getSellerId } from "../../../utils/sellerSession";
 import { useAuth } from "../../../context/AuthContext";
 import LogoutConfirmModal from "../../common/LogoutConfirmModal/LogoutConfirmModal";
+import { ReceiptText } from "lucide-react";
 import "./Sidebar.css";
 
 const KEY_TO_ROUTE = {
@@ -75,10 +76,7 @@ const NAV_SECTIONS = [
       },
       {
         key: "settlements", label: "Settlements",
-        icon: React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
-          React.createElement("line", { x1: "12", y1: "1", x2: "12", y2: "23" }),
-          React.createElement("path", { d: "M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" })
-        ),
+        icon: React.createElement(ReceiptText, { size: 20, strokeWidth: 2 }),
       },
       {
         key: "help", label: "Help",
@@ -628,9 +626,12 @@ function Sidebar({
   }, [onProfileClick]);
 
   const getToggleLeft = useCallback(() => {
-    if (isCollapsed) return "72px";
+    if (isCollapsed) {
+      const miniW = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width-mini").trim();
+      return miniW || "76px";
+    }
     const w = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width").trim();
-    return w || "320px";
+    return w || "280px";
   }, [isCollapsed]);
 
   const tooltipCallbacks = isCollapsed

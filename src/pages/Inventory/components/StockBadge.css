@@ -36,3 +36,12 @@
 .inv-badge--outofstock::before {
   background: #dc2626;
 }
+
+.inv-badge--lowstock {
+  background: #fffdf5;
+  color: #d97706;
+}
+
+.inv-badge--lowstock::before {
+  background: #d97706;
+}

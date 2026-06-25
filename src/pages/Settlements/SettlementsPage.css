@@ -113,6 +113,244 @@
   box-shadow: 0 0 0 3px rgba(41, 98, 255, 0.1);
 }
 
+/* Modern date range picker */
+.drp-root {
+  position: relative;
+  width: min(100%, 430px);
+  z-index: 20;
+}
+
+.drp-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.drp-trigger {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 0 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2937;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.drp-trigger:hover,
+.drp-trigger--open {
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(41, 98, 255, 0.08);
+}
+
+.drp-trigger-icon {
+  align-self: stretch;
+  width: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid #cbd5e1;
+  background: #eef2f7;
+  color: #374151;
+  flex-shrink: 0;
+}
+
+.drp-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 2200;
+  width: max-content;
+  max-width: min(92vw, 760px);
+  padding: 18px;
+  border: 1px solid #d7dde7;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 56px rgba(15, 23, 42, 0.18);
+}
+
+.drp-popover-header,
+.drp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drp-popover-header {
+  margin-bottom: 14px;
+}
+
+.drp-selection-label {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.drp-icon-clear {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.drp-daypicker {
+  --rdp-accent-color: #7c3aed;
+  --rdp-accent-background-color: #ede9fe;
+  --rdp-day_button-width: 42px;
+  --rdp-day_button-height: 42px;
+  --rdp-day-width: 44px;
+  --rdp-day-height: 44px;
+  --rdp-range_middle-background-color: #c4b5fd;
+  --rdp-range_middle-color: #374151;
+  --rdp-range_start-color: #fff;
+  --rdp-range_end-color: #fff;
+  margin: 0;
+}
+
+.settlements-page-root .rdp-months {
+  gap: 28px;
+}
+
+.settlements-page-root .rdp-month_caption {
+  justify-content: center;
+  min-height: 44px;
+  margin-bottom: 8px;
+}
+
+.settlements-page-root .rdp-caption_label {
+  color: #1f2937;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.settlements-page-root .rdp-dropdowns {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.settlements-page-root .rdp-dropdown {
+  height: 36px;
+  min-width: 108px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f2937;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.settlements-page-root .rdp-nav {
+  inset-block-start: 6px;
+}
+
+.settlements-page-root .rdp-button_previous,
+.settlements-page-root .rdp-button_next {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: #374151;
+}
+
+.settlements-page-root .rdp-button_previous:hover,
+.settlements-page-root .rdp-button_next:hover {
+  background: #f1f5f9;
+}
+
+.settlements-page-root .rdp-weekday {
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.settlements-page-root .rdp-day_button {
+  border-radius: 999px;
+  color: #374151;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.settlements-page-root .rdp-day_button:hover {
+  background: #ede9fe;
+  color: #4c1d95;
+}
+
+.settlements-page-root .rdp-range_start .rdp-day_button,
+.settlements-page-root .rdp-range_end .rdp-day_button {
+  background: #7c3aed;
+  color: #fff;
+}
+
+.settlements-page-root .rdp-range_middle {
+  background: #c4b5fd;
+}
+
+.settlements-page-root .rdp-range_middle .rdp-day_button {
+  border-radius: 0;
+}
+
+.settlements-page-root .rdp-today:not(.rdp-selected) .rdp-day_button {
+  border: 1px solid #7c3aed;
+}
+
+.settlements-page-root .rdp-disabled {
+  opacity: 0.32;
+}
+
+.drp-footer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #eef2f7;
+}
+
+.drp-btn-clear,
+.drp-btn-apply {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.drp-btn-clear {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+}
+
+.drp-btn-apply {
+  border: 1px solid #2962ff;
+  background: #2962ff;
+  color: #fff;
+}
+
+.drp-btn-apply:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* Date filter container and dropdown button */
 .date-filter-container {
   position: relative;
@@ -609,5 +847,26 @@
   .btn-date-filter {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .drp-root {
+    width: 100%;
+  }
+
+  .drp-popover {
+    left: 0;
+    right: auto;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .settlements-page-root .rdp-months {
+    justify-content: center;
+    gap: 0;
+  }
+
+  .drp-trigger {
+    font-size: 14px;
   }
 }

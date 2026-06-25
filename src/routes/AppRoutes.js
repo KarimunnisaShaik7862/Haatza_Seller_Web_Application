@@ -26,8 +26,9 @@ const SettlementsPage    = lazy(() => import("../pages/Settlements/SettlementsPa
 const HelpPage           = lazy(() => import("../pages/Help/HelpPage"));
 const AdvertisementPage  = lazy(() => import("../pages/Advertisement/AdvertisementPage"));
 const CreateCampaignPage = lazy(() => import("../pages/Advertisement/CreateCampaignPage"));
-const HaatzaUpPage       = lazy(() => import("../pages/HaatzaUp/HaatzaUpPage"));
-const UploadReelPage     = lazy(() => import("../pages/HaatzaUp/UploadReelPage"));
+const GrowPlanPage = lazy(() => import("../pages/GrowPlan/GrowPlanPage"));
+const HaatzaUpPage       = lazy(() => import("../pages/HaatzUp/HaatzUpPage"));
+const UploadReelPage     = lazy(() => import("../pages/HaatzUp/UploadReelPage"));
 
 // ─── Orders Pages ─────────────────────────────────────────────────────────────
 const OrdersPage         = lazy(() => import("../pages/OrdersPage/OrdersPage"));
@@ -130,6 +131,7 @@ function AppRoutes() {
           <Route path="/wallet"                 element={<WalletPage />} />
           <Route path="/notifications"          element={<NotificationsPage />} />
           <Route path="/dashboard/help"         element={<HelpPage />} />
+          <Route path="/dashboard/help-center"  element={<HelpPage />} />
 
           {/* Non-prefixed general sidebar page aliases */}
           <Route path="/inventory"              element={<InventoryPage />} />
@@ -140,6 +142,7 @@ function AppRoutes() {
           <Route path="/settings/pricing"       element={<PricingPage />} />
           <Route path="/settings/shipping"      element={<ShippingReturnPage />} />
           <Route path="/help"                   element={<HelpPage />} />
+          <Route path="/help-center"            element={<HelpPage />} />
 
           {/* Advertisement */}
           <Route path="/dashboard/advertisement"                 element={<AdvertisementPage />} />
@@ -169,6 +172,7 @@ function AppRoutes() {
           <Route path="/orders/shipped"                        element={<ShippedOrdersPage />} />
           <Route path="/orders/cancelled"                      element={<CancelledOrdersPage />} />
 
+         
           {/* Placeholder sidebar pages */}
           <Route path="/dashboard/return-exchange"  element={<ReturnExchange />} />
           <Route path="/dashboard/returns"          element={<ReturnExchange />} />
@@ -177,8 +181,8 @@ function AppRoutes() {
           <Route path="/returns/details/:tableId"   element={<ReturnDetailsPage />} />
           <Route path="/return-exchange"            element={<ReturnExchange />} />
           <Route path="/return-exchange/details/:tableId"   element={<ReturnDetailsPage />} />
-          <Route path="/dashboard/growplan"         element={<PlaceholderPage title="Grow Plan" />} />
-          <Route path="/growplan"                   element={<PlaceholderPage title="Grow Plan" />} />
+          <Route path="/dashboard/growplan"         element={<GrowPlanPage />} />
+          <Route path="/growplan"                   element={<GrowPlanPage />} />
           <Route path="/dashboard/productinsight"   element={<ProductInsightsList />} />
           <Route path="/productinsight"             element={<ProductInsightsList />} />
           <Route path="/product-insight/:tableId"   element={<ProductInsightDetails />} />

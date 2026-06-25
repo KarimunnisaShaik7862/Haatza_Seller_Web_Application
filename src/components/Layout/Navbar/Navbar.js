@@ -142,13 +142,13 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
       icon: React.createElement(Wallet, { size: 16 }),
       label: "Wallet",
       danger: false,
-      onClick: () => { setDropdownOpen(false); navigate("/dashboard/wallet"); }
+      onClick: () => { setDropdownOpen(false); navigate("/wallet"); }
     },
     {
       icon: React.createElement(HelpCircle, { size: 16 }),
       label: "Help Center",
       danger: false,
-      onClick: () => { setDropdownOpen(false); navigate("/dashboard/help"); }
+      onClick: () => { setDropdownOpen(false); navigate("/help-center"); }
     },
     {
       /* ── CHANGED: instead of running logout() directly, open the modal ── */

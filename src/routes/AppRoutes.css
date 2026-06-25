@@ -2,31 +2,50 @@
 .app-container {
   min-height: 100vh;
   position: relative;
+  overflow-x: hidden;
 }
 
 .main-content {
-  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 100%;
+  min-width: 0;
   min-height: 100vh;
-  padding: 80px 24px 24px; /* Space for navbar + content padding */
+  padding: calc(var(--navbar-height, 82px) + 24px) 28px 28px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100vh;
+  background-color: #f5f7ff;
+  transition:
+    margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar-open .main-content {
-  margin-left: 320px; /* Matches --sidebar-width */
+  margin-left: var(--sidebar-width, 280px);
+  width: calc(100% - var(--sidebar-width, 280px));
+}
+
+.sidebar-collapsed .main-content {
+  margin-left: var(--sidebar-width-mini, 76px);
+  width: calc(100% - var(--sidebar-width-mini, 76px));
 }
 
 @media (max-width: 1024px) {
   .sidebar-open .main-content {
-    margin-left: 300px; /* Matches --sidebar-width-md */
+    margin-left: var(--sidebar-width, 280px);
+    width: calc(100% - var(--sidebar-width, 280px));
   }
 }
 
 @media (max-width: 768px) {
-  .sidebar-open .main-content {
+  .sidebar-open .main-content,
+  .sidebar-collapsed .main-content {
     margin-left: 0; /* No push on mobile */
+    width: 100%;
   }
   
   .main-content {
-    padding: 80px 16px 16px;
+    padding: calc(var(--navbar-height, 82px) + 16px) 16px 20px;
   }
 }
 

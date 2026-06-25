@@ -78,47 +78,21 @@
   text-overflow: ellipsis;
 }
 
-.inv-sku {
-  font-family: "Courier New", monospace;
-  font-size: 13px;
-  color: #4b5563;
+.inv-product-meta {
+  display: block;
+  margin-top: 4px;
+  max-width: 250px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .inv-stock-cell {
   font-size: 15px;
   color: #111827;
-}
-
-.inv-btn-save {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  border: 1.5px solid #e5e7eb;
-  background: #fff;
-  color: #9ca3af;
-  transition: all 0.2s;
-}
-
-.inv-btn-save--active {
-  background: #2962ff;
-  border-color: #2962ff;
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(41, 98, 255, 0.25);
-}
-
-.inv-btn-save--active:hover {
-  background: #1a4fd8;
-  border-color: #1a4fd8;
-}
-
-.inv-btn-save:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
 }
 
 .inv-table-empty {
