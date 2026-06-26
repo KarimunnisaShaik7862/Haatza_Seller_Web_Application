@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Search, ChevronLeft, ChevronRight, ChevronDown, X, Info, AlertTriangle, RefreshCw, Calendar } from "lucide-react";
-import { DayPicker } from "react-day-picker";
-import { motion, AnimatePresence } from "framer-motion";
+import { Search, ChevronLeft, ChevronRight, X, Info, AlertTriangle, RefreshCw, Calendar } from "lucide-react";
 import { sellerService } from "../../services/sellerService";
 import { resolveSellerEmail } from "../../utils/sellerSession";
-import "react-day-picker/style.css";
 import "./SettlementsPage.css";
+
+// ─── Utility helpers ──────────────────────────────────────────────────────────
 
 const formatCurrency = (value) => {
   const amount = Number(value);
@@ -144,10 +143,11 @@ const getThisMonthRange = () => {
 const activeRequests = new Map();
 const lastFetchedParams = { key: null };
 
-// ─── DateRangePicker ──────────────────────────────────────────────────────────
+// ─── Custom Date Range Picker ─────────────────────────────────────────────────
 
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const WEEK_DAYS   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
 
 const formatTriggerDate = (date) => {
   if (!date) return "";
@@ -163,13 +163,110 @@ const startOfDay = (date) => {
   return d;
 };
 
-const MonthCalendar = () => null;
+const isSameDay = (a, b) => {
+  if (!a || !b) return false;
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth()    === b.getMonth()    &&
+    a.getDate()     === b.getDate()
+  );
+};
 
-// eslint-disable-next-line no-unused-vars
-const DateRangePicker = ({ fromDate, toDate, onChange }) => {
-  const [open, setOpen] = useState(false);
-  const [tempFrom, setTempFrom] = useState(null);
-  const [tempTo, setTempTo] = useState(null);
+const isBetween = (date, from, to) => {
+  if (!from || !to || !date) return false;
+  return date > from && date < to;
+};
+
+/** Build a flat array of 7×N date cells for a given year/month */
+const buildCalendarGrid = (year, month) => {
+  const firstDay    = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells       = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+};
+
+// ─── CalendarGrid ─────────────────────────────────────────────────────────────
+const CalendarGrid = ({ year, month, from, to, hoverDate, today, onDayClick, onDayHover, onDayLeave, maxDate }) => {
+  const cells = useMemo(() => buildCalendarGrid(year, month), [year, month]);
+
+  // Effective range endpoints (includes hover preview when only one date picked)
+  const effectiveTo = to || hoverDate;
+  const rangeFrom   = from && effectiveTo ? (from <= effectiveTo ? from : effectiveTo) : from;
+  const rangeTo     = from && effectiveTo ? (from <= effectiveTo ? effectiveTo : from)  : null;
+
+  return (
+    <div className="cdrp-grid">
+      {/* Weekday headers */}
+      {WEEK_DAYS.map((wd) => (
+        <div key={wd} className="cdrp-weekday">{wd}</div>
+      ))}
+
+      {/* Day cells */}
+      {cells.map((date, idx) => {
+        if (!date) {
+          return <div key={`e${idx}`} className="cdrp-cell cdrp-cell--empty" />;
+        }
+
+        const isToday    = isSameDay(date, today);
+        const isStart    = isSameDay(date, from);
+        const isEnd      = to ? isSameDay(date, to) : (hoverDate ? isSameDay(date, hoverDate) : false);
+        const inRange    = rangeFrom && rangeTo ? isBetween(date, rangeFrom, rangeTo) : false;
+        const isSelected = isStart || (to && isEnd);
+        const isHoverEnd = !to && hoverDate && isSameDay(date, hoverDate) && from && !isSameDay(date, from);
+        const isDisabled = maxDate ? date > maxDate : false;
+        const isOutside  = date.getMonth() !== month;
+        const isWeekend  = date.getDay() === 0 || date.getDay() === 6;
+        const isRangeEnd = to ? isEnd : isHoverEnd;
+
+        // Cell wrapper classes (for half-pill backgrounds on range edges)
+        let cellCls = "cdrp-cell";
+        if (isOutside)  cellCls += " cdrp-cell--outside";
+        if (isDisabled) cellCls += " cdrp-cell--disabled";
+        if (isStart && (to || isHoverEnd)) cellCls += " cdrp-cell--range-start-cap";
+        if (isRangeEnd && from)            cellCls += " cdrp-cell--range-end-cap";
+        if (inRange)    cellCls += " cdrp-cell--in-range";
+
+        // Button classes
+        let btnCls = "cdrp-day-btn";
+        if (isSelected)               btnCls += " cdrp-day-btn--selected";
+        if (isHoverEnd && !to)        btnCls += " cdrp-day-btn--hover-end";
+        if (isToday && !isSelected)   btnCls += " cdrp-day-btn--today";
+        if (isWeekend && !isSelected && !inRange) btnCls += " cdrp-day-btn--weekend";
+        if (isDisabled)               btnCls += " cdrp-day-btn--disabled";
+        if (isOutside)                btnCls += " cdrp-day-btn--outside";
+
+        return (
+          <div key={date.getTime()} className={cellCls}>
+            <button
+              type="button"
+              className={btnCls}
+              disabled={isDisabled}
+              onClick={() => !isDisabled && onDayClick(date)}
+              onMouseEnter={() => !isDisabled && onDayHover(date)}
+              onMouseLeave={onDayLeave}
+              tabIndex={isDisabled ? -1 : 0}
+              aria-label={date.toLocaleDateString("en-US", {
+                weekday: "long", year: "numeric", month: "long", day: "numeric",
+              })}
+              aria-pressed={isSelected}
+            >
+              {date.getDate()}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// ─── ModernDateRangePicker ────────────────────────────────────────────────────
+const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
+  const [open, setOpen]           = useState(false);
+  const [tempFrom, setTempFrom]   = useState(null);
+  const [tempTo, setTempTo]       = useState(null);
   const [hoverDate, setHoverDate] = useState(null);
 
   const today = useMemo(() => {
@@ -178,58 +275,50 @@ const DateRangePicker = ({ fromDate, toDate, onChange }) => {
     return d;
   }, []);
 
-  const [leftMonth, setLeftMonth] = useState(() => {
-    const d = fromDate || new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
+  const [visibleYear,  setVisibleYear]  = useState(() => (fromDate || new Date()).getFullYear());
+  const [visibleMonth, setVisibleMonth] = useState(() => (fromDate || new Date()).getMonth());
 
-  const rightMonth = useMemo(() => {
-    return new Date(leftMonth.getFullYear(), leftMonth.getMonth() + 1, 1);
-  }, [leftMonth]);
-
-  const popoverRef = useRef(null);
   const triggerRef = useRef(null);
+  const popoverRef = useRef(null);
 
+  // ── Outside click + Escape to close ──
   useEffect(() => {
     if (!open) return;
-    const handleClickOutside = (e) => {
+    const handleMouseDown = (e) => {
       if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target) &&
-        triggerRef.current &&
-        !triggerRef.current.contains(e.target)
-      ) {
-        setOpen(false);
-      }
+        popoverRef.current && !popoverRef.current.contains(e.target) &&
+        triggerRef.current && !triggerRef.current.contains(e.target)
+      ) setOpen(false);
     };
-    const handleEscape = (e) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") { setOpen(false); triggerRef.current?.focus(); }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("keydown",   handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("keydown",   handleKeyDown);
     };
   }, [open]);
 
-  const handleOpen = useCallback(() => {
+  const openPicker = useCallback(() => {
+    const base = fromDate || new Date();
     setTempFrom(fromDate ? startOfDay(fromDate) : null);
     setTempTo(toDate ? startOfDay(toDate) : null);
+    setVisibleYear(base.getFullYear());
+    setVisibleMonth(base.getMonth());
     setHoverDate(null);
-    setLeftMonth(new Date((fromDate || new Date()).getFullYear(), (fromDate || new Date()).getMonth(), 1));
     setOpen(true);
   }, [fromDate, toDate]);
 
   const handleDayClick = useCallback((date) => {
     if (!tempFrom || (tempFrom && tempTo)) {
+      // First click — start new range
       setTempFrom(date);
       setTempTo(null);
       setHoverDate(null);
     } else {
+      // Second click — complete range
       if (date < tempFrom) {
         setTempTo(tempFrom);
         setTempFrom(date);
@@ -242,11 +331,12 @@ const DateRangePicker = ({ fromDate, toDate, onChange }) => {
 
   const handleApply = useCallback(() => {
     if (!tempFrom) return;
-    const finalFrom = tempFrom;
-    const finalTo = new Date(tempTo || tempFrom);
-    finalTo.setHours(23, 59, 59, 999);
-    onChange({ from: finalFrom, to: finalTo });
+    const from = startOfDay(tempFrom);
+    const to   = new Date(tempTo || tempFrom);
+    to.setHours(23, 59, 59, 999);
+    onChange({ from, to });
     setOpen(false);
+    triggerRef.current?.focus();
   }, [tempFrom, tempTo, onChange]);
 
   const handleClear = useCallback(() => {
@@ -255,39 +345,56 @@ const DateRangePicker = ({ fromDate, toDate, onChange }) => {
     setHoverDate(null);
   }, []);
 
+  const handlePrev = () => {
+    if (visibleMonth === 0) { setVisibleYear((y) => y - 1); setVisibleMonth(11); }
+    else { setVisibleMonth((m) => m - 1); }
+  };
+
+  const handleNext = () => {
+    if (visibleMonth === 11) { setVisibleYear((y) => y + 1); setVisibleMonth(0); }
+    else { setVisibleMonth((m) => m + 1); }
+  };
+
+  const years = useMemo(() => {
+    const cur  = new Date().getFullYear();
+    const list = [];
+    for (let y = cur - 10; y <= cur + 2; y++) list.push(y);
+    return list;
+  }, []);
+
   const triggerLabel = useMemo(() => {
     if (!fromDate || !toDate) return "Select date range";
-    return `${formatTriggerDate(fromDate)} – ${formatTriggerDate(toDate)}`;
+    return `${formatTriggerDate(fromDate)}  –  ${formatTriggerDate(toDate)}`;
   }, [fromDate, toDate]);
 
   const selectionLabel = useMemo(() => {
-    if (!tempFrom && !tempTo) return "Select a start date";
-    if (tempFrom && !tempTo) return `${formatTriggerDate(tempFrom)} – Select end date`;
-    return `${formatTriggerDate(tempFrom)} – ${formatTriggerDate(tempTo)}`;
+    if (!tempFrom)           return "Select start date";
+    if (tempFrom && !tempTo) return `${formatTriggerDate(tempFrom)}  →  Select end date`;
+    return `${formatTriggerDate(tempFrom)}  –  ${formatTriggerDate(tempTo)}`;
   }, [tempFrom, tempTo]);
 
   return (
-    <div className="drp-root">
+    <div className="cdrp-root">
+      {/* Trigger button */}
       <button
         ref={triggerRef}
+        id="settlement-date-range"
         type="button"
-        className={`drp-trigger${open ? " drp-trigger--open" : ""}`}
-        onClick={open ? () => setOpen(false) : handleOpen}
+        className={`cdrp-trigger${open ? " cdrp-trigger--open" : ""}`}
+        onClick={open ? () => setOpen(false) : openPicker}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label={triggerLabel}
       >
-        <Calendar size={15} aria-hidden="true" />
-        <span>{triggerLabel}</span>
+        <Calendar size={16} className="cdrp-trigger-cal-icon" aria-hidden="true" />
+        <span className="cdrp-trigger-label">{triggerLabel}</span>
         {fromDate && toDate && (
           <span
-            className="drp-trigger-clear"
+            className="cdrp-trigger-clear"
             role="button"
             tabIndex={0}
             aria-label="Clear date range"
-            onClick={(e) => {
-              e.stopPropagation();
-              onChange({ from: null, to: null });
-            }}
+            onClick={(e) => { e.stopPropagation(); onChange({ from: null, to: null }); }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.stopPropagation();
@@ -300,84 +407,92 @@ const DateRangePicker = ({ fromDate, toDate, onChange }) => {
         )}
       </button>
 
+      {/* Popover */}
       {open && (
         <div
           ref={popoverRef}
-          className="drp-popover"
+          className="cdrp-popover"
           role="dialog"
-          aria-label="Select date range"
+          aria-label="Select settlement date range"
+          aria-modal="true"
         >
-          <div className="drp-popover-header">
-            <span className="drp-selection-label">{selectionLabel}</span>
+          {/* Selected range status label */}
+          <div className="cdrp-selection-row">
+            <span className="cdrp-selection-label">{selectionLabel}</span>
           </div>
 
-          <div className="drp-calendars">
-            <div className="drp-calendar-col">
-              <div className="drp-cal-header">
-                <button
-                  type="button"
-                  className="drp-nav-btn"
-                  onClick={() => setLeftMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
-                  aria-label="Previous month"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                <span className="drp-month-label">
-                  {MONTH_NAMES[leftMonth.getMonth()]} {leftMonth.getFullYear()}
-                </span>
-                <span style={{ width: 28 }} />
-              </div>
-              <MonthCalendar
-                year={leftMonth.getFullYear()}
-                month={leftMonth.getMonth()}
-                tempFrom={tempFrom}
-                tempTo={tempTo}
-                hoverDate={hoverDate}
-                onDayClick={handleDayClick}
-                onDayHover={setHoverDate}
-                today={today}
-              />
+          {/* Month navigation header */}
+          <div className="cdrp-nav-header">
+            <div className="cdrp-nav-dropdowns">
+              <select
+                className="cdrp-nav-select"
+                value={visibleMonth}
+                onChange={(e) => setVisibleMonth(Number(e.target.value))}
+                aria-label="Select month"
+              >
+                {MONTH_NAMES.map((name, idx) => (
+                  <option key={name} value={idx}>{name}</option>
+                ))}
+              </select>
+              <select
+                className="cdrp-nav-select cdrp-nav-select--year"
+                value={visibleYear}
+                onChange={(e) => setVisibleYear(Number(e.target.value))}
+                aria-label="Select year"
+              >
+                {years.map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
             </div>
 
-            <div className="drp-divider" />
-
-            <div className="drp-calendar-col">
-              <div className="drp-cal-header">
-                <span style={{ width: 28 }} />
-                <span className="drp-month-label">
-                  {MONTH_NAMES[rightMonth.getMonth()]} {rightMonth.getFullYear()}
-                </span>
-                <button
-                  type="button"
-                  className="drp-nav-btn"
-                  onClick={() => setLeftMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
-                  aria-label="Next month"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-              <MonthCalendar
-                year={rightMonth.getFullYear()}
-                month={rightMonth.getMonth()}
-                tempFrom={tempFrom}
-                tempTo={tempTo}
-                hoverDate={hoverDate}
-                onDayClick={handleDayClick}
-                onDayHover={setHoverDate}
-                today={today}
-              />
+            <div className="cdrp-nav-arrows">
+              <button
+                type="button"
+                className="cdrp-nav-arrow"
+                onClick={handlePrev}
+                aria-label="Previous month"
+                title="Previous month"
+              >
+                <ChevronLeft size={17} />
+              </button>
+              <button
+                type="button"
+                className="cdrp-nav-arrow"
+                onClick={handleNext}
+                aria-label="Next month"
+                title="Next month"
+              >
+                <ChevronRight size={17} />
+              </button>
             </div>
           </div>
 
-          <div className="drp-footer">
-            <button type="button" className="drp-btn-clear" onClick={handleClear}>
+          {/* Calendar grid */}
+          <CalendarGrid
+            year={visibleYear}
+            month={visibleMonth}
+            from={tempFrom}
+            to={tempTo}
+            hoverDate={tempFrom && !tempTo ? hoverDate : null}
+            today={today}
+            maxDate={today}
+            onDayClick={handleDayClick}
+            onDayHover={setHoverDate}
+            onDayLeave={() => setHoverDate(null)}
+          />
+
+          {/* Footer */}
+          <div className="cdrp-footer">
+            <button type="button" className="cdrp-btn-clear" onClick={handleClear}>
               Clear
             </button>
             <button
               type="button"
-              className="drp-btn-apply"
+              className="cdrp-btn-apply"
               onClick={handleApply}
               disabled={!tempFrom}
+              aria-disabled={!tempFrom}
             >
               Apply
             </button>
@@ -389,463 +504,6 @@ const DateRangePicker = ({ fromDate, toDate, onChange }) => {
 };
 
 // ─── Main component ───────────────────────────────────────────────────────────
-
-// ─── Main component ───────────────────────────────────────────────────────────
-
-const parseDateString = (str) => {
-  if (!str) return null;
-  const cleaned = str.trim().replace(/,/g, "").replace(/\s+/g, " ");
-  const parts = cleaned.split(" ");
-  if (parts.length === 3) {
-    const monthStr = parts[0].toLowerCase();
-    const day = parseInt(parts[1], 10);
-    const year = parseInt(parts[2], 10);
-    
-    const monthIndex = MONTH_SHORT.findIndex(
-      (m) => m.toLowerCase() === monthStr.substring(0, 3)
-    );
-    
-    if (monthIndex !== -1 && !isNaN(day) && !isNaN(year)) {
-      const parsedDate = new Date(year, monthIndex, day);
-      if (!isNaN(parsedDate.getTime())) {
-        return parsedDate;
-      }
-    }
-  }
-  
-  const fallback = new Date(str);
-  if (!isNaN(fallback.getTime())) {
-    return fallback;
-  }
-  return null;
-};
-
-const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
-  const [open, setOpen] = useState(false);
-  const [draftRange, setDraftRange] = useState({ from: undefined, to: undefined });
-  const [fromInputVal, setFromInputVal] = useState("");
-  const [toInputVal, setToInputVal] = useState("");
-  const [slideDirection, setSlideDirection] = useState("next"); // "next" or "prev"
-  const [hoverDate, setHoverDate] = useState(null);
-  
-  const [visibleMonth, setVisibleMonth] = useState(() => {
-    const base = fromDate || new Date();
-    return new Date(base.getFullYear(), base.getMonth(), 1);
-  });
-  
-  const [isMobile, setIsMobile] = useState(() => (
-    typeof window !== "undefined" ? window.matchMedia("(max-width: 720px)").matches : false
-  ));
-
-  const triggerRef = useRef(null);
-  const popoverRef = useRef(null);
-
-  const today = useMemo(() => {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    return date;
-  }, []);
-
-  const years = useMemo(() => {
-    const currentYear = new Date().getFullYear();
-    const list = [];
-    for (let y = currentYear - 10; y <= currentYear + 5; y++) {
-      list.push(y);
-    }
-    return list;
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const media = window.matchMedia("(max-width: 720px)");
-    const handleMediaChange = () => setIsMobile(media.matches);
-    handleMediaChange();
-    media.addEventListener("change", handleMediaChange);
-    return () => media.removeEventListener("change", handleMediaChange);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return undefined;
-
-    const handlePointerDown = (event) => {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(event.target) &&
-        triggerRef.current &&
-        !triggerRef.current.contains(event.target)
-      ) {
-        setOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  const openPicker = useCallback(() => {
-    const from = fromDate ? startOfDay(fromDate) : undefined;
-    const to = toDate ? startOfDay(toDate) : undefined;
-    const base = from || new Date();
-    setDraftRange({ from, to });
-    setFromInputVal(from ? formatTriggerDate(from) : "");
-    setToInputVal(to ? formatTriggerDate(to) : "");
-    setVisibleMonth(new Date(base.getFullYear(), base.getMonth(), 1));
-    setHoverDate(null);
-    setOpen(true);
-  }, [fromDate, toDate]);
-
-  const triggerLabel = useMemo(() => {
-    if (!fromDate || !toDate) return "Select date range";
-    return `${formatTriggerDate(fromDate)} - ${formatTriggerDate(toDate)}`;
-  }, [fromDate, toDate]);
-
-  const draftLabel = useMemo(() => {
-    if (!draftRange?.from && !draftRange?.to) return "Select custom range";
-    const fromStr = draftRange.from ? formatTriggerDate(draftRange.from) : "Start Date";
-    const toStr = draftRange.to ? formatTriggerDate(draftRange.to) : "End Date";
-    return `${fromStr} → ${toStr}`;
-  }, [draftRange]);
-
-  const handleApply = useCallback(() => {
-    if (!draftRange?.from) return;
-    const from = startOfDay(draftRange.from);
-    const to = new Date(draftRange.to || draftRange.from);
-    to.setHours(23, 59, 59, 999);
-    onChange({ from, to });
-    setOpen(false);
-    triggerRef.current?.focus();
-  }, [draftRange, onChange]);
-
-  const handleClear = useCallback(() => {
-    setDraftRange({ from: undefined, to: undefined });
-    setFromInputVal("");
-    setToInputVal("");
-    setHoverDate(null);
-  }, []);
-
-  const handleSelect = (range) => {
-    const newRange = range || { from: undefined, to: undefined };
-    setDraftRange(newRange);
-    
-    if (newRange.from) {
-      setFromInputVal(formatTriggerDate(newRange.from));
-    } else {
-      setFromInputVal("");
-    }
-    
-    if (newRange.to) {
-      setToInputVal(formatTriggerDate(newRange.to));
-    } else {
-      setToInputVal("");
-    }
-  };
-
-  const handleFromInputChange = (e) => {
-    const val = e.target.value;
-    setFromInputVal(val);
-    const parsed = parseDateString(val);
-    if (parsed) {
-      if (parsed > today) return;
-      setDraftRange((prev) => {
-        const nextRange = { ...prev, from: parsed };
-        if (prev.to && parsed > prev.to) {
-          nextRange.to = undefined;
-          setToInputVal("");
-        }
-        return nextRange;
-      });
-      setVisibleMonth(new Date(parsed.getFullYear(), parsed.getMonth(), 1));
-    }
-  };
-
-  const handleToInputChange = (e) => {
-    const val = e.target.value;
-    setToInputVal(val);
-    const parsed = parseDateString(val);
-    if (parsed) {
-      if (parsed > today) return;
-      setDraftRange((prev) => {
-        if (prev.from && parsed < prev.from) {
-          setFromInputVal(formatTriggerDate(parsed));
-          setToInputVal(formatTriggerDate(prev.from));
-          return { from: parsed, to: prev.from };
-        }
-        return { ...prev, to: parsed };
-      });
-      setVisibleMonth(new Date(parsed.getFullYear(), parsed.getMonth(), 1));
-    }
-  };
-
-  const handleFromInputBlur = () => {
-    if (draftRange.from) {
-      setFromInputVal(formatTriggerDate(draftRange.from));
-    } else {
-      setFromInputVal("");
-    }
-  };
-
-  const handleToInputBlur = () => {
-    if (draftRange.to) {
-      setToInputVal(formatTriggerDate(draftRange.to));
-    } else {
-      setToInputVal("");
-    }
-  };
-
-  const handlePrevMonth = () => {
-    setSlideDirection("prev");
-    setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-  };
-
-  const handleNextMonth = () => {
-    setSlideDirection("next");
-    setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-  };
-
-  const handleMonthChange = (e) => {
-    const newMonth = parseInt(e.target.value, 10);
-    setSlideDirection(newMonth > visibleMonth.getMonth() ? "next" : "prev");
-    setVisibleMonth(new Date(visibleMonth.getFullYear(), newMonth, 1));
-  };
-
-  const handleYearChange = (e) => {
-    const newYear = parseInt(e.target.value, 10);
-    setSlideDirection(newYear > visibleMonth.getFullYear() ? "next" : "prev");
-    setVisibleMonth(new Date(newYear, visibleMonth.getMonth(), 1));
-  };
-
-  const handleVisibleMonthChange = (newMonth) => {
-    if (!newMonth) return;
-    setSlideDirection(newMonth > visibleMonth ? "next" : "prev");
-    setVisibleMonth(newMonth);
-  };
-
-  const handleDayMouseEnter = useCallback((event, day) => {
-    const targetDate = event instanceof Date ? event : (day instanceof Date ? day : null);
-    if (targetDate) {
-      setHoverDate(targetDate);
-    }
-  }, []);
-
-  const handleDayMouseLeave = useCallback(() => {
-    setHoverDate(null);
-  }, []);
-
-  const customModifiers = useMemo(() => {
-    return {
-      weekend: (date) => date.getDay() === 0 || date.getDay() === 6,
-      hoverRange: (date) => {
-        if (!draftRange.from || draftRange.to || !hoverDate) return false;
-        const start = draftRange.from;
-        const end = hoverDate;
-        if (start < end) {
-          return date >= start && date <= end;
-        } else {
-          return date >= end && date <= start;
-        }
-      },
-      hoverRangeStart: (date) => {
-        if (!draftRange.from || draftRange.to || !hoverDate) return false;
-        const start = draftRange.from;
-        const end = hoverDate;
-        return date.getTime() === (start < end ? start : end).getTime();
-      },
-      hoverRangeEnd: (date) => {
-        if (!draftRange.from || draftRange.to || !hoverDate) return false;
-        const start = draftRange.from;
-        const end = hoverDate;
-        return date.getTime() === (start < end ? end : start).getTime();
-      }
-    };
-  }, [draftRange, hoverDate]);
-
-  return (
-    <div className="drp-root">
-      <label className="drp-label" htmlFor="settlement-date-range">
-        Settlement dates
-      </label>
-      <button
-        id="settlement-date-range"
-        ref={triggerRef}
-        type="button"
-        className={`drp-trigger${open ? " drp-trigger--open" : ""}`}
-        onClick={open ? () => setOpen(false) : openPicker}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-      >
-        <span>{triggerLabel}</span>
-        <span className="drp-trigger-icon" aria-hidden="true">
-          <Calendar size={20} />
-        </span>
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            ref={popoverRef}
-            className="drp-popover"
-            role="dialog"
-            aria-label="Select settlement date range"
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {/* 2. Month Navigation Header */}
-            <div className="drp-nav-header">
-              <div className="drp-nav-dropdowns" title="Choose year and month">
-                <select
-                  value={visibleMonth.getMonth()}
-                  onChange={handleMonthChange}
-                  className="drp-nav-select"
-                  aria-label="Select month"
-                >
-                  {MONTH_NAMES.map((name, idx) => (
-                    <option key={name} value={idx}>{name}</option>
-                  ))}
-                </select>
-                
-                <select
-                  value={visibleMonth.getFullYear()}
-                  onChange={handleYearChange}
-                  className="drp-nav-select"
-                  aria-label="Select year"
-                >
-                  {years.map((y) => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-                <div className="drp-nav-arrow-indicator">
-                  <ChevronDown size={16} />
-                </div>
-              </div>
-              
-              <div className="drp-nav-arrows-group">
-                <button
-                  type="button"
-                  className="drp-nav-arrow-btn"
-                  onClick={handlePrevMonth}
-                  title="Previous month"
-                  aria-label="Previous month"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <button
-                  type="button"
-                  className="drp-nav-arrow-btn"
-                  onClick={handleNextMonth}
-                  title="Next month"
-                  aria-label="Next month"
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </div>
-            </div>
-            
-            {/* 3. Calendar Grid (with framer-motion slide animation) */}
-            <div className="drp-calendar-wrapper">
-              <AnimatePresence mode="popLayout" initial={false}>
-                <motion.div
-                  key={visibleMonth.getTime()}
-                  initial={{ x: slideDirection === "next" ? 60 : -60, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: slideDirection === "next" ? -60 : 60, opacity: 0 }}
-                  transition={{ duration: 0.25, ease: "easeInOut" }}
-                >
-                  <DayPicker
-                    mode="range"
-                    selected={draftRange}
-                    onSelect={handleSelect}
-                    month={visibleMonth}
-                    onMonthChange={handleVisibleMonthChange}
-                    numberOfMonths={1}
-                    disabled={{ after: today }}
-                    showOutsideDays
-                    fixedWeeks
-                    onDayMouseEnter={handleDayMouseEnter}
-                    onDayMouseLeave={handleDayMouseLeave}
-                    modifiers={customModifiers}
-                    modifiersClassNames={{
-                      weekend: 'rdp-day_weekend',
-                      hoverRange: 'rdp-day_hover-range',
-                      hoverRangeStart: 'rdp-day_hover-range-start',
-                      hoverRangeEnd: 'rdp-day_hover-range-end'
-                    }}
-                    className={`drp-daypicker-custom${draftRange.from && draftRange.to ? " drp-has-range" : ""}`}
-                    components={{
-                      Weekday: (props) => {
-                        const label = props.ariaLabel || props["aria-label"] || String(props.children || "");
-                        const text = String(props.children || "").trim();
-                        let displayLetter = text;
-                        if (text.length > 0) {
-                          displayLetter = text.charAt(0);
-                        }
-                        return (
-                          <th 
-                            className={props.className} 
-                            style={{ ...props.style, fontWeight: 500, fontSize: "13px" }} 
-                            title={label}
-                            aria-label={label}
-                          >
-                            {displayLetter}
-                          </th>
-                        );
-                      },
-                      DayButton: (props) => {
-                        const { day, modifiers, ...rest } = props;
-                        let title = "Choose date";
-                        if (modifiers) {
-                          if (modifiers.selected || modifiers.range_start || modifiers.range_end) {
-                            title = "Selected date";
-                          } else if (modifiers.today) {
-                            title = "Today";
-                          }
-                        }
-                        return <button {...rest} title={title} />;
-                      }
-                    }}
-                  />
-                </motion.div>
-              </AnimatePresence>
-            </div>
-            
-            {/* 4. Footer */}
-            <div className="drp-popup-footer">
-              <button
-                type="button"
-                className="drp-btn-clear-custom"
-                onClick={handleClear}
-                aria-label="Clear selection"
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                className="drp-btn-apply-custom"
-                onClick={handleApply}
-                disabled={!draftRange?.from}
-                aria-label="Apply selected date range"
-              >
-                Apply
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
 
 const SettlementsPage = () => {
   const [rawTransactions, setRawTransactions] = useState([]);
@@ -882,9 +540,9 @@ const SettlementsPage = () => {
   }, []);
 
   const loadSettlements = useCallback(async (force = false) => {
-    const email = (resolveSellerEmail() || "").trim();
+    const email   = (resolveSellerEmail() || "").trim();
     const fromStr = formatDateForApi(appliedFromDate);
-    const toStr = formatDateForApi(appliedToDate);
+    const toStr   = formatDateForApi(appliedToDate);
     const paramKey = `${email}_${fromStr}_${toStr}_50_0`;
 
     if (!force && lastFetchedParams.key === paramKey) return;
@@ -918,7 +576,7 @@ const SettlementsPage = () => {
     } catch (err) {
       if (
         err.name === "CanceledError" || err.name === "AbortError" ||
-        err.message === "canceled" || err.code === "ERR_CANCELED"
+        err.message === "canceled"   || err.code  === "ERR_CANCELED"
       ) return;
 
       console.error("[SettlementsPage] Load Error", err);
@@ -1008,8 +666,8 @@ const SettlementsPage = () => {
   }, [search]);
 
   const filteredTransactions = useMemo(() => {
-    const prev = mappedTransactions.filter((tx) => !tx.isUpcoming && matchesSearch(tx));
-    const upcoming = mappedTransactions.filter((tx) => tx.isUpcoming && matchesSearch(tx));
+    const prev     = mappedTransactions.filter((tx) => !tx.isUpcoming && matchesSearch(tx));
+    const upcoming = mappedTransactions.filter((tx) =>  tx.isUpcoming && matchesSearch(tx));
     return activeTab === "upcoming" ? upcoming : prev;
   }, [mappedTransactions, activeTab, matchesSearch]);
 
@@ -1089,7 +747,7 @@ const SettlementsPage = () => {
             <div className="settlements-empty">
               <Info size={36} className="empty-icon" />
               <h3>No Payouts Found</h3>
-              <p>We couldn't find any settlements matching your current selection or search term.</p>
+              <p>We couldn&apos;t find any settlements matching your current selection or search term.</p>
             </div>
           ) : (
             <div className="settlements-table-wrap">
@@ -1166,12 +824,12 @@ const SettlementsPage = () => {
                 <div className="breakup-list" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                   {selectedTx.settlementBreakup.map((item, idx) => {
                     const breakupOrderId = item.orderId ?? item.orderID ?? item.id ?? "-";
-                    const orderAmount = safeNumber(item.orderAmount ?? item.amount ?? 0);
-                    const productGST = safeNumber(item.productGST ?? item.productGst ?? 0);
-                    const shippingFee = safeNumber(item.shippingFee ?? 0);
-                    const shippingGST = safeNumber(item.shippingGST ?? 0);
-                    const totalDebit = safeNumber(item.totalDebit ?? 0);
-                    const settlementAmt = safeNumber(item.settlementAmount ?? 0);
+                    const orderAmount    = safeNumber(item.orderAmount ?? item.amount ?? 0);
+                    const productGST     = safeNumber(item.productGST ?? item.productGst ?? 0);
+                    const shippingFee    = safeNumber(item.shippingFee ?? 0);
+                    const shippingGST    = safeNumber(item.shippingGST ?? 0);
+                    const totalDebit     = safeNumber(item.totalDebit ?? 0);
+                    const settlementAmt  = safeNumber(item.settlementAmount ?? 0);
 
                     return (
                       <div
@@ -1184,11 +842,11 @@ const SettlementsPage = () => {
                           <span className="info-value font-semibold text-gray-800">#{breakupOrderId}</span>
                         </div>
                         {[
-                          ["Order Amount", formatCurrency(orderAmount)],
-                          ["Product GST", formatCurrency(productGST)],
-                          ["Shipping Fee", formatCurrency(shippingFee)],
-                          ["Shipping GST", formatCurrency(shippingGST)],
-                          ["Total Debit", formatCurrency(totalDebit)],
+                          ["Order Amount",  formatCurrency(orderAmount)],
+                          ["Product GST",   formatCurrency(productGST)],
+                          ["Shipping Fee",  formatCurrency(shippingFee)],
+                          ["Shipping GST",  formatCurrency(shippingGST)],
+                          ["Total Debit",   formatCurrency(totalDebit)],
                         ].map(([label, val]) => (
                           <div key={label} className="modal-info-row" style={{ marginBottom: "6px", fontSize: "13.5px" }}>
                             <span className="info-label">{label}:</span>
