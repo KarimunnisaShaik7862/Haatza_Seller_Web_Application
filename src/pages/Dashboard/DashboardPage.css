@@ -388,6 +388,14 @@
   }
 }
 
+@media (max-width: 576px) {
+  .dashboard-header-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+}
+
 @media (max-width: 480px) {
   .dashboard-greeting {
     font-size: 22px;

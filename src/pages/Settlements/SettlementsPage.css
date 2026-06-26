@@ -168,187 +168,311 @@
 
 .drp-popover {
   position: absolute;
-  top: calc(100% + 10px);
+  top: calc(100% + 12px);
   right: 0;
   z-index: 2200;
-  width: max-content;
-  max-width: min(92vw, 760px);
-  padding: 18px;
-  border: 1px solid #d7dde7;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 24px 56px rgba(15, 23, 42, 0.18);
+  width: 350px; /* Redesigned: Compact 340px–380px M3 style */
+  max-width: 100%;
+  padding: 20px;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px; /* Redesigned: M3 12px border radius */
+  background: #FFFFFF;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); /* M3 elevation shadow */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-sizing: border-box;
 }
 
-.drp-popover-header,
-.drp-footer {
+/* Month Navigation Row */
+.drp-nav-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  margin-bottom: 16px;
+  padding: 0 4px;
 }
 
-.drp-popover-header {
-  margin-bottom: 14px;
+.drp-nav-dropdowns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background-color 0.2s;
 }
 
-.drp-selection-label {
-  color: #374151;
-  font-size: 13px;
-  font-weight: 800;
+.drp-nav-dropdowns:hover {
+  background-color: #F3F4F6;
 }
 
-.drp-icon-clear {
-  width: 30px;
-  height: 30px;
-  display: inline-flex;
+.drp-nav-select {
+  font-size: 16px; /* Redesigned: Compact month header */
+  font-weight: 600;
+  color: #111827;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  font-family: inherit;
+  pointer-events: auto;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+.drp-nav-select::-ms-expand {
+  display: none;
+}
+
+.drp-nav-arrow-indicator {
+  color: #6B7280;
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+  pointer-events: none;
+}
+
+.drp-nav-arrows-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.drp-nav-arrow-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #4B5563;
+  display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-  color: #64748b;
   cursor: pointer;
+  transition: all 0.2s;
 }
 
-.drp-daypicker {
-  --rdp-accent-color: #7c3aed;
-  --rdp-accent-background-color: #ede9fe;
-  --rdp-day_button-width: 42px;
-  --rdp-day_button-height: 42px;
-  --rdp-day-width: 44px;
-  --rdp-day-height: 44px;
-  --rdp-range_middle-background-color: #c4b5fd;
-  --rdp-range_middle-color: #374151;
-  --rdp-range_start-color: #fff;
-  --rdp-range_end-color: #fff;
-  margin: 0;
+.drp-nav-arrow-btn:hover {
+  background-color: #F3F4F6;
+  color: #111827;
 }
 
-.settlements-page-root .rdp-months {
-  gap: 28px;
+/* Calendar wrapper and slide transition container */
+.drp-calendar-wrapper {
+  overflow: hidden;
+  position: relative;
+  min-height: 260px; /* Redesigned: Compact size for 40px cells */
 }
 
-.settlements-page-root .rdp-month_caption {
-  justify-content: center;
-  min-height: 44px;
-  margin-bottom: 8px;
-}
-
-.settlements-page-root .rdp-caption_label {
-  color: #1f2937;
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.settlements-page-root .rdp-dropdowns {
+/* DayPicker customization overrides */
+.drp-daypicker-custom {
+  margin: 0 auto;
+  width: 280px; /* Redesigned: Center aligned 7 cols * 40px */
   display: flex;
   justify-content: center;
-  gap: 8px;
 }
 
-.settlements-page-root .rdp-dropdown {
-  height: 36px;
-  min-width: 108px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-  color: #1f2937;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 0 10px;
-  cursor: pointer;
+.drp-daypicker-custom .rdp-months {
+  justify-content: center;
+  width: 100%;
 }
 
-.settlements-page-root .rdp-nav {
-  inset-block-start: 6px;
+.drp-daypicker-custom .rdp-month {
+  width: 100%;
 }
 
-.settlements-page-root .rdp-button_previous,
-.settlements-page-root .rdp-button_next {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  color: #374151;
+.drp-daypicker-custom .rdp-month_grid {
+  width: 100%;
+  border-collapse: collapse;
 }
 
-.settlements-page-root .rdp-button_previous:hover,
-.settlements-page-root .rdp-button_next:hover {
-  background: #f1f5f9;
-}
-
+/* Weekday Label */
 .settlements-page-root .rdp-weekday {
-  color: #4b5563;
-  font-size: 13px;
-  font-weight: 800;
+  color: #6B7280;
+  font-size: 13px; /* Redesigned: M3 Week Labels typography 13px */
+  font-weight: 500;
+  text-transform: uppercase;
+  text-align: center;
+  height: 36px;
+  vertical-align: middle;
+}
+
+/* Hide native caption header */
+.settlements-page-root .rdp-month_caption,
+.settlements-page-root .rdp-nav {
+  display: none !important;
+}
+
+/* Day cell overrides */
+.settlements-page-root .rdp-day {
+  width: 40px; /* Redesigned: 40px per specification */
+  height: 40px; /* Redesigned: 40px per specification */
+  padding: 0;
+  text-align: center;
+  vertical-align: middle;
 }
 
 .settlements-page-root .rdp-day_button {
-  border-radius: 999px;
-  color: #374151;
-  font-size: 14px;
-  font-weight: 700;
+  width: 36px; /* Redesigned: Perfect circles inside 40px cells */
+  height: 36px;
+  border-radius: 50%;
+  color: #111827;
+  font-size: 15px; /* Redesigned: Dates typography 15px */
+  font-weight: 500;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  background: transparent;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Hover effects with scale and custom color */
 .settlements-page-root .rdp-day_button:hover {
-  background: #ede9fe;
-  color: #4c1d95;
+  background-color: #EFF6FF !important; /* Redesigned: Hover color #EFF6FF */
+  color: #2563EB !important; /* Redesigned: Primary blue hover text */
+  transform: scale(1.05); /* Redesigned: Hover Scale 1.05 */
 }
 
+/* Selected Start & End circles */
 .settlements-page-root .rdp-range_start .rdp-day_button,
 .settlements-page-root .rdp-range_end .rdp-day_button {
-  background: #7c3aed;
-  color: #fff;
+  background-color: #2563EB !important; /* Redesigned: Primary color #2563EB */
+  color: #FFFFFF !important;
+  border-radius: 50% !important;
+  font-weight: 600;
+  transform: scale(1.02);
+}
+
+/* Continuous range pill gradients and background middle */
+.settlements-page-root .drp-has-range .rdp-range_start {
+  background: linear-gradient(to right, transparent 50%, #DBEAFE 50%) !important;
+}
+
+.settlements-page-root .drp-has-range .rdp-range_end {
+  background: linear-gradient(to left, transparent 50%, #DBEAFE 50%) !important;
 }
 
 .settlements-page-root .rdp-range_middle {
-  background: #c4b5fd;
+  background-color: #DBEAFE !important; /* Redesigned: Range Background color #DBEAFE */
 }
 
 .settlements-page-root .rdp-range_middle .rdp-day_button {
-  border-radius: 0;
+  border-radius: 0 !important;
+  background-color: transparent !important;
+  color: #111827 !important;
 }
 
+/* Hover Range modifier styles */
+.settlements-page-root .rdp-day_hover-range {
+  background-color: #EFF6FF !important; /* Redesigned: Hover preview color #EFF6FF */
+}
+
+.settlements-page-root .rdp-day_hover-range .rdp-day_button {
+  border-radius: 0 !important;
+  background-color: transparent !important;
+  color: #111827 !important;
+}
+
+.settlements-page-root .rdp-day_hover-range-start {
+  background: linear-gradient(to right, transparent 50%, #EFF6FF 50%) !important;
+}
+
+.settlements-page-root .rdp-day_hover-range-end {
+  background: linear-gradient(to left, transparent 50%, #EFF6FF 50%) !important;
+}
+
+.settlements-page-root .rdp-day_hover-range-start .rdp-day_button,
+.settlements-page-root .rdp-day_hover-range-end .rdp-day_button {
+  border-radius: 50% !important;
+}
+
+.settlements-page-root .rdp-day_hover-range-end:not(.rdp-range_start) .rdp-day_button {
+  border: 1.5px dashed #2563EB !important; /* Visual dashes for end date preview */
+  color: #2563EB !important;
+  background-color: #EFF6FF !important;
+}
+
+/* Weekend style */
+.settlements-page-root .rdp-day_weekend:not(.rdp-selected):not(.rdp-day_hover-range) .rdp-day_button {
+  color: #6B7280; /* Redesigned: Secondary color #6B7280 */
+  opacity: 0.75;
+}
+
+/* Today's indicator: Outline Circle */
 .settlements-page-root .rdp-today:not(.rdp-selected) .rdp-day_button {
-  border: 1px solid #7c3aed;
+  border: 1.5px solid #2563EB !important; /* Redesigned: Today's date indicator outline circle */
+  color: #2563EB;
+  font-weight: 600;
 }
 
+/* Disabled days */
 .settlements-page-root .rdp-disabled {
-  opacity: 0.32;
+  color: #D1D5DB !important; /* Redesigned: Muted disabled text color */
+}
+.settlements-page-root .rdp-disabled .rdp-day_button {
+  color: #D1D5DB !important;
+  cursor: not-allowed;
+  opacity: 0.8;
 }
 
-.drp-footer {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid #eef2f7;
+/* Footer Section */
+.drp-popup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #E5E7EB;
 }
 
-.drp-btn-clear,
-.drp-btn-apply {
-  min-height: 38px;
-  padding: 0 16px;
+.drp-btn-clear-custom,
+.drp-btn-apply-custom {
+  min-height: 40px;
+  padding: 0 20px;
   border-radius: 8px;
-  font-size: 13px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
 }
 
-.drp-btn-clear {
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #475569;
+.drp-btn-clear-custom {
+  border: 1px solid #D1D5DB;
+  background: #FFFFFF;
+  color: #4B5563;
 }
 
-.drp-btn-apply {
-  border: 1px solid #2962ff;
-  background: #2962ff;
-  color: #fff;
+.drp-btn-clear-custom:hover {
+  background-color: #F9FAFB;
+  border-color: #C4C6CC;
 }
 
-.drp-btn-apply:disabled {
+.drp-btn-apply-custom {
+  border: none;
+  background-color: #2563EB;
+  color: #FFFFFF;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+
+.drp-btn-apply-custom:hover:not(:disabled) {
+  background-color: #1D4ED8;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.4);
+  transform: translateY(-1px);
+}
+
+.drp-btn-apply-custom:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.drp-btn-apply-custom:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* Date filter container and dropdown button */
@@ -853,20 +977,78 @@
     width: 100%;
   }
 
-  .drp-popover {
-    left: 0;
-    right: auto;
-    width: 100%;
-    max-width: 100%;
-    overflow-x: auto;
-  }
-
-  .settlements-page-root .rdp-months {
-    justify-content: center;
-    gap: 0;
-  }
-
   .drp-trigger {
     font-size: 14px;
+  }
+
+  /* Redesigned DRP Tablet Layout */
+  .drp-popover {
+    width: 440px;
+    padding: 16px;
+    left: auto;
+    right: 0;
+  }
+  
+  .drp-inputs-row {
+    gap: 8px;
+  }
+  
+  .drp-nav-select {
+    font-size: 18px;
+  }
+}
+
+/* Mobile adjustments (Bottom Sheet) */
+@media (max-width: 480px) {
+  .drp-popover {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.12);
+    border: none;
+    padding: 20px 16px 32px 16px;
+    animation: drp-bottom-sheet-slide 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .drp-inputs-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .drp-input-separator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 0;
+  }
+
+  .drp-nav-select {
+    font-size: 18px;
+  }
+
+  .settlements-page-root .rdp-day {
+    width: auto;
+    height: auto;
+  }
+
+  .settlements-page-root .rdp-day_button {
+    width: 38px;
+    height: 38px;
+    font-size: 14px;
+  }
+}
+
+@keyframes drp-bottom-sheet-slide {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
   }
 }

@@ -648,7 +648,21 @@ body {
     --toggle-top: calc(var(--navbar-height) + 16px);
   }
 
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform var(--slide-transition);
+    z-index: 100;
+  }
+
+  .sidebar.sidebar--open {
+    transform: translateX(0);
+  }
+
   .sidebar__external-toggle {
+    display: none !important;
+  }
+
+  .sidebar__external-toggle-legacy {
     width: 18px;
     height: 48px;
   }

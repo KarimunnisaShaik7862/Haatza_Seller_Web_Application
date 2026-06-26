@@ -1062,3 +1062,29 @@ body {
 
 .tx-amount.credit { color: var(--success); }
 .tx-amount.debit  { color: var(--navy); }
+
+/* Hamburger Menu Button */
+.navbar-hamburger-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: background-color var(--transition), color var(--transition);
+}
+
+.navbar-hamburger-btn:hover {
+  background-color: var(--primary-light);
+  color: var(--primary);
+}
+
+@media (max-width: 768px) {
+  .navbar-hamburger-btn {
+    display: flex;
+    margin-right: -4px;
+  }
+}

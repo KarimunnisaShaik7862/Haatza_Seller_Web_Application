@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Search, ChevronLeft, ChevronRight, X, Info, AlertTriangle, RefreshCw, Calendar } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, ChevronDown, X, Info, AlertTriangle, RefreshCw, Calendar } from "lucide-react";
 import { DayPicker } from "react-day-picker";
+import { motion, AnimatePresence } from "framer-motion";
 import { sellerService } from "../../services/sellerService";
 import { resolveSellerEmail } from "../../utils/sellerSession";
 import "react-day-picker/style.css";
@@ -389,13 +390,49 @@ const DateRangePicker = ({ fromDate, toDate, onChange }) => {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// ─── Main component ───────────────────────────────────────────────────────────
+
+const parseDateString = (str) => {
+  if (!str) return null;
+  const cleaned = str.trim().replace(/,/g, "").replace(/\s+/g, " ");
+  const parts = cleaned.split(" ");
+  if (parts.length === 3) {
+    const monthStr = parts[0].toLowerCase();
+    const day = parseInt(parts[1], 10);
+    const year = parseInt(parts[2], 10);
+    
+    const monthIndex = MONTH_SHORT.findIndex(
+      (m) => m.toLowerCase() === monthStr.substring(0, 3)
+    );
+    
+    if (monthIndex !== -1 && !isNaN(day) && !isNaN(year)) {
+      const parsedDate = new Date(year, monthIndex, day);
+      if (!isNaN(parsedDate.getTime())) {
+        return parsedDate;
+      }
+    }
+  }
+  
+  const fallback = new Date(str);
+  if (!isNaN(fallback.getTime())) {
+    return fallback;
+  }
+  return null;
+};
+
 const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
   const [open, setOpen] = useState(false);
   const [draftRange, setDraftRange] = useState({ from: undefined, to: undefined });
+  const [fromInputVal, setFromInputVal] = useState("");
+  const [toInputVal, setToInputVal] = useState("");
+  const [slideDirection, setSlideDirection] = useState("next"); // "next" or "prev"
+  const [hoverDate, setHoverDate] = useState(null);
+  
   const [visibleMonth, setVisibleMonth] = useState(() => {
     const base = fromDate || new Date();
     return new Date(base.getFullYear(), base.getMonth(), 1);
   });
+  
   const [isMobile, setIsMobile] = useState(() => (
     typeof window !== "undefined" ? window.matchMedia("(max-width: 720px)").matches : false
   ));
@@ -407,6 +444,15 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
     const date = new Date();
     date.setHours(0, 0, 0, 0);
     return date;
+  }, []);
+
+  const years = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const list = [];
+    for (let y = currentYear - 10; y <= currentYear + 5; y++) {
+      list.push(y);
+    }
+    return list;
   }, []);
 
   useEffect(() => {
@@ -452,7 +498,10 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
     const to = toDate ? startOfDay(toDate) : undefined;
     const base = from || new Date();
     setDraftRange({ from, to });
+    setFromInputVal(from ? formatTriggerDate(from) : "");
+    setToInputVal(to ? formatTriggerDate(to) : "");
     setVisibleMonth(new Date(base.getFullYear(), base.getMonth(), 1));
+    setHoverDate(null);
     setOpen(true);
   }, [fromDate, toDate]);
 
@@ -462,9 +511,10 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
   }, [fromDate, toDate]);
 
   const draftLabel = useMemo(() => {
-    if (!draftRange?.from) return "Select a start date";
-    if (!draftRange?.to) return `${formatTriggerDate(draftRange.from)} - Select end date`;
-    return `${formatTriggerDate(draftRange.from)} - ${formatTriggerDate(draftRange.to)}`;
+    if (!draftRange?.from && !draftRange?.to) return "Select custom range";
+    const fromStr = draftRange.from ? formatTriggerDate(draftRange.from) : "Start Date";
+    const toStr = draftRange.to ? formatTriggerDate(draftRange.to) : "End Date";
+    return `${fromStr} → ${toStr}`;
   }, [draftRange]);
 
   const handleApply = useCallback(() => {
@@ -479,7 +529,146 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
 
   const handleClear = useCallback(() => {
     setDraftRange({ from: undefined, to: undefined });
+    setFromInputVal("");
+    setToInputVal("");
+    setHoverDate(null);
   }, []);
+
+  const handleSelect = (range) => {
+    const newRange = range || { from: undefined, to: undefined };
+    setDraftRange(newRange);
+    
+    if (newRange.from) {
+      setFromInputVal(formatTriggerDate(newRange.from));
+    } else {
+      setFromInputVal("");
+    }
+    
+    if (newRange.to) {
+      setToInputVal(formatTriggerDate(newRange.to));
+    } else {
+      setToInputVal("");
+    }
+  };
+
+  const handleFromInputChange = (e) => {
+    const val = e.target.value;
+    setFromInputVal(val);
+    const parsed = parseDateString(val);
+    if (parsed) {
+      if (parsed > today) return;
+      setDraftRange((prev) => {
+        const nextRange = { ...prev, from: parsed };
+        if (prev.to && parsed > prev.to) {
+          nextRange.to = undefined;
+          setToInputVal("");
+        }
+        return nextRange;
+      });
+      setVisibleMonth(new Date(parsed.getFullYear(), parsed.getMonth(), 1));
+    }
+  };
+
+  const handleToInputChange = (e) => {
+    const val = e.target.value;
+    setToInputVal(val);
+    const parsed = parseDateString(val);
+    if (parsed) {
+      if (parsed > today) return;
+      setDraftRange((prev) => {
+        if (prev.from && parsed < prev.from) {
+          setFromInputVal(formatTriggerDate(parsed));
+          setToInputVal(formatTriggerDate(prev.from));
+          return { from: parsed, to: prev.from };
+        }
+        return { ...prev, to: parsed };
+      });
+      setVisibleMonth(new Date(parsed.getFullYear(), parsed.getMonth(), 1));
+    }
+  };
+
+  const handleFromInputBlur = () => {
+    if (draftRange.from) {
+      setFromInputVal(formatTriggerDate(draftRange.from));
+    } else {
+      setFromInputVal("");
+    }
+  };
+
+  const handleToInputBlur = () => {
+    if (draftRange.to) {
+      setToInputVal(formatTriggerDate(draftRange.to));
+    } else {
+      setToInputVal("");
+    }
+  };
+
+  const handlePrevMonth = () => {
+    setSlideDirection("prev");
+    setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setSlideDirection("next");
+    setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const handleMonthChange = (e) => {
+    const newMonth = parseInt(e.target.value, 10);
+    setSlideDirection(newMonth > visibleMonth.getMonth() ? "next" : "prev");
+    setVisibleMonth(new Date(visibleMonth.getFullYear(), newMonth, 1));
+  };
+
+  const handleYearChange = (e) => {
+    const newYear = parseInt(e.target.value, 10);
+    setSlideDirection(newYear > visibleMonth.getFullYear() ? "next" : "prev");
+    setVisibleMonth(new Date(newYear, visibleMonth.getMonth(), 1));
+  };
+
+  const handleVisibleMonthChange = (newMonth) => {
+    if (!newMonth) return;
+    setSlideDirection(newMonth > visibleMonth ? "next" : "prev");
+    setVisibleMonth(newMonth);
+  };
+
+  const handleDayMouseEnter = useCallback((event, day) => {
+    const targetDate = event instanceof Date ? event : (day instanceof Date ? day : null);
+    if (targetDate) {
+      setHoverDate(targetDate);
+    }
+  }, []);
+
+  const handleDayMouseLeave = useCallback(() => {
+    setHoverDate(null);
+  }, []);
+
+  const customModifiers = useMemo(() => {
+    return {
+      weekend: (date) => date.getDay() === 0 || date.getDay() === 6,
+      hoverRange: (date) => {
+        if (!draftRange.from || draftRange.to || !hoverDate) return false;
+        const start = draftRange.from;
+        const end = hoverDate;
+        if (start < end) {
+          return date >= start && date <= end;
+        } else {
+          return date >= end && date <= start;
+        }
+      },
+      hoverRangeStart: (date) => {
+        if (!draftRange.from || draftRange.to || !hoverDate) return false;
+        const start = draftRange.from;
+        const end = hoverDate;
+        return date.getTime() === (start < end ? start : end).getTime();
+      },
+      hoverRangeEnd: (date) => {
+        if (!draftRange.from || draftRange.to || !hoverDate) return false;
+        const start = draftRange.from;
+        const end = hoverDate;
+        return date.getTime() === (start < end ? end : start).getTime();
+      }
+    };
+  }, [draftRange, hoverDate]);
 
   return (
     <div className="drp-root">
@@ -501,61 +690,159 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
         </span>
       </button>
 
-      {open && (
-        <div
-          ref={popoverRef}
-          className="drp-popover"
-          role="dialog"
-          aria-label="Select settlement date range"
-        >
-          <div className="drp-popover-header">
-            <span className="drp-selection-label">{draftLabel}</span>
-            {(fromDate || toDate) && (
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            ref={popoverRef}
+            className="drp-popover"
+            role="dialog"
+            aria-label="Select settlement date range"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {/* 2. Month Navigation Header */}
+            <div className="drp-nav-header">
+              <div className="drp-nav-dropdowns" title="Choose year and month">
+                <select
+                  value={visibleMonth.getMonth()}
+                  onChange={handleMonthChange}
+                  className="drp-nav-select"
+                  aria-label="Select month"
+                >
+                  {MONTH_NAMES.map((name, idx) => (
+                    <option key={name} value={idx}>{name}</option>
+                  ))}
+                </select>
+                
+                <select
+                  value={visibleMonth.getFullYear()}
+                  onChange={handleYearChange}
+                  className="drp-nav-select"
+                  aria-label="Select year"
+                >
+                  {years.map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+                <div className="drp-nav-arrow-indicator">
+                  <ChevronDown size={16} />
+                </div>
+              </div>
+              
+              <div className="drp-nav-arrows-group">
+                <button
+                  type="button"
+                  className="drp-nav-arrow-btn"
+                  onClick={handlePrevMonth}
+                  title="Previous month"
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="drp-nav-arrow-btn"
+                  onClick={handleNextMonth}
+                  title="Next month"
+                  aria-label="Next month"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            </div>
+            
+            {/* 3. Calendar Grid (with framer-motion slide animation) */}
+            <div className="drp-calendar-wrapper">
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.div
+                  key={visibleMonth.getTime()}
+                  initial={{ x: slideDirection === "next" ? 60 : -60, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: slideDirection === "next" ? -60 : 60, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                >
+                  <DayPicker
+                    mode="range"
+                    selected={draftRange}
+                    onSelect={handleSelect}
+                    month={visibleMonth}
+                    onMonthChange={handleVisibleMonthChange}
+                    numberOfMonths={1}
+                    disabled={{ after: today }}
+                    showOutsideDays
+                    fixedWeeks
+                    onDayMouseEnter={handleDayMouseEnter}
+                    onDayMouseLeave={handleDayMouseLeave}
+                    modifiers={customModifiers}
+                    modifiersClassNames={{
+                      weekend: 'rdp-day_weekend',
+                      hoverRange: 'rdp-day_hover-range',
+                      hoverRangeStart: 'rdp-day_hover-range-start',
+                      hoverRangeEnd: 'rdp-day_hover-range-end'
+                    }}
+                    className={`drp-daypicker-custom${draftRange.from && draftRange.to ? " drp-has-range" : ""}`}
+                    components={{
+                      Weekday: (props) => {
+                        const label = props.ariaLabel || props["aria-label"] || String(props.children || "");
+                        const text = String(props.children || "").trim();
+                        let displayLetter = text;
+                        if (text.length > 0) {
+                          displayLetter = text.charAt(0);
+                        }
+                        return (
+                          <th 
+                            className={props.className} 
+                            style={{ ...props.style, fontWeight: 500, fontSize: "13px" }} 
+                            title={label}
+                            aria-label={label}
+                          >
+                            {displayLetter}
+                          </th>
+                        );
+                      },
+                      DayButton: (props) => {
+                        const { day, modifiers, ...rest } = props;
+                        let title = "Choose date";
+                        if (modifiers) {
+                          if (modifiers.selected || modifiers.range_start || modifiers.range_end) {
+                            title = "Selected date";
+                          } else if (modifiers.today) {
+                            title = "Today";
+                          }
+                        }
+                        return <button {...rest} title={title} />;
+                      }
+                    }}
+                  />
+                </motion.div>
+              </AnimatePresence>
+            </div>
+            
+            {/* 4. Footer */}
+            <div className="drp-popup-footer">
               <button
                 type="button"
-                className="drp-icon-clear"
-                aria-label="Clear applied date range"
-                onClick={() => {
-                  onChange({ from: null, to: null });
-                  setOpen(false);
-                }}
+                className="drp-btn-clear-custom"
+                onClick={handleClear}
+                aria-label="Clear selection"
               >
-                <X size={16} />
+                Clear
               </button>
-            )}
-          </div>
-
-          <DayPicker
-            mode="range"
-            selected={draftRange}
-            onSelect={(range) => setDraftRange(range || { from: undefined, to: undefined })}
-            month={visibleMonth}
-            onMonthChange={setVisibleMonth}
-            numberOfMonths={isMobile ? 1 : 2}
-            captionLayout="dropdown"
-            startMonth={new Date(today.getFullYear() - 5, 0, 1)}
-            endMonth={today}
-            disabled={{ after: today }}
-            showOutsideDays
-            fixedWeeks
-            className="drp-daypicker"
-          />
-
-          <div className="drp-footer">
-            <button type="button" className="drp-btn-clear" onClick={handleClear}>
-              Clear
-            </button>
-            <button
-              type="button"
-              className="drp-btn-apply"
-              onClick={handleApply}
-              disabled={!draftRange?.from}
-            >
-              Apply
-            </button>
-          </div>
-        </div>
-      )}
+              <button
+                type="button"
+                className="drp-btn-apply-custom"
+                onClick={handleApply}
+                disabled={!draftRange?.from}
+                aria-label="Apply selected date range"
+              >
+                Apply
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

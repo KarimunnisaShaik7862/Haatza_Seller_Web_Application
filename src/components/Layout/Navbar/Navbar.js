@@ -24,7 +24,7 @@ const getGreeting = () => {
   return "Good Evening";
 };
 
-const HaatzaNavbar = ({ seller: propSeller = {} }) => {
+const HaatzaNavbar = ({ seller: propSeller = {}, onToggleSidebar }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
@@ -239,6 +239,33 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
         React.createElement(
           "div",
           { className: "navbar-left" },
+
+          /* Hamburger Toggle Button (mobile/tablet only) */
+          React.createElement(
+            "button",
+            {
+              className: "navbar-hamburger-btn",
+              title: "Toggle Sidebar",
+              onClick: onToggleSidebar,
+              "aria-label": "Toggle sidebar navigation",
+            },
+            React.createElement(
+              "svg",
+              {
+                width: "20",
+                height: "20",
+                viewBox: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: "2.5",
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+              },
+              React.createElement("line", { x1: "3", y1: "12", x2: "21", y2: "12" }),
+              React.createElement("line", { x1: "3", y1: "6", x2: "21", y2: "6" }),
+              React.createElement("line", { x1: "3", y1: "18", x2: "21", y2: "18" })
+            )
+          ),
 
           /* Logo */
           React.createElement(

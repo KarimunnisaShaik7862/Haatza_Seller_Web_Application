@@ -364,6 +364,7 @@ function Sidebar({
   sellerId       = "",
   onProfileClick = () => {},
   onCollapseChange,
+  isOpen         = true,
 }) {
   const { user, logout } = useAuth();
   const seller = user || {};
@@ -704,7 +705,13 @@ function Sidebar({
     /* ── Sidebar shell ────────────────────────────────────── */
     React.createElement(
       "aside",
-      { className: ["sidebar", isCollapsed ? "sidebar--mini" : ""].filter(Boolean).join(" ") },
+      {
+        className: [
+          "sidebar",
+          isCollapsed ? "sidebar--mini" : "",
+          isOpen ? "sidebar--open" : "",
+        ].filter(Boolean).join(" "),
+      },
       content
     )
   );
