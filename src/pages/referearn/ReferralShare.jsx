@@ -188,7 +188,7 @@ export default function ReferralShare() {
         setLoading(true);
         try {
           const response = await axios.get(
-            `https://haatzaseller.com/_functions/sellerreferral?sellerId=${resolvedId}`
+            `https://www.haatzaseller.com/_functions/sellerreferral?sellerId=${resolvedId}`
           );
           if (response.data?.status === "success" && response.data.message?.status === true) {
             setReferralCode(response.data.message.referralCode);

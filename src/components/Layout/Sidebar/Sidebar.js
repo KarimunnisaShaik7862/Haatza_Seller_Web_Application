@@ -5,7 +5,6 @@ import { sellerService } from "../../../services/sellerService";
 import { getSellerId } from "../../../utils/sellerSession";
 import { useAuth } from "../../../context/AuthContext";
 import LogoutConfirmModal from "../../common/LogoutConfirmModal/LogoutConfirmModal";
-import { ReceiptText } from "lucide-react";
 import "./Sidebar.css";
 
 const KEY_TO_ROUTE = {
@@ -76,7 +75,12 @@ const NAV_SECTIONS = [
       },
       {
         key: "settlements", label: "Settlements",
-        icon: React.createElement(ReceiptText, { size: 20, strokeWidth: 2 }),
+        icon: React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+          React.createElement("line", { x1: "6", y1: "5", x2: "18", y2: "5" }),
+          React.createElement("line", { x1: "6", y1: "10", x2: "18", y2: "10" }),
+          React.createElement("path", { d: "M6 10h4a4 4 0 000-5H6" }),
+          React.createElement("path", { d: "M9 10l6 9" })
+        ),
       },
       {
         key: "help", label: "Help",
@@ -364,7 +368,6 @@ function Sidebar({
   sellerId       = "",
   onProfileClick = () => {},
   onCollapseChange,
-  isOpen         = true,
 }) {
   const { user, logout } = useAuth();
   const seller = user || {};
@@ -627,12 +630,9 @@ function Sidebar({
   }, [onProfileClick]);
 
   const getToggleLeft = useCallback(() => {
-    if (isCollapsed) {
-      const miniW = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width-mini").trim();
-      return miniW || "76px";
-    }
+    if (isCollapsed) return "72px";
     const w = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width").trim();
-    return w || "280px";
+    return w || "320px";
   }, [isCollapsed]);
 
   const tooltipCallbacks = isCollapsed
@@ -705,13 +705,7 @@ function Sidebar({
     /* ── Sidebar shell ────────────────────────────────────── */
     React.createElement(
       "aside",
-      {
-        className: [
-          "sidebar",
-          isCollapsed ? "sidebar--mini" : "",
-          isOpen ? "sidebar--open" : "",
-        ].filter(Boolean).join(" "),
-      },
+      { className: ["sidebar", isCollapsed ? "sidebar--mini" : ""].filter(Boolean).join(" ") },
       content
     )
   );

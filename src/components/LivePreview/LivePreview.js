@@ -1,6 +1,18 @@
 import React from "react";
 import "./LivePreview.css";
 
+const normalizeVariantKey = (key) => {
+  if (!key) return "";
+  return key.toLowerCase().replace(/\s*\(\s*#[0-9a-fA-F]+\s*\)/g, "").replace(/\s+/g, "").trim();
+};
+
+const getVariantPriceData = (vKey, pricesObj) => {
+  if (!pricesObj) return null;
+  const target = normalizeVariantKey(vKey);
+  const foundKey = Object.keys(pricesObj).find(k => normalizeVariantKey(k) === target);
+  return foundKey ? pricesObj[foundKey] : null;
+};
+
 const LivePreview = ({
   category = null,
   subcategory = null,
@@ -39,8 +51,11 @@ const LivePreview = ({
   const isOptionField = (f) => f.type === "Product Options";
 
   // Category and Subcategory strings
-  const catName = typeof category === "string" ? category : (category?.name || category?.CategoryName || category?.displayName || "");
-  const subCatName = typeof subcategory === "string" ? subcategory : (subcategory?.name || subcategory?.SubCategoryName || subcategory?.displayName || "");
+  const catNameRaw = typeof category === "string" ? category : (category?.name || category?.CategoryName || category?.displayName || "");
+  const subCatNameRaw = typeof subcategory === "string" ? subcategory : (subcategory?.name || subcategory?.SubCategoryName || subcategory?.displayName || "");
+
+  const catName = String(catNameRaw || "");
+  const subCatName = String(subCatNameRaw || "");
 
   const isCategorySelected = !!catName.trim();
   const isSubcategorySelected = !!subCatName.trim();
@@ -80,13 +95,15 @@ const LivePreview = ({
     isColorFilled = (confirmedColors || []).length > 0;
   }
 
-  let isVariantPricesFilled = true;
-  if ((variants || []).length > 0) {
-    isVariantPricesFilled = variants.every(v => {
-      const price = variantPrices?.[v.key];
-      return price !== undefined && price !== "" && parseFloat(price) >= 0;
-    });
-  }
+ const filledVariantPricesCount = (variants || []).filter(v => {
+    const priceObj = getVariantPriceData(v.key, variantPrices);
+    if (!priceObj) return false;
+    const rawVal = typeof priceObj === "object" ? priceObj.inputVal : priceObj;
+    return rawVal !== undefined && rawVal !== null && rawVal !== "" && !isNaN(parseFloat(rawVal)) && parseFloat(rawVal) >= 0;
+  }).length;
+  const isVariantPricesFilled = (variants || []).length > 0
+    ? filledVariantPricesCount === variants.length
+    : true;
 
   // Promotion Validation (size chart if required)
   const sizeChartField = (fields || []).find(f => isSizeChartField(f));
@@ -110,7 +127,6 @@ const LivePreview = ({
   mandatoryFields.push({ label: "Price", isFilled: hasPrice });
   mandatoryFields.push({ label: "Available Stock", isFilled: hasStock });
   mandatoryFields.push({ label: "Shipping Weight", isFilled: hasWeight });
-  mandatoryFields.push({ label: "Return Policy", isFilled: hasReturn });
   mandatoryFields.push({ label: "Product Images", isFilled: hasImages });
 
   reqSpecs.forEach(f => {
@@ -132,9 +148,7 @@ const LivePreview = ({
     mandatoryFields.push({ label: "Size Chart", isFilled: isPromoCompleted });
   }
 
-  if ((variants || []).length > 0) {
-    mandatoryFields.push({ label: "Variant Prices", isFilled: isVariantPricesFilled });
-  }
+
 
   const totalRequired = mandatoryFields.length;
   const filledRequired = mandatoryFields.filter(f => f.isFilled).length;
@@ -164,7 +178,12 @@ const LivePreview = ({
   summaryFields.push({ label: "Shipping Weight", value: formData?.shippingWeight ? `${formData.shippingWeight}` : "Not Filled", isFilled: hasWeight });
 
   if ((variants || []).length > 0) {
-    summaryFields.push({ label: "Variant Prices", value: isVariantPricesFilled ? "All Filled" : "Not Filled", isFilled: isVariantPricesFilled });
+    const variantPriceDisplay = filledVariantPricesCount === 0
+      ? "Not Filled"
+      : filledVariantPricesCount === variants.length
+        ? "All Filled"
+        : `${filledVariantPricesCount}/${variants.length} Filled`;
+    summaryFields.push({ label: "Variant Prices", value: variantPriceDisplay, isFilled: isVariantPricesFilled });
   }
 
   // Dynamic dynamic spec values
@@ -182,10 +201,11 @@ const LivePreview = ({
     isFilled: keywords && keywords.length > 0
   });
 
+  const hasPromo = promotionImage && (!Array.isArray(promotionImage) || promotionImage.length > 0);
   summaryFields.push({
     label: "Promo Image",
-    value: promotionImage ? "✅ Uploaded" : "Not Uploaded",
-    isFilled: !!promotionImage
+    value: hasPromo ? "✅ Uploaded" : "Not Uploaded",
+    isFilled: !!hasPromo
   });
 
   return (

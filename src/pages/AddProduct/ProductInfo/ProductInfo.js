@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "./ProductInfo.css";
 import { fetchCategoryFields } from "../../../services/sellerService";
@@ -80,6 +80,11 @@ export const STEP = {
 };
 
 const BRAND_OPTIONS = ["Generic", "Other"];
+
+const cleanTextInput = (val) => {
+  if (!val) return "";
+  return val.replace(/[^A-Za-z0-9\s]/g, "");
+};
 
 const COD_OPTIONS = [
   { value: "yes", label: "Yes" },
@@ -434,15 +439,24 @@ const ImageUploadSection = ({ images, onUpload, onRemove }) => {
   const [limitError, setLimitError] = useState("");
 
   const handleFileChange = async (e) => {
-    const files = Array.from(e.target.files);
+    let files = Array.from(e.target.files);
     e.target.value = "";
 
-    if (images.length + files.length > 10) {
-      setLimitError("Maximum 10 product images are allowed.");
-      return;
+    const maxAllowed = 10 - images.length;
+    let exceeded = false;
+
+    if (files.length > maxAllowed) {
+      exceeded = true;
+      files = files.slice(0, Math.max(0, maxAllowed));
+    }
+
+    if (exceeded) {
+      setLimitError("You can't upload more than 10 images.");
     } else {
       setLimitError("");
     }
+
+    if (files.length === 0) return;
 
     for (const file of files) {
       if (!ACCEPTED_TYPES.includes(file.type)) {
@@ -738,10 +752,18 @@ const prefillReturn = (val) => {
   return "return";
 };
 
+const CODLikeMatch = (val) => {
+  if (val === true) return true;
+  if (val === false || val === undefined || val === null) return false;
+  const normalized = String(val).toLowerCase().trim();
+  if (!normalized) return false;
+  const CODIndicators = ["yes", "true", "1", "cod", "cash on delivery", "cash on delivery available", "delivery available"];
+  return CODIndicators.some(ind => normalized === ind || normalized.includes(ind));
+};
+
 const prefillCOD = (val) => {
-  if (!val) return "yes";
-  if (val === "Cash on Delivery Available" || val === "COD" || val === "yes") return "yes";
-  return "no";
+  if (val === undefined || val === null || val === "") return "yes";
+  return CODLikeMatch(val) ? "yes" : "no";
 };
 
 /* ─────────────────────────────────────────
@@ -750,7 +772,47 @@ const prefillCOD = (val) => {
 const ProductInfo = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { category, subcategory, isEditMode, isDuplicateMode, editData, tableId, origin, email } = location.state || {};
+  const { category: rawCategory, subcategory: rawSubcategory, isEditMode, isDuplicateMode, editData: rawEditData, tableId, origin, email } = location.state || {};
+
+  const editData = useMemo(() => {
+    if (!rawEditData) return null;
+    const copied = { ...rawEditData };
+    if (typeof copied.productOptions === "string" && copied.productOptions.trim() !== "") {
+      try {
+        copied.productOptions = JSON.parse(copied.productOptions);
+      } catch (e) {
+        console.error("Failed to parse productOptions:", e);
+      }
+    }
+    if (typeof copied.varientPrice === "string" && copied.varientPrice.trim() !== "") {
+      try {
+        copied.varientPrice = JSON.parse(copied.varientPrice);
+      } catch (e) {
+        console.error("Failed to parse varientPrice:", e);
+      }
+    }
+    if (typeof copied.specifications === "string" && copied.specifications.trim() !== "") {
+      try {
+        copied.specifications = JSON.parse(copied.specifications);
+      } catch (e) {
+        console.error("Failed to parse specifications:", e);
+      }
+    }
+    return copied;
+  }, [rawEditData]);
+
+ const category = rawCategory || (editData ? {
+    name: editData.categoryName?.[0] || editData.mainCategory || "",
+    _id: editData.categoryId?.[0] || "",
+    CategoryID: editData.categoryId?.[0] || "",
+  } : null);
+
+  const subcategory = rawSubcategory || (editData ? {
+    name: editData.subCategory || "",
+    _id: editData.subCategoryId || editData.SubCategoryID || editData.subcategoryId || "",
+    subcategoryId: editData.subCategoryId || editData.SubCategoryID || editData.subcategoryId || "",
+    SubCategoryID: editData.SubCategoryID || "",
+  } : null);
   
   // uses top-level resolveWixImage
 
@@ -770,6 +832,7 @@ const ProductInfo = () => {
             const resolved = resolveWixImage(editData.mainmedia);
             if (resolved && !seen.has(resolved)) {
               seen.add(resolved);
+              seen.add(editData.mainmedia);
               result.push({ preview: resolved, mediaUrl: resolved, url: resolved, status: "success" });
             }
           }
@@ -787,7 +850,8 @@ const ProductInfo = () => {
                 resolved = resolveWixImage(raw);
               }
               if (!resolved) continue;
-              if (seen.has(raw)) continue;
+              if (seen.has(resolved) || seen.has(raw)) continue;
+              seen.add(resolved);
               seen.add(raw);
               result.push({
                 preview: resolved,
@@ -833,7 +897,7 @@ const ProductInfo = () => {
 
   const [formData, setFormData] = useState({
     productName:     hasNavState ? (location.state.formData.productName     ?? "") : (prefill ? (editData?.name            ?? "") : ""),
-    sku:             hasNavState ? (location.state.formData.sku             ?? "") : (prefill ? (editData?.sku              ?? "") : ""),
+    sku:             hasNavState ? (location.state.formData.sku             ?? "") : (prefill ? (editData?.skuCode || editData?.sku_code || editData?.sku || editData?.SKU || editData?.Sku || "") : ""),
     brand:           initialBrand,
     price:           hasNavState ? (location.state.formData.price           ?? "") : (prefill ? (editData?.price            ?? "") : ""),
     onSale:          hasNavState ? (location.state.formData.onSale          ?? false) : (prefill ? (discountPrefill.onSale     ?? false) : false),
@@ -844,8 +908,70 @@ const ProductInfo = () => {
     acceptCOD:       hasNavState ? (location.state.formData.acceptCOD       ?? "yes") : (prefill ? prefillCOD(editData?.paymentType) : "yes"),
     productReturn:   hasNavState ? (location.state.formData.productReturn   ?? "return") : (prefill ? prefillReturn(editData?.productReturn) : "return"),
     deliveryCharge:  hasNavState ? (location.state.formData.deliveryCharge  ?? "no") : (prefill ? (editData?.deliveryCharges  ? "yes" : "no") : "no"),
-    resellingProfit: hasNavState ? (location.state.formData.resellingProfit  ?? "") : (prefill ? (editData?.resellingProfit  ?? "") : ""),
+    resellingProfit: hasNavState ? (location.state.formData.resellingProfit  ?? "") : (prefill ? (editData?.resellingProfit || editData?.sellAndEarnCommission || editData?.reselling_profit || editData?.sell_and_earn_commission || "") : ""),
   });
+
+  useEffect(() => {
+    if ((isEditMode || isDuplicateMode) && editData) {
+      if (!location.state?.formData) {
+        const discountPrefill = resolveDiscount(editData.discount, editData.price);
+        setFormData({
+          productName:     editData?.name            ?? "",
+          sku:             editData?.skuCode || editData?.sku_code || editData?.sku || editData?.SKU || editData?.Sku || "",
+          brand:           editData?.brand ?? "",
+          price:           editData?.price            ?? "",
+          onSale:          discountPrefill.onSale     ?? false,
+          discountPercent: discountPrefill.discountPercent ?? "",
+          salePrice:       discountPrefill.salePrice  ?? "",
+          shippingWeight:  editData?.shippingWeight   ?? "",
+          availableStock:  String(editData?.inventory ?? editData?.stock ?? editData?.totalQuantity ?? ""),
+          acceptCOD:       prefillCOD(editData?.paymentType),
+          productReturn:   prefillReturn(editData?.productReturn),
+          deliveryCharge:  editData?.deliveryCharges  ? "yes" : "no",
+          resellingProfit: editData?.resellingProfit || editData?.sellAndEarnCommission || editData?.reselling_profit || editData?.sell_and_earn_commission || "",
+        });
+        setDiscountType((editData?.discount?.type === "AMOUNT") ? "flat" : "percent");
+      }
+      if (!location.state?.images) {
+        const seen = new Set();
+        const result = [];
+        if (editData.mainmedia) {
+          const resolved = resolveWixImage(editData.mainmedia);
+          if (resolved && !seen.has(resolved)) {
+            seen.add(resolved);
+            seen.add(editData.mainmedia);
+            result.push({ preview: resolved, mediaUrl: resolved, url: resolved, status: "success" });
+          }
+        }
+        const extraImages = editData.mediaItems || editData.productImages || [];
+        if (Array.isArray(extraImages)) {
+          for (const img of extraImages) {
+            const raw = typeof img === "string" ? img : img?.src || img?.url || img?.mediaUrl || img?.image || null;
+            if (!raw) continue;
+            let resolved = null;
+            if (raw.startsWith("http")) {
+              resolved = raw;
+            } else if (raw.startsWith("wix:image://")) {
+              resolved = resolveWixImage(raw);
+            }
+            if (!resolved) continue;
+            if (seen.has(resolved) || seen.has(raw)) continue;
+            seen.add(resolved);
+            seen.add(raw);
+            result.push({
+              preview: resolved,
+              mediaUrl: resolved,
+              url: resolved,
+              status: "success",
+              wixSrc: raw.startsWith("wix:image://") ? raw : null,
+              wixResponse: typeof img === "object" ? img : null,
+            });
+          }
+        }
+        setImages(result);
+      }
+    }
+  }, [editData, isEditMode, isDuplicateMode, location.state?.formData, location.state?.images]);
 
   const [resellerError, setResellerError] = useState("");
   const [stockError, setStockError] = useState("");
@@ -908,7 +1034,7 @@ const ProductInfo = () => {
         if (!optName) return;
         const choices = opt.choices || opt.values || opt.options || [];
         const selectedValues = choices
-          .map(c => (typeof c === "object" ? (c.value || c.description || c.name || "") : String(c)))
+          .map(c => (typeof c === "object" ? (c.description || c.value || c.name || "") : String(c)))
           .filter(Boolean);
         if (selectedValues.length === 0) return;
         const storeValue = selectedValues.length === 1 ? selectedValues[0] : selectedValues;
@@ -967,18 +1093,67 @@ const ProductInfo = () => {
     return {};
   })();
 
-  const previewVariantPrices = location.state?.variantPrices || {};
+  const previewVariantPrices = location.state?.variantPrices || (() => {
+    if ((isEditMode || isDuplicateMode) && editData && editData.varientPrice?.products) {
+      const prices = {};
+      const base = parseFloat(editData.price) || 0;
+      const effectiveBasePrice = discountPrefill.onSale && discountPrefill.salePrice
+        ? parseFloat(discountPrefill.salePrice) || base
+        : base;
+      const products = editData.varientPrice.products || [];
+      products.forEach(p => {
+        const info = p.variantInfo?.[0];
+        if (!info) return;
+        // Skip variants the seller never actually entered a price for —
+        // otherwise every default-saved variant shows as "filled" in preview.
+        if (info.priceModified !== true) return;
+        const choices = info.choices || {};
+        const price = parseFloat(info.price) || 0;
+        const color = choices["Color"] || choices["Colour"] || null;
+        const optionField = Object.keys(choices).find(k => k !== "Color" && k !== "Colour");
+        const optionLabel = optionField ? choices[optionField] : null;
+
+        let key = "";
+        if (color && optionField && optionLabel) {
+          key = `${color}__${optionField}__${optionLabel}`;
+        } else if (color) {
+          key = color;
+        } else if (optionField && optionLabel) {
+          key = `${optionField}__${optionLabel}`;
+        }
+
+        if (key) {
+          const diff = price - effectiveBasePrice;
+          const op = diff >= 0 ? "+" : "-";
+          const inputVal = String(Math.abs(diff));
+          prices[key] = {
+            op,
+            inputVal,
+            appliedDiff: diff,
+          };
+        }
+      });
+      return prices;
+    }
+    return {};
+  })();
 
   const previewPromotionImage = (() => {
-    if (location.state?.promotionImage !== undefined) return location.state.promotionImage;
+    if (location.state?.promotionImage !== undefined) {
+      const val = location.state.promotionImage;
+      if (Array.isArray(val)) return val;
+      return val ? [val] : [];
+    }
     if ((isEditMode || isDuplicateMode) && editData) {
       const photos = editData.promotionPhotos;
       if (Array.isArray(photos) && photos.length > 0) {
-        const url = typeof photos[0] === "string" ? photos[0] : photos[0]?.url || photos[0]?.src || null;
-        if (url) return { url: resolveWixImage(url) || url, name: "promotion-image", size: 0 };
+        return photos.map((p, idx) => {
+          const url = typeof p === "string" ? p : p?.url || p?.src || null;
+          return url ? { url: resolveWixImage(url) || url, name: `promotion-image-${idx + 1}`, size: 0 } : null;
+        }).filter(Boolean);
       }
     }
-    return null;
+    return [];
   })();
 
   const previewKeywords = (() => {
@@ -991,7 +1166,11 @@ const ProductInfo = () => {
     return [];
   })();
 
-  const previewOptionFields = fields.filter(f => f.type === "Product Options");
+  const previewOptionFields = fields.filter(f => {
+    if (f.type !== "Product Options") return false;
+    const name = (f.title || f.fieldId || "").toLowerCase().trim();
+    return name !== "color" && name !== "colour";
+  });
   const previewVariants = (() => {
     if (location.state?.variants) return location.state.variants;
 
@@ -1006,17 +1185,24 @@ const ProductInfo = () => {
       selected.map(label => ({ optionField: fieldTitle, optionLabel: label }))
     );
 
-    if (optionCombos.length === 0) return [];
-
     if (previewConfirmedColors.length > 0) {
-      return previewConfirmedColors.flatMap(col =>
-        optionCombos.map(opt => ({
+      if (optionCombos.length > 0) {
+        return previewConfirmedColors.flatMap(col =>
+          optionCombos.map(opt => ({
+            color: col.name,
+            optionField: opt.optionField,
+            optionLabel: opt.optionLabel,
+            key: `${col.name}__${opt.optionField}__${opt.optionLabel}`,
+          }))
+        );
+      } else {
+        return previewConfirmedColors.map(col => ({
           color: col.name,
-          optionField: opt.optionField,
-          optionLabel: opt.optionLabel,
-          key: `${col.name}__${opt.optionField}__${opt.optionLabel}`,
-        }))
-      );
+          optionField: null,
+          optionLabel: null,
+          key: col.name,
+        }));
+      }
     }
 
     return optionCombos.map(opt => ({
@@ -1049,6 +1235,32 @@ const ProductInfo = () => {
     setTouched(prev => ({ ...prev, [key]: true }));
     if (fieldErrors[key]) {
       setFieldErrors(prev => ({ ...prev, [key]: "" }));
+    }
+  };
+
+  const handlePriceChange = (val) => {
+    const basePrice = parseFloat(val);
+    setFormData(prev => {
+      let updatedSalePrice = prev.salePrice;
+      if (prev.onSale && !isNaN(basePrice) && basePrice > 0 && prev.discountPercent) {
+        const discVal = parseFloat(prev.discountPercent);
+        if (!isNaN(discVal)) {
+          if (discountType === "percent") {
+            updatedSalePrice = (basePrice - (basePrice * discVal) / 100).toFixed(2);
+          } else {
+            updatedSalePrice = Math.max(basePrice - discVal, 0).toFixed(2);
+          }
+        }
+      }
+      return {
+        ...prev,
+        price: val,
+        salePrice: updatedSalePrice,
+      };
+    });
+    setTouched(prev => ({ ...prev, price: true }));
+    if (fieldErrors.price) {
+      setFieldErrors(prev => ({ ...prev, price: "" }));
     }
   };
 
@@ -1247,12 +1459,12 @@ const ProductInfo = () => {
           tableId: isDuplicateMode ? null : tableId,
           origin,
           email: email || location.state?.email,
-          specifications: location.state?.specifications || null, // Preserve other specifications across steps
-          colourImages: location.state?.colourImages || null,
-          confirmedColors: location.state?.confirmedColors || null,
-          variantPrices: location.state?.variantPrices || null,
-          promotionImage: location.state?.promotionImage || null,
-          keywords: location.state?.keywords || null,
+          specifications: hasNavState ? (location.state.specifications || null) : (previewSpecs || null),
+          colourImages: hasNavState ? (location.state.colourImages || null) : (previewColourImages || null),
+          confirmedColors: hasNavState ? (location.state.confirmedColors || null) : (previewConfirmedColors || null),
+          variantPrices: hasNavState ? (location.state.variantPrices || null) : (previewVariantPrices || null),
+          promotionImage: hasNavState ? (location.state.promotionImage || null) : (previewPromotionImage || null),
+          keywords: hasNavState ? (location.state.keywords || null) : (previewKeywords || null),
           discountType,
         },
       }
@@ -1313,7 +1525,7 @@ const ProductInfo = () => {
               label="Product Name" required
               placeholder="Enter product name"
               value={formData.productName}
-              onChange={(v) => updateField("productName", v)}
+              onChange={(v) => updateField("productName", cleanTextInput(v))}
               error={fieldErrors.productName}
               touched={touched.productName || submitAttempted}
             />
@@ -1322,7 +1534,7 @@ const ProductInfo = () => {
               placeholder="Enter SKU code (optional)"
               value={formData.sku}
               maxLength={40}
-              onChange={(v) => updateField("sku", v)}
+              onChange={(v) => updateField("sku", cleanTextInput(v))}
             />
             <FormSelect
               label="Brand" required
@@ -1342,7 +1554,7 @@ const ProductInfo = () => {
                 required
                 placeholder="Brand name"
                 value={formData.brand === "Other" ? "" : formData.brand}
-                onChange={(v) => updateField("brand", v || "Other")}
+                onChange={(v) => updateField("brand", cleanTextInput(v) || "Other")}
                 error={fieldErrors.brand}
                 touched={touched.brand || submitAttempted}
               />
@@ -1351,7 +1563,7 @@ const ProductInfo = () => {
               label="Price" required
               placeholder="0.00" type="number" prefix="₹"
               value={formData.price}
-              onChange={(v) => updateField("price", v)}
+              onChange={handlePriceChange}
               error={fieldErrors.price}
               touched={touched.price || submitAttempted}
             />
@@ -1474,7 +1686,7 @@ const ProductInfo = () => {
             />
             <div className="pi-field">
               <label className="pi-label">
-                Is Delivery Charge Applicable <span className="pi-required"> *</span>
+                Is Delivery Charge Applicable<span className="pi-required"> *</span>
               </label>
               <div className={`pi-select-wrap ${formData.productReturn !== "no_return" ? "pi-select-wrap--disabled" : ""}`}>
                 <select

@@ -111,9 +111,23 @@ function PrivacyPolicyPage() {
     <div className="pp-root">
 
       {/* Close */}
-      <div className="pp-topbar">
-        <button className="pp-back-btn" onClick={handleClose}>
-          <CloseX /><span>Close</span>
+      <div className="pp-topbar" style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button
+          className="pp-back-btn"
+          onClick={handleClose}
+          style={{
+            padding: 0,
+            borderRadius: "50%",
+            width: "38px",
+            height: "38px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minWidth: "38px"
+          }}
+          aria-label="Close"
+        >
+          <CloseX />
         </button>
       </div>
 

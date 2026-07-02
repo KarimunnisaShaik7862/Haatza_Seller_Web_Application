@@ -35,6 +35,7 @@ function SignInForm({
   onForgotPasswordConfirm,
   forgotPasswordLoading,
   forgotPasswordError,
+  onChangeEmail,
 }) {
   const videoRef = useRef(null);
   const passwordRef = useRef(null);
@@ -139,15 +140,46 @@ function SignInForm({
             { htmlFor: "contact" },
             "Enter your Email or Mobile Number"
           ),
-          React.createElement("input", {
-            id: "contact",
-            type: "text",
-            value: contact,
-            onChange: (e) => onContactChange(e.target.value),
-            onKeyDown: handleKeyDown,
-            placeholder: "Enter your Email or Mobile Number",
-            disabled: loading || showPassword, // lock contact field once password shown
-          })
+          React.createElement(
+            "div",
+            { style: { position: "relative" } },
+            React.createElement("input", {
+              id: "contact",
+              type: "text",
+              value: contact,
+              onChange: (e) => onContactChange(e.target.value),
+              onKeyDown: handleKeyDown,
+              placeholder: "Enter your Email or Mobile Number",
+              disabled: loading || showPassword, // lock contact field once password shown
+              style: { paddingRight: contact && !showPassword ? "36px" : "12px" },
+            }),
+            contact && !showPassword
+              ? React.createElement(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => onContactChange(""),
+                    style: {
+                      position: "absolute",
+                      right: "10px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "#999",
+                      fontSize: "16px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "4px",
+                      zIndex: 2,
+                    },
+                  },
+                  "✕"
+                )
+              : null
+          )
         ),
 
         // ── Password Input (appears after email verification) ────────────────
@@ -170,9 +202,39 @@ function SignInForm({
                 placeholder: "Enter your password",
                 disabled: loading,
               }),
+              /* Flex Container to Align Change Email (Left) & Forgot Password (Right) */
               React.createElement(
                 "div",
-                { className: "forgot-password-container" },
+                {
+                  style: {
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginTop: "8px",
+                    width: "100%",
+                  },
+                },
+                React.createElement(
+                  "button",
+                  {
+                    type: "button",
+                    className: "change-email-btn",
+                    onClick: (e) => {
+                      e.preventDefault();
+                      onChangeEmail();
+                    },
+                    style: {
+                      background: "transparent",
+                      border: "none",
+                      color: "#2962ff",
+                      fontSize: "13px",
+                      cursor: "pointer",
+                      fontWeight: "500",
+                      padding: 0,
+                    },
+                  },
+                  "Change Email"
+                ),
                 React.createElement(
                   "button",
                   {
@@ -181,67 +243,76 @@ function SignInForm({
                     onClick: (e) => {
                       e.preventDefault();
                       onForgotPasswordToggle();
-                    }
+                    },
+                    style: {
+                      background: "transparent",
+                      border: "none",
+                      color: "#2962ff",
+                      fontSize: "13px",
+                      cursor: "pointer",
+                      fontWeight: "500",
+                      padding: 0,
+                    },
                   },
                   "Forgot Password?"
-                ),
-                showForgotPasswordConfirm
-                  ? React.createElement(
+                )
+              ),
+              showForgotPasswordConfirm
+                ? React.createElement(
+                    "div",
+                    { className: "forgot-confirm-popup" },
+                    React.createElement(
                       "div",
-                      { className: "forgot-confirm-popup" },
+                      { className: "forgot-confirm-header" },
+                      React.createElement("h4", null, "Reset Password"),
                       React.createElement(
-                        "div",
-                        { className: "forgot-confirm-header" },
-                        React.createElement("h4", null, "Reset Password"),
-                        React.createElement(
-                          "button",
-                          {
-                            type: "button",
-                            className: "forgot-confirm-close",
-                            onClick: onForgotPasswordToggle
-                          },
-                          "✕"
+                        "button",
+                        {
+                          type: "button",
+                          className: "forgot-confirm-close",
+                          onClick: onForgotPasswordToggle,
+                        },
+                        "✕"
+                      )
+                    ),
+                    React.createElement(
+                      "p",
+                      { className: "forgot-confirm-msg" },
+                      "Are you sure you want to reset your password?"
+                    ),
+                    forgotPasswordError
+                      ? React.createElement(
+                          "div",
+                          { className: "forgot-confirm-error" },
+                          forgotPasswordError
                         )
+                      : null,
+                    React.createElement(
+                      "div",
+                      { className: "forgot-confirm-actions" },
+                      React.createElement(
+                        "button",
+                        {
+                          type: "button",
+                          className: "forgot-confirm-btn no",
+                          onClick: onForgotPasswordToggle,
+                          disabled: forgotPasswordLoading,
+                        },
+                        "No"
                       ),
                       React.createElement(
-                        "p",
-                        { className: "forgot-confirm-msg" },
-                        "Are you sure you want to reset your password?"
-                      ),
-                      forgotPasswordError
-                        ? React.createElement(
-                            "div",
-                            { className: "forgot-confirm-error" },
-                            forgotPasswordError
-                          )
-                        : null,
-                      React.createElement(
-                        "div",
-                        { className: "forgot-confirm-actions" },
-                        React.createElement(
-                          "button",
-                          {
-                            type: "button",
-                            className: "forgot-confirm-btn no",
-                            onClick: onForgotPasswordToggle,
-                            disabled: forgotPasswordLoading
-                          },
-                          "No"
-                        ),
-                        React.createElement(
-                          "button",
-                          {
-                            type: "button",
-                            className: "forgot-confirm-btn yes",
-                            onClick: onForgotPasswordConfirm,
-                            disabled: forgotPasswordLoading
-                          },
-                          forgotPasswordLoading ? "Sending..." : "Yes"
-                        )
+                        "button",
+                        {
+                          type: "button",
+                          className: "forgot-confirm-btn yes",
+                          onClick: onForgotPasswordConfirm,
+                          disabled: forgotPasswordLoading,
+                        },
+                        forgotPasswordLoading ? "Sending..." : "Yes"
                       )
                     )
-                  : null
-              )
+                  )
+                : null
             )
           : null,
 
@@ -255,9 +326,9 @@ function SignInForm({
           "p",
           { className: "terms-text" },
           "By continuing, you agree to our ",
-          React.createElement(Link, { to: "/terms", className: "terms-link" }, "Terms of Use"),
+          React.createElement("a", { href: "/terms", target: "_blank", rel: "noopener noreferrer", className: "terms-link" }, "Terms of Use"),
           " and ",
-          React.createElement(Link, { to: "/privacy", className: "terms-link" }, "Privacy Policy"),
+          React.createElement("a", { href: "/privacy", target: "_blank", rel: "noopener noreferrer", className: "terms-link" }, "Privacy Policy"),
           "."
         ),
 

@@ -9,12 +9,15 @@
 /* ── CSS Variables ─────────────────────────────────────────── */
 /* Layout vars stay in :root so DashboardLayout.css can read them */
 :root {
-  --sidebar-width:      280px;
-  --sidebar-width-mini: 76px;
-  --navbar-height:      82px;
+  --sidebar-width:      320px;
+  --sidebar-width-mini: 72px;
+  --navbar-height:      70px;
   --toggle-size:        36px;
   --toggle-top: calc(var(--navbar-height) + 20px);
   --slide-transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Change these two lines in your :root block */
+--sidebar-width: 380px;   /* was 320px */
+--navbar-height: 82px;    /* was 70px  */
 }
 
 /* All sidebar-specific vars scoped here — won't bleed into Onboarding */
@@ -63,6 +66,19 @@ body {
 }
 
 /* ── Main Content Margin ──────────────────────────────────── */
+.main-content {
+  transition: margin-left var(--slide-transition);
+  min-height: 100vh;
+}
+
+.app-container.sidebar-expanded .main-content {
+  margin-left: var(--sidebar-width);
+}
+
+.app-container.sidebar-collapsed .main-content {
+  margin-left: var(--sidebar-width-mini);
+}
+
 /* ── Sidebar Shell ────────────────────────────────────────── */
 .sidebar {
   display: flex;
@@ -638,7 +654,7 @@ body {
 /* ── Responsive Breakpoints ───────────────────────────────── */
 @media (max-width: 1024px) {
   :root {
-    --sidebar-width: 280px;
+    --sidebar-width: 300px;
   }
 }
 
@@ -648,21 +664,15 @@ body {
     --toggle-top: calc(var(--navbar-height) + 16px);
   }
 
-  .sidebar {
-    transform: translateX(-100%);
-    transition: transform var(--slide-transition);
-    z-index: 100;
+  .app-container.sidebar-expanded .main-content {
+    margin-left: var(--sidebar-width);
   }
 
-  .sidebar.sidebar--open {
-    transform: translateX(0);
+  .app-container.sidebar-collapsed .main-content {
+    margin-left: var(--sidebar-width-mini);
   }
 
   .sidebar__external-toggle {
-    display: none !important;
-  }
-
-  .sidebar__external-toggle-legacy {
     width: 18px;
     height: 48px;
   }

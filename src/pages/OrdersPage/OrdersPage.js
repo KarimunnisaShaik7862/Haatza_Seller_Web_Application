@@ -128,36 +128,49 @@ const OrdersPage = () => {
     return { confirmed, shipped, cancelled };
   }, [filteredOrders]);
 
+  const selectYears = useMemo(() => {
+    const yrs = [];
+    const currentYear = new Date().getFullYear();
+    for (let y = 2024; y <= currentYear; y++) {
+      yrs.push(y);
+    }
+    return yrs;
+  }, []);
+
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+
   const handleQuickPreset = (preset) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const todayVal = new Date();
+    todayVal.setHours(0, 0, 0, 0);
 
     if (preset === "today") {
-      setStartDate(today);
-      setEndDate(today);
+      setStartDate(todayVal);
+      setEndDate(todayVal);
     } else if (preset === "yesterday") {
-      const yesterday = new Date(today);
-      yesterday.setDate(today.getDate() - 1);
+      const yesterday = new Date(todayVal);
+      yesterday.setDate(todayVal.getDate() - 1);
       setStartDate(yesterday);
       setEndDate(yesterday);
     } else if (preset === "last7") {
-      const last7 = new Date(today);
-      last7.setDate(today.getDate() - 6);
+      const last7 = new Date(todayVal);
+      last7.setDate(todayVal.getDate() - 6);
       setStartDate(last7);
-      setEndDate(today);
+      setEndDate(todayVal);
     } else if (preset === "last30") {
-      const last30 = new Date(today);
-      last30.setDate(today.getDate() - 29);
+      const last30 = new Date(todayVal);
+      last30.setDate(todayVal.getDate() - 29);
       setStartDate(last30);
-      setEndDate(today);
+      setEndDate(todayVal);
     } else if (preset === "thisMonth") {
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const startOfMonth = new Date(todayVal.getFullYear(), todayVal.getMonth(), 1);
+      const endOfMonth = new Date(todayVal.getFullYear(), todayVal.getMonth() + 1, 0);
       setStartDate(startOfMonth);
       setEndDate(endOfMonth);
     } else if (preset === "clear") {
       setStartDate(null);
       setEndDate(null);
+      setCalendarMonth(new Date().getMonth());
+      setCalendarYear(new Date().getFullYear());
     }
     setShowDatePicker(false);
   };
@@ -172,6 +185,9 @@ const OrdersPage = () => {
   };
 
   const handleNextMonth = () => {
+    if (calendarYear >= today.getFullYear() && calendarMonth >= today.getMonth()) {
+      return;
+    }
     if (calendarMonth === 11) {
       setCalendarMonth(0);
       setCalendarYear((y) => y + 1);
@@ -229,8 +245,12 @@ const OrdersPage = () => {
       classes += " in-range";
     }
 
-    if (startTime && !endTime && hoverTime && time > startTime && time <= hoverTime) {
-      classes += " in-range-hover";
+    if (startTime && !endTime && hoverTime) {
+      const minTime = Math.min(startTime, hoverTime);
+      const maxTime = Math.max(startTime, hoverTime);
+      if (time >= minTime && time <= maxTime) {
+        classes += " in-range-hover";
+      }
     }
 
     return classes;
@@ -239,18 +259,24 @@ const OrdersPage = () => {
   const handleDayClick = (dayDate) => {
     if (!dayDate) return;
 
+    const clickedMidnightVal = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate()).getTime();
+    if (clickedMidnightVal > todayMidnight) {
+      return;
+    }
+
     const normalizedDate = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
 
     if (!startDate || (startDate && endDate)) {
       setStartDate(normalizedDate);
       setEndDate(null);
     } else if (startDate && !endDate) {
-      if (normalizedDate.getTime() >= startDate.getTime()) {
-        setEndDate(normalizedDate);
-        setShowDatePicker(false);
-      } else {
+      if (normalizedDate.getTime() < startDate.getTime()) {
+        setEndDate(startDate);
         setStartDate(normalizedDate);
+      } else {
+        setEndDate(normalizedDate);
       }
+      setShowDatePicker(false);
     }
   };
 
@@ -321,9 +347,62 @@ const OrdersPage = () => {
                   <div className="orders-calendar-main">
                     <button className="orders-calendar-close-btn" onClick={() => setShowDatePicker(false)}>&times;</button>
                     <div className="orders-calendar-header">
-                      <button className="calendar-nav-btn" onClick={handlePrevMonth}>&larr;</button>
-                      <span className="calendar-month-label">{monthNames[calendarMonth]} {calendarYear}</span>
-                      <button className="calendar-nav-btn" onClick={handleNextMonth}>&rarr;</button>
+                      <button 
+                        className="calendar-nav-btn" 
+                        onClick={handlePrevMonth}
+                      >
+                        &larr;
+                      </button>
+                      <div className="orders-calendar-selects-container" style={{ display: "flex", gap: "6px" }}>
+                        <select 
+                          value={calendarMonth} 
+                          onChange={(e) => {
+                            const newMonth = parseInt(e.target.value);
+                            const currentYear = new Date().getFullYear();
+                            const currentMonth = new Date().getMonth();
+                            if (calendarYear === currentYear && newMonth > currentMonth) {
+                              return;
+                            }
+                            setCalendarMonth(newMonth);
+                          }}
+                          className="orders-calendar-month-select"
+                          style={{ border: "1px solid rgba(0,0,0,0.1)", borderRadius: "4px", padding: "2px 4px", fontSize: "12px", background: "white", color: "black", cursor: "pointer" }}
+                        >
+                          {monthNames.map((name, i) => {
+                            const currentYear = new Date().getFullYear();
+                            const currentMonth = new Date().getMonth();
+                            const isFuture = calendarYear === currentYear && i > currentMonth;
+                            return (
+                              <option key={name} value={i} disabled={isFuture}>{name}</option>
+                            );
+                          })}
+                        </select>
+                        <select 
+                          value={calendarYear} 
+                          onChange={(e) => {
+                            const newYear = parseInt(e.target.value);
+                            const currentYear = new Date().getFullYear();
+                            const currentMonth = new Date().getMonth();
+                            setCalendarYear(newYear);
+                            if (newYear === currentYear && calendarMonth > currentMonth) {
+                              setCalendarMonth(currentMonth);
+                            }
+                          }}
+                          className="orders-calendar-year-select"
+                          style={{ border: "1px solid rgba(0,0,0,0.1)", borderRadius: "4px", padding: "2px 4px", fontSize: "12px", background: "white", color: "black", cursor: "pointer" }}
+                        >
+                          {selectYears.map(year => (
+                            <option key={year} value={year}>{year}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button 
+                        className="calendar-nav-btn" 
+                        onClick={handleNextMonth}
+                        disabled={calendarYear >= today.getFullYear() && calendarMonth >= today.getMonth()}
+                      >
+                        &rarr;
+                      </button>
                     </div>
                     <div className="orders-calendar-weekdays">
                       <span>Su</span>
@@ -335,17 +414,20 @@ const OrdersPage = () => {
                       <span>Sa</span>
                     </div>
                     <div className="orders-calendar-days-grid">
-                      {calendarDays.map((d, index) => (
-                        <button
-                          key={index}
-                          className={getDayClassNames(d.date)}
-                          disabled={!d.day}
-                          onClick={() => handleDayClick(d.date)}
-                          onMouseEnter={() => d.date && setHoverDate(d.date)}
-                        >
-                          {d.day}
-                        </button>
-                      ))}
+                      {calendarDays.map((d, index) => {
+                        const isCellFuture = d.date && d.date.getTime() > todayMidnight;
+                        return (
+                          <button
+                            key={index}
+                            className={getDayClassNames(d.date)}
+                            disabled={!d.day || isCellFuture}
+                            onClick={() => handleDayClick(d.date)}
+                            onMouseEnter={() => d.date && setHoverDate(d.date)}
+                          >
+                            {d.day}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

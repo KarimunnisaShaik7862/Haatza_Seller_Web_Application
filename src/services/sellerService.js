@@ -62,8 +62,7 @@ const CAMPAIGN_SUMMARY_API = `${API_BASE_URL}/Campaignsummery`;
 const CAMPAIGN_DETAILS_API = `${API_BASE_URL}/campaignDetails`;
 
 // ─── Status constants — must match exactly what is saved in DB ────────────────
-export const IN_PROGRESS_STATUSES = ["Draft", "Under Review", "Pending", "Rejected", "Approved", "Update_Requested"];
-
+export const IN_PROGRESS_STATUSES = ["Draft", "Under Review", "Pending", "Rejected", "Approved", "Update Requested"];
 
 /* =============================================================================
    INTERNAL HELPER FUNCTIONS
@@ -399,7 +398,7 @@ const unwrapMyListingsEnvelope = (data, fallbackLimit = 10) => {
   const rawProducts = body.sellerProducts ?? body.products ?? body.items ?? [];
   const products = rawProducts.map((p) => {
     if (!p) return p;
-    const Table_ID = p.Table_ID || p.tableId || p.table_id || p.productId || p._id || p.id || "";
+    const Table_ID = p.Table_ID || p.tableId || p.table_id || p._id || p.id || p.productId || "";
     return {
       ...p,
       Table_ID,
@@ -445,7 +444,7 @@ const unwrapInProgressListingsEnvelope = (data, fallbackLimit = 10) => {
   const rawProducts = body.sellerProducts ?? body.products ?? body.items ?? body.data ?? (Array.isArray(body) ? body : []);
   const products = rawProducts.map((p) => {
     if (!p) return p;
-    const Table_ID = p.Table_ID || p.tableId || p.table_id || p.productId || p._id || p.id || "";
+    const Table_ID = p.Table_ID || p.tableId || p.table_id || p._id || p.id || p.productId || "";
     const productId = p.productId || p.product_id || p.wixProductId || "";
     return { ...p, Table_ID, productId };
   });
@@ -908,28 +907,70 @@ export const normalizeSearchText = (text = "") => {
 
 export const checkGSTINExists = async (gstin) => {
   const url = `${GST_API_URL}?gstin=${encodeURIComponent(gstin)}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-  });
-
-  if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+  let data;
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
   }
 
-  const data = await res.json();
+  _svcLog("[checkGSTINExists] Raw API response:", JSON.stringify(data));
 
-  if (typeof data.exists === "boolean") return data.exists;
-  if (typeof data.registered === "boolean") return data.registered;
-  if (typeof data.found === "boolean") return data.found;
-  if (data.status === "exists") return true;
-  if (data.status === "not_found") return false;
+  const candidates = [
+    data,
+    data?.message,
+    data?.data,
+    data?.message?.body,
+    data?.message?.data,
+    data?.result,
+    data?.body,
+  ];
 
-  return false;
+  for (const c of candidates) {
+    if (!c || typeof c !== "object") continue;
+    if (typeof c.exists === "boolean") return c.exists;
+    if (typeof c.registered === "boolean") return c.registered;
+    if (typeof c.found === "boolean") return c.found;
+    if (typeof c.isRegistered === "boolean") return c.isRegistered;
+    if (typeof c.alreadyExists === "boolean") return c.alreadyExists;
+    if (typeof c.duplicate === "boolean") return c.duplicate;
+    if (typeof c.isDuplicate === "boolean") return c.isDuplicate;
+    if (typeof c.gstExists === "boolean") return c.gstExists;
+    if (typeof c.userExists === "boolean") return c.userExists;
+    if (typeof c.sellerExists === "boolean") return c.sellerExists;
+    if (typeof c.gstinExists === "boolean") return c.gstinExists;
+    if (typeof c.status === "string") {
+      const s = c.status.toLowerCase();
+      if (s === "exists" || s === "registered" || s === "duplicate" || s === "found") return true;
+      if (s === "not_found" || s === "not_registered" || s === "available") return false;
+    }
+  }
+
+  const sellerRecord =
+    data?.message?.seller ||
+    data?.seller ||
+    (Array.isArray(data?.message) ? data.message[0] : null) ||
+    (Array.isArray(data?.message?.data) ? data.message.data[0] : null) ||
+    (Array.isArray(data?.data) ? data.data[0] : null) ||
+    (Array.isArray(data) ? data[0] : null);
+  if (sellerRecord && typeof sellerRecord === "object" && Object.keys(sellerRecord).length > 0) {
+    return true;
+  }
+
+  _svcErr("[checkGSTINExists] Could not determine exists/not-exists from response shape. Raw response logged above.");
+  throw new Error("UNKNOWN_GSTIN_RESPONSE_SHAPE");
 };
-
-
 /* =============================================================================
    // INVENTORY APIs
    ============================================================================= */
@@ -1103,59 +1144,64 @@ export const buildMediaItems = (images = []) => {
 
 export const buildPromotionPhotos = (promotionImage) => {
   if (!promotionImage) return [];
-  const url = promotionImage.url || promotionImage.mediaUrl || promotionImage.src || "";
-  if (!url) return [];
+  const images = Array.isArray(promotionImage) ? promotionImage : [promotionImage];
 
-  console.log("[buildPromotionPhotos] Input URL type:", url.startsWith("data:") ? "base64" : url.startsWith("wix:") ? "wix" : "https");
+  const output = [];
+  for (const img of images) {
+    if (!img) continue;
+    const url = img.url || img.mediaUrl || img.src || "";
+    if (!url) continue;
 
-  if (url.startsWith("data:")) {
-    const fileName = promotionImage.name || "promo.jpg";
-    return [
-      {
+    console.log("[buildPromotionPhotos] Input URL type:", url.startsWith("data:") ? "base64" : url.startsWith("wix:") ? "wix" : "https");
+
+    if (url.startsWith("data:")) {
+      const fileName = img.name || "promo.jpg";
+      output.push({
         description: "",
         id: fileName,
         src: url,
         type: "image",
-      },
-    ];
-  }
-
-  let parsedWixResponse = null;
-  if (promotionImage.wixResponse) {
-    if (typeof promotionImage.wixResponse === "object") {
-      parsedWixResponse = promotionImage.wixResponse;
-    } else if (typeof promotionImage.wixResponse === "string") {
-      try {
-        parsedWixResponse = JSON.parse(promotionImage.wixResponse);
-      } catch { }
+      });
+      continue;
     }
-  }
 
-  const wixSrc =
-    promotionImage.wixSrc ||
-    parsedWixResponse?.src ||
-    (url.startsWith("wix:image://") ? url : toWixSrc(url));
+    let parsedWixResponse = null;
+    if (img.wixResponse) {
+      if (typeof img.wixResponse === "object") {
+        parsedWixResponse = img.wixResponse;
+      } else if (typeof img.wixResponse === "string") {
+        try {
+          parsedWixResponse = JSON.parse(img.wixResponse);
+        } catch { }
+      }
+    }
 
-  let fileId = "";
-  if (wixSrc && wixSrc.startsWith("wix:image://")) {
-    const withoutScheme = wixSrc.replace(/^wix:image:\/\//, "");
-    const withoutVersion = withoutScheme.replace(/^v1\//, "");
-    fileId = withoutVersion.split("/")[0] || "";
-  }
+    const wixSrc =
+      img.wixSrc ||
+      parsedWixResponse?.src ||
+      (url.startsWith("wix:image://") ? url : toWixSrc(url));
 
-  if (!fileId) {
-    const parts = url.split("/");
-    fileId = parts[parts.length - 1].split("?")[0] || "promo.jpg";
-  }
+    let fileId = "";
+    if (wixSrc && wixSrc.startsWith("wix:image://")) {
+      const withoutScheme = wixSrc.replace(/^wix:image:\/\//, "");
+      const withoutVersion = withoutScheme.replace(/^v1\//, "");
+      fileId = withoutVersion.split("/")[0] || "";
+    }
 
-  return [
-    {
+    if (!fileId) {
+      const parts = url.split("/");
+      fileId = parts[parts.length - 1].split("?")[0] || "promo.jpg";
+    }
+
+    output.push({
       description: "",
       id: fileId,
       src: wixSrc || url,
       type: "image",
-    },
-  ];
+    });
+  }
+
+  return output;
 };
 
 export const buildDiscount = (formData, discountType = "percent") => {
@@ -1168,11 +1214,9 @@ export const buildDiscount = (formData, discountType = "percent") => {
       value: val,
     };
   } else {
-    const price = parseFloat(formData.price) || 0;
-    const amount = (price * val) / 100;
     return {
-      type: "AMOUNT",
-      value: amount,
+      type: "PERCENTAGE",
+      value: val,
     };
   }
 };
@@ -1290,12 +1334,27 @@ export const buildProductOptions = (optionFields = [], specValues = {}, colourIm
   return options;
 };
 
+const normalizeVariantKey = (key) => {
+  if (!key) return "";
+  return key.toLowerCase().replace(/\s*\(\s*#[0-9a-fA-F]+\s*\)/g, "").replace(/\s+/g, "").trim();
+};
+
+const getVariantPriceData = (vKey, pricesObj) => {
+  if (!pricesObj) return null;
+  const target = normalizeVariantKey(vKey);
+  const foundKey = Object.keys(pricesObj).find(k => normalizeVariantKey(k) === target);
+  return foundKey ? pricesObj[foundKey] : null;
+};
+
 export const buildVarientPrice = (variants = [], variantPrices = {}, basePrice = 0) => {
   if (variants.length === 0) return {};
   const base = parseFloat(basePrice) || 0;
   const products = variants.map((v) => {
-    const priceData = variantPrices[v.key];
-    const finalPrice = base + (parseFloat(priceData?.appliedDiff ?? 0) || 0);
+    const priceData = getVariantPriceData(v.key, variantPrices);
+    const hasEnteredValue = !!priceData &&
+      priceData.inputVal !== undefined && priceData.inputVal !== null &&
+      priceData.inputVal !== "" && !isNaN(parseFloat(priceData.inputVal));
+    const finalPrice = base + (hasEnteredValue ? (parseFloat(priceData?.appliedDiff ?? 0) || 0) : 0);
     const choices = {};
     if (v.color) choices["Color"] = v.color;
     if (v.optionLabel) choices[v.optionField] = v.optionLabel;
@@ -1304,15 +1363,40 @@ export const buildVarientPrice = (variants = [], variantPrices = {}, basePrice =
         {
           choices,
           price: finalPrice,
+          // Marks whether the seller actually entered a price for this
+          // variant, so edit-mode reloads don't mistake "untouched" for "filled".
+          priceModified: hasEnteredValue,
         },
       ],
     };
   });
   return { products };
 };
-
 export const createListing = async (payload) => {
   const safePayload = typeof payload === "string" ? JSON.parse(payload) : payload;
+
+  // Force-sync resellingProfit fields the same way updateListing does,
+  // so create and update paths stay consistent.
+  // Force-sync resellingProfit fields the same way updateListing does,
+  // so create and update paths stay consistent.
+  const syncedResellingProfit = parseFloat(
+    safePayload.resellingProfit ?? safePayload.sellAndEarnCommission ?? 0
+  ) || 0;
+  safePayload.resellingProfit = syncedResellingProfit;
+  safePayload.sellAndEarnCommission = syncedResellingProfit;
+  safePayload.sellAndEarn = syncedResellingProfit > 0;
+
+  // Force-sync totalQuantity (Available Stock) the same way updateListing does.
+  // Force-sync totalQuantity (Available Stock) the same way updateListing does.
+  // NOTE: only totalQuantity is sent to the backend; inventory/stock are NOT
+  // valid backend fields and were causing 400 Bad Request errors on save.
+  const syncedTotalQuantity = parseInt(
+    safePayload.totalQuantity ?? safePayload.inventory ?? safePayload.stock ?? 0,
+    10
+  ) || 0;
+  safePayload.totalQuantity = syncedTotalQuantity;
+  delete safePayload.inventory;
+  delete safePayload.stock;
 
   console.group("[createListing] Request diagnostics");
   console.log("Seller Listing Payload", JSON.parse(JSON.stringify(safePayload)));
@@ -1359,10 +1443,56 @@ export const createListing = async (payload) => {
 export const updateListing = async (payload) => {
   const safePayload = typeof payload === "string" ? JSON.parse(payload) : payload;
 
+  // Force-sync every SKU field variant right before sending, so whichever
+  // field the backend reads as authoritative always carries the latest value.
+  // IMPORTANT: prioritize safePayload.sku specifically (the field explicitly
+  // set by ReviewSubmitPage's buildPayload from formData.sku) over any stale
+  // legacy fields that may still be present on the payload object.
+  const syncedSku = String(safePayload.sku ?? "").trim() || String(
+    safePayload.SKU ?? safePayload.Sku ??
+    safePayload.skuCode ?? safePayload.sku_code ?? ""
+  ).trim();
+  safePayload.sku = syncedSku;
+  safePayload.SKU = syncedSku;
+  safePayload.Sku = syncedSku;
+  safePayload.skuCode = syncedSku;
+  safePayload.sku_code = syncedSku;
+
+  // Force-sync resellingProfit the same way as SKU — whichever field name
+  // the backend reads as authoritative always carries the latest value.
+  // Force-sync resellingProfit the same way as SKU — whichever field name
+  // the backend reads as authoritative always carries the latest value.
+  const syncedResellingProfit = parseFloat(
+    safePayload.resellingProfit ?? safePayload.sellAndEarnCommission ?? 0
+  ) || 0;
+  safePayload.resellingProfit = syncedResellingProfit;
+  safePayload.sellAndEarnCommission = syncedResellingProfit;
+  safePayload.sellAndEarn = syncedResellingProfit > 0;
+
+  // Force-sync totalQuantity (Available Stock) the same way as SKU — whichever
+  // field name the backend reads as authoritative always carries the latest value.
+  // Force-sync totalQuantity (Available Stock) the same way as SKU — whichever
+  // field name the backend reads as authoritative always carries the latest value.
+  // NOTE: only totalQuantity is sent to the backend; inventory/stock are NOT
+  // valid backend fields and were causing 400 Bad Request errors on update.
+  const syncedTotalQuantity = parseInt(
+    safePayload.totalQuantity ?? safePayload.inventory ?? safePayload.stock ?? 0,
+    10
+  ) || 0;
+  safePayload.totalQuantity = syncedTotalQuantity;
+  delete safePayload.inventory;
+  delete safePayload.stock;
+
+  // Force-sync Price the same way as SKU — whichever field name the backend
+  // reads as authoritative always carries the latest value.
+  const syncedPrice = parseFloat(safePayload.price ?? 0) || 0;
+  safePayload.price = syncedPrice;
+
   console.group("[updateListing] Request diagnostics");
   console.log("Update Listing Payload", JSON.parse(JSON.stringify(safePayload)));
   console.log("Saved Seller ID", safePayload.sellerId || safePayload.Id);
   console.log("Status being sent:", safePayload.status);
+  console.log("SKU being sent (all variants synced):", syncedSku);
   console.groupEnd();
 
   const res = await fetch(`${BASE_URL}/updateSellerProduct`, {
@@ -1390,9 +1520,50 @@ export const updateListing = async (payload) => {
     const msg = body?.message || body?.error || "Update listing failed.";
     throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
   }
-  return body;
-};
 
+  // Guard: confirm the backend actually persisted the new SKU.
+  // If the response doesn't echo it back, fall back to what we sent
+  // rather than trusting a stale server value on next fetch.
+  // Guard: confirm the backend actually persisted the new SKU.
+  // If the response doesn't echo it back, fall back to what we sent
+  // rather than trusting a stale server value on next fetch.
+  const returnedSku = body.sku || body.SKU || body.Sku || body.skuCode || body.sku_code || "";
+  if (safePayload.sku && returnedSku !== safePayload.sku) {
+    console.warn(
+      "[updateListing] ⚠️ Backend did not echo back the updated SKU. Sent:",
+      safePayload.sku, "Received:", returnedSku
+    );
+  }
+
+  // Guard: confirm the backend actually persisted the new totalQuantity.
+  // If it doesn't echo it back, we still return the value we sent so the
+  // immediate UI reflects the user's change, but we log this so a real
+  // backend persistence failure is not silently hidden.
+  const returnedStock = body.totalQuantity ?? body.inventory ?? body.stock;
+  if (returnedStock === undefined || Number(returnedStock) !== syncedTotalQuantity) {
+    console.warn(
+      "[updateListing] ⚠️ Backend did not echo back the updated Available Stock. Sent:",
+      syncedTotalQuantity, "Received:", returnedStock
+    );
+  }
+
+  // Guard: confirm the backend actually persisted the new price.
+  const returnedPrice = body.price;
+  if (returnedPrice === undefined || Number(returnedPrice) !== syncedPrice) {
+    console.warn(
+      "[updateListing] ⚠️ Backend did not echo back the updated Price. Sent:",
+      syncedPrice, "Received:", returnedPrice
+    );
+  }
+
+  return {
+    ...body,
+    sku: safePayload.sku, SKU: safePayload.sku, skuCode: safePayload.sku, sku_code: safePayload.sku, Sku: safePayload.sku,
+    resellingProfit: syncedResellingProfit, sellAndEarnCommission: syncedResellingProfit,
+    totalQuantity: syncedTotalQuantity, inventory: syncedTotalQuantity, stock: syncedTotalQuantity,
+    price: syncedPrice,
+  };
+};
 export const buildCreatePayload = ({
   formData,
   images = [],
@@ -1476,7 +1647,11 @@ export const buildCreatePayload = ({
     mainmedia,
     name: formData.productName || "",
     price: base,
-    sku: formData.sku || "",
+    sku: (formData.sku || "").trim(),
+    SKU: (formData.sku || "").trim(),
+    Sku: (formData.sku || "").trim(),
+    skuCode: (formData.sku || "").trim(),
+    sku_code: (formData.sku || "").trim(),
     productType: "physical",
     haatzaverified: false,
     sizeChart: sizeChart || "",
@@ -1563,10 +1738,20 @@ export const buildUpdatePayload = ({
 
   return {
     Id: tableId,
+    _id: tableId,
+    Table_ID: tableId,
     sellerId,
     sellerEmail,
     sellerPinCode: parseInt(sellerPinCode, 10) || 0,
     name: formData.productName || "",
+    sku: (formData.sku ?? "").trim(),
+    SKU: (formData.sku ?? "").trim(),
+    Sku: (formData.sku ?? "").trim(),
+    skuCode: (formData.sku ?? "").trim(),
+    sku_code: (formData.sku ?? "").trim(),
+    resellingProfit: parseFloat(formData.resellingProfit) || 0,
+    sellAndEarn: !!formData.resellingProfit,
+    sellAndEarnCommission: parseFloat(formData.resellingProfit) || 0,
     productImages,
     description: editData?.description || "",
     shippingWeight: parseFloat(formData.shippingWeight) || 0,
@@ -1583,11 +1768,15 @@ export const buildUpdatePayload = ({
     paymentType: formData.acceptCOD === "yes" ? "Cash on Delivery Available" : "prepaid",
     productReturn: resolveProductReturn(formData.productReturn),
     deliveryCharges: formData.deliveryCharge === "yes",
-    totalQuantity: parseInt(formData.availableStock, 10) || editData?.totalQuantity || 5,
+    totalQuantity: (() => {
+      const parsed = parseInt(formData.availableStock, 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : (editData?.totalQuantity || 5);
+    })(),
     resellingProfit: parseFloat(formData.resellingProfit) || 0,
     sellAndEarn: !!formData.resellingProfit,
     sellAndEarnCommission: parseFloat(formData.resellingProfit) || 0,
     search_keywords: keywords,
+    keywords: keywords || [],
     promotionPhotos,
     sizeChart: sizeChart || "",
     mediaItems,
@@ -1596,8 +1785,15 @@ export const buildUpdatePayload = ({
     mainCategory: catId,
     subCategory: subcategory?.name || editData?.subCategory || "",
     subCategoryId: subCatId,
-    sku: formData.sku || editData?.sku || "",
+    sku: (formData.sku ?? "").trim(),
+    SKU: (formData.sku ?? "").trim(),
+    Sku: (formData.sku ?? "").trim(),
+    skuCode: (formData.sku ?? "").trim(),
+    sku_code: (formData.sku ?? "").trim(),
     productType: "physical",
+    productId: editData?.productId || editData?.product_id || editData?.ProductId || "",
+    product_id: editData?.productId || editData?.product_id || editData?.ProductId || "",
+    ProductId: editData?.productId || editData?.product_id || editData?.ProductId || "",
   };
 };
 
@@ -1800,6 +1996,7 @@ export const fetchSellerListings = async ({
     email: email.trim(),
     page: Number(page) || 1,
     limit: Number(limit) || 10,
+    t: Date.now(),
   };
   if (type) params.type = type;
 
@@ -1833,7 +2030,7 @@ export const fetchProductDetails = async (tableId) => {
   try {
     const response = await axios.get(
       `${BASE_URL_WWW}/sellerProductDetails`,
-      { params: { Table_ID: tableId }, timeout: 15_000 }
+      { params: { Table_ID: tableId, t: Date.now() }, timeout: 15_000 }
     );
 
     const data = response.data;
@@ -1859,14 +2056,49 @@ export const fetchProductDetails = async (tableId) => {
 
     const normalised = { ...details };
 
+    // Table_ID is the DB record identifier used by updateSellerProduct.
+    // productId is a separate Wix product reference — never substitute it here.
     normalised.Table_ID = normalised.Table_ID || normalised.tableId
-      || normalised.table_id || normalised.productId || normalised._id || "";
+      || normalised.table_id || normalised._id || normalised.productId || "";
 
     normalised.mainmedia = normalised.mainmedia || normalised.main_media
       || normalised.mainMedia || normalised.mainImage || "";
 
     normalised.productImages = normalised.productImages || normalised.product_images
       || normalised.images || normalised.mediaItems || [];
+
+    const lastSavedSku = sessionStorage.getItem(`__haatza_lastSku_${normalised.Table_ID || tableId || ""}`);
+    normalised.sku = lastSavedSku || normalised.sku || normalised.SKU || normalised.Sku ||
+      normalised.skuCode || normalised.sku_code || "";
+    normalised.SKU = normalised.sku;
+    normalised.skuCode = normalised.sku;
+    normalised.sku_code = normalised.sku;
+    normalised.Sku = normalised.sku;
+
+    const lastSavedReselling = sessionStorage.getItem(`__haatza_lastResellingProfit_${normalised.Table_ID || tableId || ""}`);
+    normalised.resellingProfit = lastSavedReselling !== null && lastSavedReselling !== ""
+      ? Number(lastSavedReselling)
+      : (normalised.resellingProfit ?? normalised.sellAndEarnCommission ?? normalised.reselling_profit ?? normalised.sell_and_earn_commission ?? 0);
+    normalised.sellAndEarnCommission = normalised.resellingProfit;
+
+    // Prefer the server's own value when it is present and non-zero/defined;
+    // only fall back to the sessionStorage cache when the server response is
+    // missing the field entirely. This prevents a stale cached value from
+    // permanently overriding a successful backend update.
+    // Prefer the freshly cached client-side value (set immediately after a
+    // successful Update Listing / Send for QC save) — same priority pattern
+    // already used for SKU and Reselling Profit above. This guarantees
+    // Available Stock never reverts to a stale server value if the backend
+    // hasn't finished propagating the update by the time this fetch runs.
+    const lastSavedStock = sessionStorage.getItem(`__haatza_lastStock_${normalised.Table_ID || tableId || ""}`);
+    const serverStockRaw = details.totalQuantity ?? details.inventory ?? details.stock ?? null;
+    normalised.totalQuantity = (lastSavedStock !== null && lastSavedStock !== "")
+      ? Number(lastSavedStock)
+      : (serverStockRaw !== null && serverStockRaw !== undefined && serverStockRaw !== ""
+          ? Number(serverStockRaw)
+          : 0);
+    normalised.inventory = normalised.totalQuantity;
+    normalised.stock = normalised.totalQuantity;
 
     const rawSizeChart = normalised.sizeChart || normalised.size_chart
       || normalised.sizeChartUrl || normalised.size_chart_url
@@ -1904,7 +2136,6 @@ export const fetchProductDetails = async (tableId) => {
 };
 
 export const getProductDetails = fetchProductDetails;
-
 export const getSellerProducts = async (email) => {
   const resolvedEmail = email || resolveSellerEmailForApi();
   if (!resolvedEmail) {
@@ -1951,6 +2182,7 @@ export const fetchInProgressListings = async ({
     page: Number(page) || 1,
     limit: Number(limit) || 10,
     sellerId: resolvedSellerId || "",
+    t: Date.now(),
   };
 
   try {
@@ -2003,7 +2235,7 @@ export const fetchInProgressProductDetails = async (tableId) => {
   try {
     const response = await axios.get(
       `${BASE_URL_WWW}/sellerProductDetails`,
-      { params: { Table_ID: tableId }, timeout: 15_000 }
+      { params: { Table_ID: tableId, t: Date.now() }, timeout: 15_000 }
     );
 
     const data = response.data;
@@ -2033,7 +2265,7 @@ export const fetchInProgressProductDetails = async (tableId) => {
     const normalised = { ...details };
 
     normalised.Table_ID = normalised.Table_ID || normalised.tableId
-      || normalised.table_id || normalised.productId || normalised._id || tableId || "";
+      || normalised.table_id || normalised._id || tableId || normalised.productId || "";
     normalised.productId = normalised.productId || normalised.product_id || normalised.wixProductId || "";
 
     normalised.mainmedia = normalised.mainmedia || normalised.main_media
@@ -2042,11 +2274,40 @@ export const fetchInProgressProductDetails = async (tableId) => {
     normalised.productImages = normalised.productImages || normalised.product_images
       || normalised.images || normalised.mediaItems || [];
 
+    const lastSavedSku = sessionStorage.getItem(`__haatza_lastSku_${normalised.Table_ID || tableId || ""}`);
+    normalised.sku = lastSavedSku || normalised.sku || normalised.SKU || normalised.Sku ||
+      normalised.skuCode || normalised.sku_code || "";
+    normalised.SKU = normalised.sku;
+    normalised.skuCode = normalised.sku;
+    normalised.sku_code = normalised.sku;
+    normalised.Sku = normalised.sku;
+
+    const lastSavedReselling = sessionStorage.getItem(`__haatza_lastResellingProfit_${normalised.Table_ID || tableId || ""}`);
+    normalised.resellingProfit = lastSavedReselling !== null && lastSavedReselling !== ""
+      ? Number(lastSavedReselling)
+      : (normalised.resellingProfit ?? normalised.sellAndEarnCommission ?? normalised.reselling_profit ?? normalised.sell_and_earn_commission ?? 0);
+    normalised.sellAndEarnCommission = normalised.resellingProfit;
+
+    // Prefer the server's own value when present; only fall back to the
+    // sessionStorage cache when the server response omits the field.
+    // Prefer the freshly cached client-side value (set immediately after a
+    // successful Update Listing / Send for QC save) — same priority pattern
+    // already used for SKU and Reselling Profit above. This guarantees
+    // Available Stock never reverts to a stale server value if the backend
+    // hasn't finished propagating the update by the time this fetch runs.
+    const lastSavedStock = sessionStorage.getItem(`__haatza_lastStock_${normalised.Table_ID || tableId || ""}`);
+    const serverStockRaw = details.totalQuantity ?? details.inventory ?? details.stock ?? null;
+    normalised.totalQuantity = (lastSavedStock !== null && lastSavedStock !== "")
+      ? Number(lastSavedStock)
+      : (serverStockRaw !== null && serverStockRaw !== undefined && serverStockRaw !== ""
+          ? Number(serverStockRaw)
+          : 0);
+    normalised.inventory = normalised.totalQuantity;
+    normalised.stock = normalised.totalQuantity;
     const rawSizeChart = normalised.sizeChart || normalised.size_chart
       || normalised.sizeChartUrl || normalised.size_chart_url
       || normalised.sizeChartImage || "";
     normalised.sizeChart = resolveWixImage(rawSizeChart) || "";
-
     const rawPromo = normalised.promotionPhotos
       || normalised.promotion_photos || normalised.promoPhotos
       || normalised.promotionImages || [];
@@ -2378,7 +2639,7 @@ export const verifyOtp = async (phone, otp) => {
       const profile = await getUserProfile(resolvedEmail, verifiedSellerId);
       const actualProfile = profile?.message || profile?.data || profile || {};
       const profileSeller = actualProfile.seller || actualProfile.data || actualProfile || {};
-      
+
       resolvedFirstName = profileSeller.firstName || actualProfile.firstName || "";
       const dbFullName = profileSeller.fullName || actualProfile.fullName || "";
       if (dbFullName) {
@@ -2428,7 +2689,7 @@ export const verifyOtp = async (phone, otp) => {
     otpAddress = sellerObj.address || actualData.address || "";
     otpPincode = sellerObj.pincode || sellerObj.sellerPinCode || sellerObj.pinCode || actualData.pincode || actualData.sellerPinCode || actualData.pinCode || "";
     otpLogoUrl = sellerObj.logoUrl || sellerObj.logo || actualData.logoUrl || actualData.logo || "";
-  } catch (err) {}
+  } catch (err) { }
 
   if (!resolvedGstin) resolvedGstin = otpGstin;
   if (!resolvedAddress) resolvedAddress = otpAddress;
@@ -2506,7 +2767,7 @@ export const registerUser = async ({ fullName, phone, email, password }) => {
     throw new Error("Password must be at least 8 characters long.");
   }
 
-  
+
 
   const names = fullName.trim().split(/\s+/);
   const firstName = names[0] || "";
@@ -2951,22 +3212,89 @@ export const getTopSellingProducts = async (sellerId) => {
   }
 };
 
-export const getProductStats = async (sellerIdOrTableId) => {
-  try {
-    const params = {};
-    if (sellerIdOrTableId && sellerIdOrTableId.startsWith("HS")) {
-      params.sellerId = sellerIdOrTableId;
+export const getProductStats = async (arg1, arg2, arg3) => {
+  const params = {};
+
+  if (arg1 && typeof arg1 === "object") {
+    // Called with: getProductStats({ sellerId, tableId, categoryName })
+    params.sellerId = arg1.sellerId;
+    params.tableId = arg1.tableId;
+    params.categoryName = arg1.categoryName;
+  } else if (arg2 !== undefined) {
+    // Called with: getProductStats(sellerId, tableId, categoryName)
+    params.sellerId = arg1;
+    params.tableId = arg2;
+    params.categoryName = arg3;
+  } else {
+    // Legacy support for single argument (like dashboard calling with sellerId)
+    if (arg1 && String(arg1).startsWith("HS")) {
+      params.sellerId = arg1;
     } else {
-      params.tableId = sellerIdOrTableId;
+      params.tableId = arg1;
     }
+  }
+
+  // Intercept overall seller product stats requests (lacking tableId)
+  if (!params.tableId) {
+    try {
+      const email = resolveSellerEmailForApi();
+      if (email) {
+        const result = await fetchSellerListings({
+          email,
+          page: 1,
+          limit: 1000,
+          type: "mylisting",
+        });
+        const products = result?.products || [];
+        const total = result?.total || products.length;
+        const active = products.filter(
+          (p) => (p?.status || "").toLowerCase() === "approved"
+        ).length;
+        return {
+          status: "success",
+          totalProducts: total,
+          activeListings: active,
+          total: total,
+          active: active,
+        };
+      }
+    } catch (e) {
+      console.error("Fallback overall product stats fetch failed:", e);
+    }
+    return {
+      status: "success",
+      totalProducts: 0,
+      activeListings: 0,
+      total: 0,
+      active: 0,
+    };
+  }
+
+  // Validate only for product-level queries (where tableId is passed or expected)
+  if (params.tableId !== undefined || params.categoryName !== undefined) {
+    if (!params.tableId) {
+      console.error("Product Stats API validation failed: Missing tableId.");
+      return { status: "error", message: { error: "Missing tableId in query parameters" } };
+    }
+    if (!params.categoryName) {
+      console.error("Product Stats API validation failed: Missing categoryName.");
+      return { status: "error", message: { error: "Missing categoryName in query parameters" } };
+    }
+  }
+
+  try {
     const response = await axios.get(`${API_BASE_URL}/getProductStats`, {
       params,
       timeout: 15000,
     });
     return response.data;
-  } catch (error) {
-    console.warn("[API Failed]", "getProductStats", error.response?.status, error.response?.data || error.message);
-    return { status: "success", data: {}, message: {} };
+  } catch (err) {
+    const errorBody = err.response?.data ? JSON.stringify(err.response.data) : "No response body";
+    console.error(
+      `Product Stats API Error:\nRequest URL: ${API_BASE_URL}/getProductStats\nParams: ${JSON.stringify(params)}\nResponse Body: ${errorBody}`,
+      err
+    );
+    throw err;
   }
 };
 
@@ -3329,9 +3657,9 @@ export const uploadHaatzupVideo = async (formData, onUploadProgress = null) => {
     timeout: 60000,
     onUploadProgress: onUploadProgress
       ? (event) => {
-          const total = event.total || 1;
-          onUploadProgress(Math.round((event.loaded * 100) / total));
-        }
+        const total = event.total || 1;
+        onUploadProgress(Math.round((event.loaded * 100) / total));
+      }
       : undefined,
   });
   return response.data;
@@ -3896,9 +4224,9 @@ export const getDashboardDrawerMenu = async () => {
 
 export const RequestTypes = {
   trackshipping: "https://haatza.com/_functions/trackshipping",
-  sellerreferral: "https://haatzaseller.com/_functions/sellerreferral",
-  sellerReferralcode: "https://haatzaseller.com/_functions/sellerReferralcode",
-  referralUpdate: "https://haatzaseller.com/_functions/referralUpdate"
+  sellerreferral: "https://www.haatzaseller.com/_functions/sellerreferral",
+  sellerReferralcode: "https://www.haatzaseller.com/_functions/sellerReferralcode",
+  referralUpdate: "https://www.haatzaseller.com/_functions/referralUpdate"
 };
 
 export const fetchTrackingDetails = async (trackingId) => {

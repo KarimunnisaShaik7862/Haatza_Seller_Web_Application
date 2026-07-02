@@ -478,11 +478,11 @@ const SelectCategory = () => {
 
   /* Load subcategories on mount if category is pre-selected */
   useEffect(() => {
-    if (stateCategory && stateCategory.CategoryID) {
+    if (stateCategory && (stateCategory.CategoryID || stateCategory._id)) {
       (async () => {
         try {
           setSubLoading(true);
-          const { items, hasMore, total } = await fetchSubcategoriesFirstPage(stateCategory.CategoryID);
+          const { items, hasMore, total } = await fetchSubcategoriesFirstPage(stateCategory.CategoryID || stateCategory._id);
           setSubcategories(items);
           setDisplayedSubcategories(items);
           if (typeof total === "number" && total > 0) {

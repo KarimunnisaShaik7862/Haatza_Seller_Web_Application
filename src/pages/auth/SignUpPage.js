@@ -1,29 +1,103 @@
 import React, { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import SignUpForm from "../../components/auth/SignUpForm/SignUpForm";
-import { registerUser, checkSeller, checkOnboardStatus } from "../../services/sellerService";
+import { checkSeller, checkOnboardStatus, loginUser } from "../../services/sellerService";
 import { saveUser } from '../../utils/userStore';
 import { useAuth } from "../../context/AuthContext";
 export let registeredEmail = '';
 
 function SignUpPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
 
-  const [form, setForm] = useState({
-    fullName: "",
-    phone: "",
-    email: "",
-    password: "",
+  const [form, setForm] = useState(() => {
+    const routeState = location.state || {};
+    const contact = routeState.prefillContact || "";
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
+    const isPhone = /^[6-9]\d{9}$/.test(contact);
+
+    return {
+      fullName: "",
+      phone: isPhone ? contact : "",
+      email: isEmail ? contact : "",
+      password: "",
+    };
   });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({ phone: "", email: "" });
+
+  const checkPhoneAvailability = async (phoneVal) => {
+    const trimmed = phoneVal.trim();
+    if (!/^[6-9]\d{9}$/.test(trimmed)) {
+      setFieldErrors(prev => ({ ...prev, phone: "" }));
+      return;
+    }
+    try {
+      const res = await checkSeller(trimmed);
+      if (res.userExists) {
+        setFieldErrors(prev => ({
+          ...prev,
+          phone: "This phone number is already registered. Please use another phone number."
+        }));
+      } else {
+        setFieldErrors(prev => ({ ...prev, phone: "" }));
+      }
+    } catch (err) {
+      setFieldErrors(prev => ({ ...prev, phone: "" }));
+    }
+  };
+
+  const checkEmailAvailability = async (emailVal) => {
+    const trimmed = emailVal.toLowerCase().trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setFieldErrors(prev => ({ ...prev, email: "" }));
+      return;
+    }
+    try {
+      const res = await checkSeller(trimmed);
+      if (res.userExists) {
+        setFieldErrors(prev => ({
+          ...prev,
+          email: "This email address is already registered. Please use another email address."
+        }));
+      } else {
+        setFieldErrors(prev => ({ ...prev, email: "" }));
+      }
+    } catch (err) {
+      setFieldErrors(prev => ({ ...prev, email: "" }));
+    }
+  };
 
   // ─── Field change handler ─────────────────────────────────────────────────
   const handleFormChange = (field, value) => {
     setError("");
-    setForm((prev) => ({ ...prev, [field]: value }));
+    let cleaned = value;
+    if (field === "fullName") {
+      cleaned = value.replace(/[^a-zA-Z\s.\-]/g, "");
+    } else if (field === "phone") {
+      cleaned = value.replace(/\D/g, "").slice(0, 10);
+      setFieldErrors(prev => ({ ...prev, phone: "" }));
+      if (cleaned.length === 10) {
+        checkPhoneAvailability(cleaned);
+      }
+    } else if (field === "email") {
+      cleaned = value.replace(/[^a-zA-Z0-9@._\-+]/g, "");
+      setFieldErrors(prev => ({ ...prev, email: "" }));
+    } else if (field === "password") {
+      cleaned = value.replace(/[\s]/g, "").replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]/g, "");
+    }
+    setForm((prev) => ({ ...prev, [field]: cleaned }));
+  };
+
+  const handlePhoneBlur = () => {
+    checkPhoneAvailability(form.phone);
+  };
+
+  const handleEmailBlur = () => {
+    checkEmailAvailability(form.email);
   };
 
   // ─── Register handler ─────────────────────────────────────────────────────
@@ -37,11 +111,24 @@ const handleRegister = async () => {
   setSuccess("");
   setLoading(true);
 
-  try {
-    // Step 1: Validate email format early
-    const emailTrimmed = form.email.toLowerCase().trim();
-    const phoneTrimmed = form.phone.trim();
+  const emailTrimmed = form.email.toLowerCase().trim();
+  const phoneTrimmed = form.phone.trim();
 
+  if (fieldErrors.phone) {
+    setError(fieldErrors.phone);
+    setLoading(false);
+    isSubmitting.current = false;
+    return;
+  }
+  if (fieldErrors.email) {
+    setError(fieldErrors.email);
+    setLoading(false);
+    isSubmitting.current = false;
+    return;
+  }
+
+  try {
+    // Step 1: Validate fields locally (no DB writes yet)
     if (!form.fullName?.trim()) {
       setError("Please enter your full name.");
       return;
@@ -67,11 +154,11 @@ const handleRegister = async () => {
       const emailCheck = await checkSeller(emailTrimmed);
       emailExists = !!emailCheck.userExists;
     } catch {
-      // If checkseller fails for email, treat as not existing and let registerUser decide
+      // If checkseller fails for email, treat as not existing
     }
 
     if (emailExists) {
-      setError("This email is already registered. Please sign in.");
+      setError("This email address is already registered. Please use another email address.");
       return;
     }
 
@@ -79,97 +166,41 @@ const handleRegister = async () => {
       const phoneCheck = await checkSeller(phoneTrimmed);
       phoneExists = !!phoneCheck.userExists;
     } catch {
-      // If checkseller fails for phone, treat as not existing and let registerUser decide
+      // If checkseller fails for phone, treat as not existing
     }
 
     if (phoneExists) {
-      setError("This phone number is already registered. Please sign in.");
+      setError("This phone number is already registered. Please use another phone number.");
       return;
     }
 
-    // Step 3: Proceed with registration — checkseller confirmed neither exists
-    const response = await registerUser(form);
-
-    // Step 4: Treat any successful response as success — do not re-check or re-validate
-    const regUserData = response.userData || {};
-    const regFullName = response.fullName || regUserData.fullName || form.fullName.trim();
-    const regEmail = response.email || regUserData.email || emailTrimmed;
-    const regPhone = response.phone || regUserData.phone || phoneTrimmed;
-    const regSellerId = response.sellerId || regUserData.sellerId || "";
-    const regNickname = regUserData.nickname || regFullName;
-
-    sessionStorage.setItem("pendingEmail", emailTrimmed);
-    sessionStorage.setItem("userEmail", emailTrimmed);
-    localStorage.setItem("userEmail", emailTrimmed);
-    localStorage.setItem("sellerData", JSON.stringify(regUserData));
-
-    login({
-      name: regFullName,
-      nickname: regNickname,
-      fullName: regFullName,
-      email: regEmail,
-      phone: regPhone,
-      sellerId: regSellerId,
-      status: "Inactive",
-    });
-
-    localStorage.setItem("sellerName", regFullName);
-    sessionStorage.setItem("sellerName", regFullName);
-
-    setSuccess(
-      typeof response.message === "string"
-        ? response.message
-        : "Account created successfully!"
-    );
-
-    // Step 5: Check onboarding status and route accordingly
-    let isOnboarded = false;
-    try {
-      isOnboarded = await checkOnboardStatus(emailTrimmed);
-    } catch {
-      // If onboard check fails, default to onboarding flow
-      isOnboarded = false;
-    }
+    // Step 3: DO NOT create the account yet.
+    // Just move to OTP verification, carrying the unsaved form data.
+    // The account will only be created in OtpPage after OTP is verified.
+    setSuccess("OTP sent. Please verify your mobile number to complete registration.");
 
     setTimeout(() => {
-      if (isOnboarded) {
-        navigate("/dashboard");
-      } else {
-        navigate("/onboarding", { state: { email: emailTrimmed } });
-      }
-    }, 1500);
+      navigate("/otp", {
+        state: {
+          contact:      phoneTrimmed,
+          contactType:  "phone",
+          email:        emailTrimmed,
+          phone:        phoneTrimmed,
+          fullName:     form.fullName.trim(),
+          // Carry pending registration data — account not yet created
+          pendingRegistration: {
+            fullName: form.fullName.trim(),
+            phone:    phoneTrimmed,
+            email:    emailTrimmed,
+            password: form.password,
+          },
+        }
+      });
+    }, 800);
 
   } catch (err) {
-    const msg = (err.message || "").toLowerCase();
-
-    // Safety net: if somehow a false-positive slips through to here, treat as success
-    const isBackendFalsePositive =
-      msg.includes("identity") ||
-      msg.includes("already exists") ||
-      msg.includes("already registered") ||
-      msg.includes("email exists") ||
-      msg.includes("duplicate");
-
-    if (isBackendFalsePositive) {
-      setSuccess("Account created successfully!");
-      const emailTrimmed = form.email.toLowerCase().trim();
-      let isOnboarded = false;
-      try {
-        isOnboarded = await checkOnboardStatus(emailTrimmed);
-      } catch {
-        isOnboarded = false;
-      }
-      setTimeout(() => {
-        if (isOnboarded) {
-          navigate("/dashboard");
-        } else {
-          navigate("/onboarding", { state: { email: emailTrimmed } });
-        }
-      }, 1500);
-    } else {
-      setError(err.message || "Registration failed. Please try again.");
-    }
-  }finally {
+    setError(err.message || "Registration failed. Please try again.");
+  } finally {
     setLoading(false);
     isSubmitting.current = false;
   }
@@ -182,6 +213,10 @@ const handleRegister = async () => {
       loading={loading}
       error={error}
       success={success}
+      phoneError={fieldErrors.phone}
+      emailError={fieldErrors.email}
+      onPhoneBlur={handlePhoneBlur}
+      onEmailBlur={handleEmailBlur}
       onRegister={handleRegister}
       onNavigateSignIn={() => navigate("/signin")}
     />

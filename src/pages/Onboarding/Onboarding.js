@@ -2,82 +2,297 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './Onboarding.css';
 import { checkOnboardStatus } from '../../services/sellerService';
-/* ─── Comprehensive world banks list ─────────────────────────── */
-const WORLD_BANKS = [
-  'Abbey National Bank','ABN AMRO Bank','Abu Dhabi Commercial Bank','Abu Dhabi Islamic Bank',
-  'Access Bank','Agricultural Bank of China','Agricultural Development Bank of Pakistan',
-  'Ahli Bank','Al Baraka Bank','Al Hilal Bank','Al Rajhi Bank','Alizz Islamic Bank',
-  'Allahabad Bank','Allied Bank Limited','Alpha Bank','Altyn Bank','Ameriabank',
-  'American Express Bank','ANZ Bank','Arab Bank','Arab Banking Corporation',
-  'Arab National Bank','Ardshinbank','Arion Bank','Askari Bank',
-  'Attijariwafa Bank','Audi Bank','Australia and New Zealand Banking Group','Axis Bank',
-  'Banca Monte dei Paschi di Siena','Banco Bradesco','Banco de Chile','Banco do Brasil',
-  'Banco Itau','Banco Santander','Bangkok Bank','Bank ABC','Bank Al Habib','Bank Alfalah',
-  'Bank AlJazira','Bank Audi','Bank Dhofar','Bank Hapoalim','Bank Islam Malaysia',
-  'Bank Islami Pakistan','Bank Julius Baer','Bank Leumi','Bank Mandiri','Bank Melli Iran',
-  'Bank Muscat','Bank of Africa','Bank of America','Bank of Bahrain and Kuwait',
-  'Bank of Baroda','Bank of Beijing','Bank of Ceylon','Bank of China','Bank of Communications',
-  'Bank of East Asia','Bank of Georgia','Bank of India','Bank of Ireland','Bank of Japan',
-  'Bank of Kigali','Bank of Korea','Bank of Maharashtra','Bank of Montreal','Bank of New Zealand',
-  'Bank of Nova Scotia','Bank of Punjab','Bank of Queensland','Bank of Scotland','Bank of Sharjah',
-  'Bank of Singapore','Bank of the Philippine Islands','Bank Rakyat Indonesia','Bank Saderat Iran',
-  'Bank Sepah','Bank Simpanan Nasional','Bank Syariah Indonesia','Banque Misr','Barclays Bank',
-  'BBVA','BDO Unibank','BNP Paribas','Boubyan Bank','Bradesco',
-  'Canara Bank','Capital One Bank','Capitec Bank','Cathay Bank','Central Bank of India',
-  'China CITIC Bank','China Construction Bank','China Development Bank','China Everbright Bank',
-  'China Merchants Bank','China Minsheng Banking','CIMB Bank','Citibank','Citizens Bank',
-  'City Union Bank','Commerzbank','Commonwealth Bank of Australia','Credit Agricole','Credit Suisse',
-  'Danske Bank','DCB Bank','Desjardins Group','Deutsche Bank','Development Bank of Ethiopia',
-  'Development Bank of the Philippines','Dhanlaxmi Bank','DnB Bank','Doha Bank',
-  'Dubai Islamic Bank','DZ Bank','East West Bank','Ecobank','Emirates Islamic Bank',
-  'Emirates NBD','Equitas Small Finance Bank','Eurobank','Export-Import Bank of China',
-  'Export-Import Bank of India','Faisal Bank','Federal Bank','Fidelity Bank','Finca Bank',
-  'First Abu Dhabi Bank','First Bank of Nigeria','First Citizens Bank','First Gulf Bank',
-  'First National Bank','Firstrand Bank','Fubon Bank','Garanti BBVA','GCB Bank',
-  'Goldman Sachs Bank','Grameen Bank','Guaranty Trust Bank','Gulf Bank',
-  'Habib Bank Limited','Habib Metropolitan Bank','Hang Seng Bank','HDFC Bank','Heritage Bank',
-  'Himalayan Bank','HSBC Bank','ICICI Bank','IDBI Bank','IDFC First Bank','IndusInd Bank',
-  'Industrial and Commercial Bank of China','Industrial Bank of Korea','ING Bank',
-  'Investec Bank','Islamic Development Bank','Janata Bank','Japan Post Bank','JPMorgan Chase',
-  'JS Bank','KBC Bank','Kenya Commercial Bank','Kotak Mahindra Bank','Krungsri Bank',
-  'Krung Thai Bank','Landsbankinn','Lao Development Bank','Lloyds Bank','Macquarie Bank',
-  'Mashreq Bank','MCB Bank','Mercantile Bank','Metro Bank','Millennium Bank','Mizuho Bank',
-  'Monzo Bank','Morgan Stanley Bank','Mufg Bank','National Australia Bank',
-  'National Bank of Abu Dhabi','National Bank of Bangladesh','National Bank of Egypt',
-  'National Bank of Ethiopia','National Bank of Greece','National Bank of India',
-  'National Bank of Kenya','National Bank of Pakistan','National Commercial Bank',
-  'Natwest Bank','Nedbank','Nepal Bank Limited','Noor Bank','Nordea Bank',
-  'Oman Arab Bank','One97 Payments Bank','Orient Bank','Panin Bank',
-  'Philippine National Bank','Post Bank Ethiopia','Postbank','Punjab National Bank',
-  'Qatar Islamic Bank','Qatar National Bank','Rabobank','Raiffeisen Bank','Rakbank',
-  'RBL Bank','Regions Bank','Reserve Bank of India','Revolut Bank','RHB Bank',
-  'Royal Bank of Canada','Royal Bank of Scotland','Sacombank','Saraswat Bank',
-  'Saudi British Bank','Saudi National Bank','Scotiabank','Security Bank',
-  'Shanghai Pudong Development Bank','Sharjah Islamic Bank','Silicon Valley Bank',
-  'South Indian Bank','Standard Bank','Standard Chartered Bank','State Bank of India',
-  'State Bank of Pakistan','Stanbic Bank','Sterling Bank','Sumitomo Mitsui Banking',
-  'Swiss National Bank','Tesco Bank','Thai Military Bank','The National Bank','TMB Bank',
-  'Truist Bank','Trust Bank','UCO Bank','UBA Bank','Union Bank of India',
-  'Union Bank of Nigeria','United Arab Bank','United Bank Limited','United Commercial Bank',
-  'United Overseas Bank','Vakif Bank','VakifBank','VTB Bank','Wells Fargo Bank',
-  'Westpac Banking','Woori Bank','Xapo Bank','Yes Bank','Yapi Kredi Bank',
-  'Zenith Bank','Ziraat Bank',
-].sort((a, b) => a.localeCompare(b));
+/* ─── Fetch Bank List from Backend API ─────────────────────────── */
+async function fetchBankList() {
+  try {
+    const res = await fetch('https://haatzaseller.com/_functions/bankList', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const data = await res.json();
+
+    let rawList = [];
+    if (Array.isArray(data)) {
+      rawList = data;
+    } else if (data && Array.isArray(data.banks)) {
+      rawList = data.banks;
+    } else if (data && Array.isArray(data.data)) {
+      rawList = data.data;
+    } else if (data && Array.isArray(data.message)) {
+      rawList = data.message;
+    } else if (data && typeof data === 'object') {
+      const foundArray = Object.values(data).find(val => Array.isArray(val));
+      if (foundArray) rawList = foundArray;
+    }
+
+    // Common Indian Bank to IFSC Prefix Map (normalized lowercase keys)
+    const bankToIfscPrefix = {
+      'abn amro': 'ABNA',
+      'abu dhabi commercial bank': 'ADCB',
+      'abhyudaya co-op bank ltd': 'ABHY',
+      'abhyudaya co-op bank ltd.': 'ABHY',
+      'allahabad bank': 'ALLA',
+      'american express bank ltd': 'AEIB',
+      'american express bank ltd.': 'AEIB',
+      'andhra bank': 'ANDB',
+      'bnp paribas': 'BNPA',
+      'bob capital markets limited': 'BARB',
+      'bank of novascotia': 'NOSC',
+      'bank of rajsthan': 'BRAJ',
+      'bank of america': 'BOFA',
+      'bank of bahrain & kuwait': 'BBKM',
+      'bank of bahrain and kuwait': 'BBKM',
+      'bank of baroda': 'BARB',
+      'bank of india': 'BKID',
+      'bank of maharashtra': 'MAHB',
+      'bank of punjab': 'BKPU',
+      'bank of tokyo mitsubishi ltd': 'BOTM',
+      'bank of tokyo mitsubishi ltd.': 'BOTM',
+      'barclays bank plc': 'BARC',
+      'barclays bank': 'BARC',
+      'bharat co-op bank ltd': 'BCBM',
+      'bharat co-op bank ltd.': 'BCBM',
+      'bharat overseas bank ltd': 'BHOB',
+      'bharat overseas bank ltd.': 'BHOB',
+      'catholic syrian bank ltd': 'CSBK',
+      'catholic syrian bank ltd.': 'CSBK',
+      'cosmos bank': 'COSB',
+      'canara bank': 'CNRB',
+      'ceylon bank': 'BCEY',
+      'central bank of india': 'CBIN',
+      'centurion bank': 'CENT',
+      'chinatrust commercial bank ltd': 'CTCB',
+      'chinatrust commercial bank ltd.': 'CTCB',
+      'cho-hung bank': 'CHBK',
+      'citi bank n.a.': 'CITI',
+      'citi bank': 'CITI',
+      'citibank': 'CITI',
+      'citicorp capital markets': 'CITI',
+      'citizencredit co-op bank ltd': 'CCBL',
+      'citizencredit co-op bank ltd.': 'CCBL',
+      'city union bank ltd': 'CIUB',
+      'city union bank ltd.': 'CIUB',
+      'corpbank securities ltd': 'CORP',
+      'corpbank securities ltd.': 'CORP',
+      'corporation bank': 'CORP',
+      'dombivli nagri sahakari bank ltd': 'DNSB',
+      'dombivli nagri sahakari bank ltd.': 'DNSB',
+      'dsp merrill lynch limited': 'DSPM',
+      'dena bank': 'BKDN',
+      'deutsche bank': 'DEUT',
+      'deutsche securities': 'DEUT',
+      'development bank of singapore': 'DBSS',
+      'development credit bank': 'DCBL',
+      'dhanalakshmi bank': 'DLXB',
+      'federal bank': 'FDRL',
+      'greater bombay co-op bank': 'GBCB',
+      'hdfc bank': 'HDFC',
+      'hsbc': 'HSBC',
+      'hsbc bank': 'HSBC',
+      'icici bank': 'ICIC',
+      'idbi': 'IBKL',
+      'idbi bank': 'IBKL',
+      'ing vysya bank': 'VYSA',
+      'indian bank': 'IDIB',
+      'indian overseas bank': 'IOBA',
+      'indusind bank': 'INDB',
+      'jp morgan chase bank': 'CHAS',
+      'jpmorgan chase': 'CHAS',
+      'jammu & jk bank': 'JAKA',
+      'jammu & kashmir bank': 'JAKA',
+      'jammu and kashmir bank': 'JAKA',
+      'jankalyan sahakari bank': 'JSBL',
+      'karur vysya bank': 'KVBL',
+      'krung thai bank': 'KRTB',
+      'karnataka bank': 'KARB',
+      'kotak mahindra bank': 'KKBK',
+      'laxmi vilas bank': 'LAVB',
+      'lord krishna bank': 'LKBL',
+      'mandavi co-operative bank': 'MDCB',
+      'mashreq bank': 'MSHQ',
+      'maharashtra state co-operative bank': 'MSCI',
+      'mizuho corporate bank': 'MHCB',
+      'new india co-op bank': 'NICB',
+      'north kanara gsb co-op bank': 'NKGS',
+      'oriental bank of commerce': 'ORBC',
+      'punjab & sind bank': 'PSIB',
+      'punjab and sind bank': 'PSIB',
+      'punjab & maharashtra co-op bank': 'PMCB',
+      'punjab and maharashtra co-op bank': 'PMCB',
+      'punjab national bank': 'PUNB',
+      'ratnakar bank (rbl bank)': 'RATN',
+      'ratnakar bank': 'RATN',
+      'rbl bank': 'RATN',
+      'reserve bank of india': 'RBIS',
+      'saraswat co-operative bank': 'SRCB',
+      'shamrao vithal co-op bank': 'SVCB',
+      'south indian bank': 'SIBL',
+      'standard chartered bank': 'SCBL',
+      'standard chartered': 'SCBL',
+      'state bank of india': 'SBIN',
+      'state bank of hyderabad': 'SBHY',
+      'state bank of mysore': 'SBMY',
+      'state bank of patiala': 'STBP',
+      'state bank of bikaner & jaipur': 'SBBJ',
+      'state bank of bikaner and jaipur': 'SBBJ',
+      'state bank of saurashtra': 'SBSY',
+      'state bank of travancore': 'SBTR',
+      'state bank indore': 'SBIN',
+      'state bank of mauritius': 'STCB',
+      'syndicate bank': 'SYNB',
+      'tamilnad mercantile bank': 'TMBL',
+      'tamilnadu state apex co-operative bank': 'TNSC',
+      'thane janta sahakari bank': 'TJSB',
+      'the kapol co-operative bank': 'KCBL',
+      'the sangli bank': 'SANG',
+      'ufj bank ltd': 'BOTM',
+      'ufj bank ltd.': 'BOTM',
+      'united western bank': 'UWBI',
+      'uti bank (axis bank)': 'UTIB',
+      'uti bank': 'UTIB',
+      'uco bank': 'UCBA',
+      'union bank of india': 'UBIN',
+      'united bank of india': 'UTBI',
+      'vijaya bank': 'VIJB',
+      'yes bank': 'YESB'
+    };
+
+    return rawList.map(item => {
+      if (!item) return null;
+      let name = '';
+      let code = '';
+      if (typeof item === 'string') {
+        name = item.trim();
+      } else if (typeof item === 'object') {
+        name = (item.name || item.bankName || item.bank || '').trim();
+        code = (item.code || item.ifscPrefix || item.bankCode || item.ifscCode || '').trim().toUpperCase();
+      }
+
+      if (!name) return null;
+
+      if (!code) {
+        const normalized = name.toLowerCase().replace(/\s+/g, ' ');
+        if (bankToIfscPrefix[normalized]) {
+          code = bankToIfscPrefix[normalized];
+        } else {
+          const matchedKey = Object.keys(bankToIfscPrefix).find(k => normalized.includes(k) || k.includes(normalized));
+          if (matchedKey) {
+            code = bankToIfscPrefix[matchedKey];
+          } else {
+            code = '';
+          }
+        }
+      }
+
+      return { name, code };
+    }).filter(Boolean);
+  } catch (err) {
+    console.error('[fetchBankList] Error fetching bank list:', err);
+    return [];
+  }
+}
 
 /* ─── GSTIN API ───────────────────────────────────────────────── */
-const GST_API_URL = 'https://www.haatzaseller.com/_functions/checksellergst';
-
+const GST_API_URL = 'https://haatzaseller.com/_functions/checksellergst';
 async function checkGSTINExists(gstin) {
   const url = `${GST_API_URL}?gstin=${encodeURIComponent(gstin)}`;
-  const res = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  const data = await res.json();
-  if (typeof data.exists === 'boolean')     return data.exists;
-  if (typeof data.registered === 'boolean') return data.registered;
-  if (typeof data.found === 'boolean')      return data.found;
-  if (data.status === 'exists')             return true;
-  if (data.status === 'not_found')          return false;
-  return false;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  let data;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
+
+  // eslint-disable-next-line no-console
+  console.log('[checkGSTINExists] Raw API response:', JSON.stringify(data));
+
+  const EXISTS_KEYWORDS = ['already exist', 'already registered', 'already register', 'duplicate', 'already in use', 'already taken'];
+  const NOT_EXISTS_KEYWORDS = ['not found', 'not registered', 'not exist', 'available', 'no seller', 'no record'];
+
+  const stringVerdict = (str) => {
+    const s = String(str).toLowerCase();
+    if (NOT_EXISTS_KEYWORDS.some((k) => s.includes(k))) return false;
+    if (EXISTS_KEYWORDS.some((k) => s.includes(k))) return true;
+    return null; // unknown — don't guess
+  };
+
+  const candidates = [
+    data,
+    data?.message,
+    data?.data,
+    data?.message?.body,
+    data?.message?.data,
+    data?.result,
+    data?.body,
+  ];
+
+  for (const c of candidates) {
+    if (c === undefined || c === null) continue;
+
+    if (typeof c === 'string') {
+      const v = stringVerdict(c);
+      if (v !== null) return v;
+      continue;
+    }
+    if (typeof c !== 'object') continue;
+
+    if (typeof c.exists === 'boolean') return c.exists;
+    if (typeof c.registered === 'boolean') return c.registered;
+    if (typeof c.found === 'boolean') return c.found;
+    if (typeof c.isRegistered === 'boolean') return c.isRegistered;
+    if (typeof c.alreadyExists === 'boolean') return c.alreadyExists;
+    if (typeof c.duplicate === 'boolean') return c.duplicate;
+    if (typeof c.isDuplicate === 'boolean') return c.isDuplicate;
+    if (typeof c.gstExists === 'boolean') return c.gstExists;
+    if (typeof c.userExists === 'boolean') return c.userExists;
+    if (typeof c.sellerExists === 'boolean') return c.sellerExists;
+    if (typeof c.gstinExists === 'boolean') return c.gstinExists;
+    if (typeof c.status === 'string') {
+      const s = c.status.toLowerCase();
+      if (['exists', 'registered', 'duplicate', 'found', 'already_registered', 'already_exists'].includes(s)) return true;
+      if (['not_found', 'not_registered', 'available'].includes(s)) return false;
+      // NOTE: an envelope status of "success"/"error" is intentionally NOT
+      // treated as an existence verdict — it just means the HTTP call worked.
+    }
+
+    if (typeof c.message === 'string') {
+      const v = stringVerdict(c.message);
+      if (v !== null) return v;
+    }
+    if (typeof c.error === 'string') {
+      const v = stringVerdict(c.error);
+      if (v !== null) return v;
+    }
+  }
+
+  // If response contains a seller record/array with data in it, treat as exists
+  const sellerRecord =
+    data?.message?.seller ||
+    data?.seller ||
+    (Array.isArray(data?.message) ? data.message[0] : null) ||
+    (Array.isArray(data?.message?.data) ? data.message.data[0] : null) ||
+    (Array.isArray(data?.data) ? data.data[0] : null) ||
+    (Array.isArray(data) ? data[0] : null);
+  if (sellerRecord && typeof sellerRecord === 'object' && Object.keys(sellerRecord).length > 0) {
+    return true;
+  }
+
+  // Response shape not recognized — do NOT default to "not registered".
+  // That default is what caused already-registered GSTINs to be shown as verified.
+  console.warn('[checkGSTINExists] Could not determine exists/not-exists from response shape. Raw response logged above.');
+  throw new Error('UNKNOWN_GSTIN_RESPONSE_SHAPE');
 }
 
 /* ─── Pincode API (Nominatim — no expired SSL issues) ────────── */
@@ -95,7 +310,7 @@ async function fetchPincodeData(pincode) {
   const data = await res.json();
   if (!Array.isArray(data) || data.length === 0) throw new Error('Invalid pincode');
   const a = data[0].address || {};
-  const city  = a.city || a.town || a.village || a.county || a.state_district || '';
+  const city = a.city || a.town || a.village || a.county || a.state_district || '';
   const state = a.state || '';
   if (!state) throw new Error('Invalid pincode');
   return { city, state, country: 'India' };
@@ -104,23 +319,23 @@ async function fetchPincodeData(pincode) {
 /* ─── Icons ──────────────────────────────────────────────────── */
 const LocationIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2962ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="10" r="3"/>
-    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+    <circle cx="12" cy="10" r="3" />
+    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
   </svg>
 );
 
 const EyeIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-    <circle cx="12" cy="12" r="3"/>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
   </svg>
 );
 
 const EyeOffIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
-    <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
-    <line x1="1" y1="1" x2="23" y2="23"/>
+    <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
+    <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
+    <line x1="1" y1="1" x2="23" y2="23" />
   </svg>
 );
 
@@ -130,14 +345,14 @@ const SpinnerIcon = ({ color = '#2962ff' }) => (
     stroke={color} strokeWidth="2.5" strokeLinecap="round"
     style={{ animation: 'spinIcon 0.7s linear infinite', display: 'block' }}
   >
-    <circle cx="12" cy="12" r="10" strokeOpacity="0.2"/>
-    <path d="M12 2a10 10 0 0 1 10 10" stroke={color}/>
+    <circle cx="12" cy="12" r="10" strokeOpacity="0.2" />
+    <path d="M12 2a10 10 0 0 1 10 10" stroke={color} />
   </svg>
 );
 
 const CheckIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="20,6 9,17 4,12"/>
+    <polyline points="20,6 9,17 4,12" />
   </svg>
 );
 
@@ -195,11 +410,11 @@ function parseNominatimAddress(data) {
   ].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
   const roadName = roadParts.join(', ');
 
-  const pinCode        = a.postcode || '';
-  const city           = a.city || a.town || a.village || a.county || a.state_district || '';
-  const state          = a.state || '';
-  const country        = a.country || '';
-  const landmark       = a.leisure || a.tourism || a.historic || '';
+  const pinCode = a.postcode || '';
+  const city = a.city || a.town || a.village || a.county || a.state_district || '';
+  const state = a.state || '';
+  const country = a.country || '';
+  const landmark = a.leisure || a.tourism || a.historic || '';
   const displayAddress = data.display_name || '';
 
   return { houseNo, roadName, pinCode, city, state, country, landmark, displayAddress };
@@ -238,28 +453,28 @@ const TILE_LAYERS = {
 
 /* ─── Map Modal ───────────────────────────────────────────────── */
 function MapModal({ onClose, onSelectAddress }) {
-  const mapDivRef       = useRef(null);
-  const mapRef          = useRef(null);
-  const baseLayerRef    = useRef(null);
+  const mapDivRef = useRef(null);
+  const mapRef = useRef(null);
+  const baseLayerRef = useRef(null);
   const overlayLayerRef = useRef(null);
-  const timerRef        = useRef(null);
-  const crosshairRef    = useRef(null);
+  const timerRef = useRef(null);
+  const crosshairRef = useRef(null);
 
   const [addressText, setAddressText] = useState('');
-  const [parsedAddr,  setParsedAddr]  = useState(null);
-  const [geocoding,   setGeocoding]   = useState(false);
-  const [loading,     setLoading]     = useState(true);
-  const [mapError,    setMapError]    = useState('');
-  const [locating,    setLocating]    = useState(false);
+  const [parsedAddr, setParsedAddr] = useState(null);
+  const [geocoding, setGeocoding] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [mapError, setMapError] = useState('');
+  const [locating, setLocating] = useState(false);
   const [activeLayer, setActiveLayer] = useState('map');
-  const [dragging,    setDragging]    = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   const DEFAULT_CENTER = [20.5937, 78.9629];
 
   const doReverseGeocode = useCallback(async (lat, lng) => {
     setGeocoding(true);
     try {
-      const data   = await reverseGeocode(lat, lng);
+      const data = await reverseGeocode(lat, lng);
       const parsed = parseNominatimAddress(data);
       setParsedAddr(parsed);
       setAddressText(parsed.displayAddress || 'Address found');
@@ -288,10 +503,10 @@ function MapModal({ onClose, onSelectAddress }) {
   const applyLayer = useCallback((layerKey) => {
     const map = mapRef.current;
     if (!map || !window.L) return;
-    const L   = window.L;
+    const L = window.L;
     const cfg = TILE_LAYERS[layerKey];
 
-    if (baseLayerRef.current)    { map.removeLayer(baseLayerRef.current);    baseLayerRef.current    = null; }
+    if (baseLayerRef.current) { map.removeLayer(baseLayerRef.current); baseLayerRef.current = null; }
     if (overlayLayerRef.current) { map.removeLayer(overlayLayerRef.current); overlayLayerRef.current = null; }
 
     if (cfg.isOverlay) {
@@ -341,7 +556,7 @@ function MapModal({ onClose, onSelectAddress }) {
       }).addTo(map);
 
       map.on('movestart', onMoveStart);
-      map.on('moveend',   onMoveEnd);
+      map.on('moveend', onMoveEnd);
       mapRef.current = map;
       if (!cancelled) setLoading(false);
 
@@ -372,7 +587,7 @@ function MapModal({ onClose, onSelectAddress }) {
       clearTimeout(timerRef.current);
       if (mapRef.current) {
         mapRef.current.off('movestart', onMoveStart);
-        mapRef.current.off('moveend',   onMoveEnd);
+        mapRef.current.off('moveend', onMoveEnd);
         mapRef.current.remove();
         mapRef.current = null;
       }
@@ -441,9 +656,9 @@ function MapModal({ onClose, onSelectAddress }) {
                 <SpinnerIcon color="#2962ff" />
               ) : (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2962ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3"/>
-                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
-                  <circle cx="12" cy="12" r="8" strokeOpacity="0.3"/>
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                  <circle cx="12" cy="12" r="8" strokeOpacity="0.3" />
                 </svg>
               )}
             </button>
@@ -490,29 +705,29 @@ function GstinStatusBadge({ status }) {
       bg: '#f0fdf4', border: '#86efac', color: '#16a34a',
       icon: (
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20,6 9,17 4,12"/>
+          <polyline points="20,6 9,17 4,12" />
         </svg>
       ),
-      text: 'GSTIN verified — not yet registered. You may proceed.',
+      text: 'GST verified successfully. You may proceed.',
     },
     exists: {
       bg: '#fff1f2', border: '#fca5a5', color: '#dc2626',
       icon: (
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
       ),
-      text: 'This GSTIN is already registered as a seller.',
+      text: 'This GSTIN is already registered. Please use a different GSTIN or sign in with the existing account.',
     },
     error: {
       bg: '#fffbeb', border: '#fcd34d', color: '#b45309',
       icon: (
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
         </svg>
       ),
-      text: 'Could not verify GSTIN right now. You may still proceed.',
+      text: 'Unable to verify the GST number at the moment. Please try again.',
     },
   };
   const cfg = configs[status];
@@ -563,7 +778,7 @@ const FAQ_ITEMS = [
     q: 'Can I create a seller account with a composite GSTIN?',
     a: 'As per Government regulations, sellers with a composite GSTIN cannot sell on e-commerce platforms. Our partner TaxBuddy can help you in getting a regular GSTIN, or you can apply for one directly from the Government portal.',
   },
-  
+
 ];
 
 function FaqAccordion() {
@@ -587,7 +802,7 @@ function FaqAccordion() {
                   width="18" height="18" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
                 >
-                  <polyline points="18 15 12 9 6 15"/>
+                  <polyline points="18 15 12 9 6 15" />
                 </svg>
               </button>
               {isOpen && (
@@ -625,9 +840,9 @@ export default function OnboardingPage() {
     checkActiveStatus();
   }, [location.state?.email, navigate]);
 
-  const [step,          setStep]          = useState(0);
+  const [step, setStep] = useState(0);
   const [submitLoading, setSubmitLoading] = useState(false);
-  const [submitError,   setSubmitError]   = useState('');
+  const [submitError, setSubmitError] = useState('');
 
   // ── CHANGED: noGstin defaults to false so GSTIN field shows first ──
   const [form, setForm] = useState({
@@ -638,40 +853,63 @@ export default function OnboardingPage() {
   const [errors, setErrors] = useState({});
 
   /* ── GSTIN ── */
-  const [gstinStatus,    setGstinStatus]    = useState('idle');
-  const gstinDebounceRef                    = useRef(null);
+  const [gstinStatus, setGstinStatus] = useState('idle');
+  const gstinDebounceRef = useRef(null);
 
   /* ── Pincode ── */
-  const [pincodeStatus, setPincodeStatus]   = useState('idle');
-  const [pincodeMsg,    setPincodeMsg]      = useState('');
-  const pincodeDebounceRef                  = useRef(null);
+  const [pincodeStatus, setPincodeStatus] = useState('idle');
+  const [pincodeMsg, setPincodeMsg] = useState('');
+  const pincodeDebounceRef = useRef(null);
 
   /* ── Bank dropdown ── */
-  const [bankSearch,   setBankSearch]       = useState('');
-  const [showBankList, setShowBankList]     = useState(false);
-  const [activeIndex,  setActiveIndex]      = useState(-1);
-  const bankDropdownRef                     = useRef(null);
-  const bankInputRef                        = useRef(null);
+  const [bankSearch, setBankSearch] = useState('');
+  const [showBankList, setShowBankList] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const bankDropdownRef = useRef(null);
+  const bankInputRef = useRef(null);
 
   /* ── Map / address ── */
-  const [showMapModal, setShowMapModal]     = useState(false);
-  const [showToast,    setShowToast]        = useState(false);
-  const [autofilled,   setAutofilled]       = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [autofilled, setAutofilled] = useState(false);
+  const [detectingLoc, setDetectingLoc] = useState(false);
 
   /* ── Account visibility ── */
-  const [showAccountNumber,   setShowAccountNumber]   = useState(false);
+  const [showAccountNumber, setShowAccountNumber] = useState(false);
   const [showReAccountNumber, setShowReAccountNumber] = useState(false);
 
+  const [bankList, setBankList] = useState([]);
+  const [bankLoading, setBankLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const loadBanks = async () => {
+      try {
+        setBankLoading(true);
+        const list = await fetchBankList();
+        if (active) {
+          setBankList(list.sort((a, b) => a.name.localeCompare(b.name)));
+        }
+      } catch (err) {
+        console.error("Failed to load bank list:", err);
+      } finally {
+        if (active) setBankLoading(false);
+      }
+    };
+    loadBanks();
+    return () => { active = false; };
+  }, []);
+
   const filteredBanks = bankSearch.trim() === ''
-    ? WORLD_BANKS
-    : WORLD_BANKS.filter((b) => b.toLowerCase().includes(bankSearch.toLowerCase().trim()));
+    ? bankList.map(b => b.name)
+    : bankList.map(b => b.name).filter((b) => b.toLowerCase().includes(bankSearch.toLowerCase().trim()));
 
   /* ── Bank dropdown outside-click ── */
   useEffect(() => {
     const handler = (e) => {
       if (
         bankDropdownRef.current && !bankDropdownRef.current.contains(e.target) &&
-        bankInputRef.current    && !bankInputRef.current.contains(e.target)
+        bankInputRef.current && !bankInputRef.current.contains(e.target)
       ) {
         setShowBankList(false);
         setActiveIndex(-1);
@@ -682,35 +920,61 @@ export default function OnboardingPage() {
   }, []);
 
   /* ── GSTIN debounce + API call ── */
+ /* ── GSTIN debounce + API call ── */
+  const lastCheckedGstinRef = useRef('');
+  const gstinCheckSeqRef = useRef(0);
+
   useEffect(() => {
     if (form.noGstin) { setGstinStatus('idle'); return; }
-    const gstin      = form.gstin.trim().toUpperCase();
+    const gstin = form.gstin.trim().toUpperCase();
     const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    if (!gstin || !GSTIN_REGEX.test(gstin)) {
+
+    if (!gstin || gstin.length !== 15 || !GSTIN_REGEX.test(gstin)) {
       setGstinStatus('idle');
       clearTimeout(gstinDebounceRef.current);
+      lastCheckedGstinRef.current = '';
       return;
     }
+
+    if (gstin === lastCheckedGstinRef.current && gstinStatus !== 'idle') {
+      return;
+    }
+
     setGstinStatus('checking');
     clearTimeout(gstinDebounceRef.current);
+
     gstinDebounceRef.current = setTimeout(async () => {
+      const seq = ++gstinCheckSeqRef.current;
       try {
         const exists = await checkGSTINExists(gstin);
+        if (seq !== gstinCheckSeqRef.current) return;
+        lastCheckedGstinRef.current = gstin;
         setGstinStatus(exists ? 'exists' : 'verified');
-        if (exists) {
-          setErrors((prev) => ({ ...prev, gstin: 'This GSTIN is already registered as a seller.' }));
-        } else {
-          setErrors((prev) => {
-            const next = { ...prev };
-            if (next.gstin === 'This GSTIN is already registered as a seller.') delete next.gstin;
-            return next;
-          });
-        }
-      } catch {
+        setErrors((prev) => {
+          const next = { ...prev };
+          if (exists) {
+            next.gstin = 'This GSTIN is already registered. Please use a different GSTIN or sign in with the existing account.';
+          } else if (
+            next.gstin === 'This GST number is already registered. Please use a different GST Number.' ||
+            next.gstin === 'This GSTIN is already registered as a seller.'
+          ) {
+            delete next.gstin;
+          }
+          return next;
+        });
+      } catch (err) {
+        if (seq !== gstinCheckSeqRef.current) return;
+        console.error('[GSTIN check] Failed:', err);
         setGstinStatus('error');
+        setErrors((prev) => ({
+          ...prev,
+          gstin: 'Unable to verify the GST number at the moment. Please try again.',
+        }));
       }
     }, 700);
+
     return () => clearTimeout(gstinDebounceRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.gstin, form.noGstin]);
 
   /* ── Pincode API ── */
@@ -752,11 +1016,11 @@ export default function OnboardingPage() {
   }, [activeIndex]);
 
   /* ── Validators ── */
-  const validateGSTIN = (g)   => /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(g);
-  const validatePAN   = (pan) => /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(pan);
-  const validateIFSC  = (c)   => /^[A-Z]{4}0[A-Z0-9]{6}$/.test(c);
-  const validatePIN   = (p)   => /^[1-9][0-9]{5}$/.test(p);
-  const validateAccNo = (a)   => /^[0-9]{9,18}$/.test(a);
+  const validateGSTIN = (g) => /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(g);
+  const validatePAN = (pan) => /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(pan);
+  const validateIFSC = (c) => /^[A-Z]{4}0[A-Z0-9]{6}$/.test(c);
+  const validatePIN = (p) => /^[1-9][0-9]{5}$/.test(p);
+  const validateAccNo = (a) => /^[0-9]{9,18}$/.test(a);
 
   /* ── Inline real-time validation ── */
   const getInlineError = (field, value, currentForm) => {
@@ -777,20 +1041,28 @@ export default function OnboardingPage() {
         if (v.length < 6) return `Pin Code must be 6 digits (${v.length}/6)`;
         if (!validatePIN(v)) return 'Invalid Pin Code — must start with a non-zero digit';
         return '';
-      case 'ifscCode':
+      case 'ifscCode': {
         if (!v) return '';
         if (v.length < 11) return `IFSC must be 11 characters (${v.length}/11)`;
         if (!validateIFSC(v.toUpperCase())) return 'Invalid IFSC — format: SBIN0001234';
+        const selectedBank = currentForm?.bankName;
+        if (selectedBank) {
+          const bankObj = bankList.find(b => b.name === selectedBank);
+          if (bankObj && bankObj.code && !v.toUpperCase().startsWith(bankObj.code)) {
+            return `IFSC code does not match ${selectedBank}. Please enter a valid IFSC code.`;
+          }
+        }
         return '';
+      }
       case 'accountNumber':
         if (!v) return '';
-        if (v.length < 9)  return `Account number too short — min 9 digits (${v.length} entered)`;
+        if (v.length < 9) return `Account number too short — min 9 digits (${v.length} entered)`;
         if (v.length > 18) return 'Account number too long — max 18 digits';
         if (!validateAccNo(v)) return 'Account number must contain digits only';
         return '';
       case 'reAccountNumber':
         if (!v) return '';
-        if (v !== (currentForm?.accountNumber ?? '')) return 'Account numbers do not match';
+        if (v !== (currentForm?.accountNumber ?? '')) return 'Account numbers do not match.';
         return '';
       default:
         return '';
@@ -798,10 +1070,50 @@ export default function OnboardingPage() {
   };
 
   const handleChange = (field, value) => {
+    let cleaned = value;
+
+    if (field === 'gstin' || field === 'panCard' || field === 'ifscCode') {
+      cleaned = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    } else if (field === 'pinCode' || field === 'accountNumber' || field === 'reAccountNumber') {
+      cleaned = value.replace(/\D/g, '');
+    } else if (field === 'tradeName') {
+      cleaned = value.replace(/[^a-zA-Z0-9\s.\-,/&]/g, '');
+    } else if (field === 'accountHolderName') {
+      cleaned = value.replace(/[^a-zA-Z0-9\s.\-]/g, '');
+    } else if (field === 'city' || field === 'state' || field === 'country') {
+      cleaned = value.replace(/[^a-zA-Z\s.\-]/g, '');
+    } else if (field === 'houseNo' || field === 'roadName' || field === 'landmark') {
+      cleaned = value.replace(/[^a-zA-Z0-9\s.\-,\/#()]/g, '');
+    }
+
     setForm((prev) => {
-      const next      = { ...prev, [field]: value };
-      const inlineErr = getInlineError(field, value, next);
-      setErrors((e) => ({ ...e, [field]: inlineErr }));
+      const next = { ...prev, [field]: cleaned };
+      if (field === 'bankName') {
+        next.ifscCode = '';
+      }
+      const inlineErr = getInlineError(field, cleaned, next);
+      
+      let reAccErr = undefined;
+      if (field === 'accountNumber' || field === 'reAccountNumber') {
+        reAccErr = getInlineError('reAccountNumber', next.reAccountNumber, next);
+      }
+
+      setErrors((e) => {
+        const updated = { ...e, [field]: inlineErr };
+        if (!inlineErr) delete updated[field];
+        if (field === 'bankName') {
+          delete updated.ifscCode;
+        }
+        if (reAccErr !== undefined) {
+          if (reAccErr) {
+            updated.reAccountNumber = reAccErr;
+          } else {
+            delete updated.reAccountNumber;
+          }
+        }
+        return updated;
+      });
+
       return next;
     });
   };
@@ -811,35 +1123,55 @@ export default function OnboardingPage() {
     const e = {};
     if (s === 0) {
       if (!form.noGstin) {
-        if (!form.gstin.trim())                          e.gstin = 'GSTIN is required';
-        else if (!validateGSTIN(form.gstin.toUpperCase())) e.gstin = 'Invalid GSTIN — format: 22ABCDE1234F1Z5';
-        else if (gstinStatus === 'exists')               e.gstin = 'This GSTIN is already registered as a seller.';
-        else if (gstinStatus === 'checking')             e.gstin = 'Please wait — verifying GSTIN…';
+        if (!form.gstin.trim()) {
+          e.gstin = 'GSTIN is required';
+        } else if (!validateGSTIN(form.gstin.toUpperCase())) {
+          e.gstin = 'Invalid GSTIN — format: 22ABCDE1234F1Z5';
+        } else if (gstinStatus === 'exists') {
+          e.gstin = 'This GSTIN is already registered. Please use a different GSTIN or sign in with the existing account.';
+        } else if (gstinStatus === 'checking') {
+          e.gstin = 'Please wait — verifying GSTIN…';
+        } else if (gstinStatus === 'error') {
+          e.gstin = 'Unable to verify the GST number at the moment. Please try again.';
+        } else if (gstinStatus !== 'verified') {
+          e.gstin = 'Please wait for GSTIN verification to complete.';
+        }
       }
       if (!form.tradeName.trim()) e.tradeName = 'Trade Name is required';
       if (form.noGstin) {
-        if (!form.panCard.trim())                          e.panCard = 'PAN Card is required';
+        if (!form.panCard.trim()) e.panCard = 'PAN Card is required';
         else if (!validatePAN(form.panCard.toUpperCase())) e.panCard = 'Invalid PAN — format: ABCDE1234F';
       }
     }
     if (s === 1) {
-      if (!form.houseNo.trim())  e.houseNo  = 'House No. / Building Name is required';
+      if (!form.houseNo.trim()) e.houseNo = 'House No. / Building Name is required';
       if (!form.roadName.trim()) e.roadName = 'Road Name / Area / Colony is required';
-      if (!form.pinCode.trim())  e.pinCode  = 'Pin Code is required';
+      if (!form.pinCode.trim()) e.pinCode = 'Pin Code is required';
       else if (!validatePIN(form.pinCode)) e.pinCode = 'Invalid Pin Code (6 digits, non-zero start)';
-      if (!form.city.trim())    e.city    = 'City is required';
-      if (!form.state.trim())   e.state   = 'State is required';
+      if (!form.city.trim()) e.city = 'City is required';
+      if (!form.state.trim()) e.state = 'State is required';
       if (!form.country.trim()) e.country = 'Country is required';
     }
     if (s === 2) {
-      if (!form.bankName)                    e.bankName           = 'Please select a valid bank from the list.';
-      if (!form.accountHolderName.trim())    e.accountHolderName  = 'Account Holder Name is required';
-      if (!form.accountNumber)               e.accountNumber      = 'Account Number is required';
+      if (!form.bankName || !bankList.some(b => b.name === form.bankName)) {
+        e.bankName = 'Please select a valid bank from the list.';
+      }
+      if (!form.accountHolderName.trim()) e.accountHolderName = 'Account Holder Name is required';
+      if (!form.accountNumber) e.accountNumber = 'Account Number is required';
       else if (!validateAccNo(form.accountNumber)) e.accountNumber = 'Account number must be 9–18 digits';
-      if (!form.reAccountNumber)             e.reAccountNumber    = 'Please re-enter account number';
-      else if (form.accountNumber !== form.reAccountNumber) e.reAccountNumber = 'Account numbers do not match';
-      if (!form.ifscCode.trim())             e.ifscCode           = 'IFSC Code is required';
-      else if (!validateIFSC(form.ifscCode.toUpperCase())) e.ifscCode = 'Invalid IFSC — format: SBIN0001234';
+      if (!form.reAccountNumber) e.reAccountNumber = 'Please re-enter account number';
+      else if (form.accountNumber !== form.reAccountNumber) e.reAccountNumber = 'Account numbers do not match.';
+
+      if (!form.ifscCode.trim()) {
+        e.ifscCode = 'IFSC Code is required';
+      } else if (!validateIFSC(form.ifscCode.toUpperCase())) {
+        e.ifscCode = 'Invalid IFSC — format: SBIN0001234';
+      } else if (form.bankName) {
+        const bankObj = bankList.find(b => b.name === form.bankName);
+        if (bankObj && bankObj.code && !form.ifscCode.toUpperCase().trim().startsWith(bankObj.code)) {
+          e.ifscCode = `IFSC code does not match ${form.bankName}. Please enter a valid IFSC code.`;
+        }
+      }
     }
     return e;
   };
@@ -855,186 +1187,186 @@ export default function OnboardingPage() {
       return;
     }
 
-/* ── Final step: call Seller Onboarding API ── */
-setSubmitLoading(true);
-setSubmitError('');
-// ── Retrieve the logged-in user's email (adjust the key to match your auth storage)
-const userEmail =
-  location.state?.email ||
-  sessionStorage.getItem('pendingEmail') ||
-  localStorage.getItem('pendingEmail') ||
-  '';
+    /* ── Final step: call Seller Onboarding API ── */
+    setSubmitLoading(true);
+    setSubmitError('');
+    // ── Retrieve the logged-in user's email (adjust the key to match your auth storage)
+    const userEmail =
+      location.state?.email ||
+      sessionStorage.getItem('pendingEmail') ||
+      localStorage.getItem('pendingEmail') ||
+      '';
 
-if (!userEmail) {
-  setSubmitError('Session expired — your email could not be found. Please sign in again.');
-  setSubmitLoading(false);
-  return;
-}const payload = {
-  email: userEmail,
-  updateFields: {
-    gstin:            form.noGstin ? 'optional' : form.gstin.trim().toUpperCase(),
-    panNumber:        form.noGstin ? form.panCard.trim().toUpperCase() : undefined,
-    companyName:      form.tradeName.trim(),
-    bankName:         form.bankName,
-    accountHolder:    form.accountHolderName.trim(),
-    accountNumber:    Number(form.accountNumber),
-    ifscCode:         form.ifscCode.trim().toUpperCase(),
-    storageType:      'Seller',
-    address:          [form.houseNo.trim(), form.roadName.trim()].filter(Boolean).join(', '),
-    city:             form.city.trim(),
-    state:            form.state.trim(),
-    country:          form.country.trim(),
-    pincode:          form.pinCode.trim(),
-    status:           'Active',
-    onboardDateTime:  new Date().toISOString(),
-    accountManager:   'Haatza Support Team',
-  },
-};
+    if (!userEmail) {
+      setSubmitError('Session expired — your email could not be found. Please sign in again.');
+      setSubmitLoading(false);
+      return;
+    } const payload = {
+      email: userEmail,
+      updateFields: {
+        gstin: form.noGstin ? 'optional' : form.gstin.trim().toUpperCase(),
+        panNumber: form.noGstin ? form.panCard.trim().toUpperCase() : undefined,
+        companyName: form.tradeName.trim(),
+        bankName: form.bankName,
+        accountHolder: form.accountHolderName.trim(),
+        accountNumber: Number(form.accountNumber),
+        ifscCode: form.ifscCode.trim().toUpperCase(),
+        storageType: 'Seller',
+        address: [form.houseNo.trim(), form.roadName.trim()].filter(Boolean).join(', '),
+        city: form.city.trim(),
+        state: form.state.trim(),
+        country: form.country.trim(),
+        pincode: form.pinCode.trim(),
+        status: 'Active',
+        onboardDateTime: new Date().toISOString(),
+        accountManager: 'Haatza Support Team',
+      },
+    };
 
-console.group("[Onboarding] Data being saved to DB");
-console.log("Full payload:", JSON.stringify(payload, null, 2));
-console.groupEnd();
-try {
-  const res = await fetch('https://www.haatzaseller.com/_functions/Selleronboarding', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(payload),
-  });
+    console.group("[Onboarding] Data being saved to DB");
+    console.log("Full payload:", JSON.stringify(payload, null, 2));
+    console.groupEnd();
+    try {
+      const res = await fetch('https://www.haatzaseller.com/_functions/Selleronboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-  let data = {};
-  try { data = await res.json(); } catch { /* non-JSON response */ }
+      let data = {};
+      try { data = await res.json(); } catch { /* non-JSON response */ }
 
-console.group("[Onboarding] API response");
-console.log("HTTP status:", res.status);
-console.log("Full response:", JSON.stringify(data, null, 2));
-console.groupEnd();
-  if (!res.ok) {
-    const serverMsg = data?.message || data?.error || `Server error ${res.status}`;
-    setSubmitError(typeof serverMsg === 'string' ? serverMsg : JSON.stringify(serverMsg));
-    return;
-  }
-
-  const isSuccess =
-    data?.status === 'success' ||
-    data?.message?.message?.toLowerCase().includes('success');
-
-  if (isSuccess) {
-    // Extract sellerId from onboarding response
-    const sellerId =
-  data?.message?.sellerId    ||
-  data?.message?.body?.sellerId ||
-  data?.message?.SellerID    ||
-  data?.message?.body?.SellerID ||
-  data?.data?.sellerId       ||
-  data?.data?.SellerID       ||
-  data?.seller?.sellerId     ||
-  data?.SellerID             ||
-  data?.sellerId             ||
-  "";
-
-    console.log("[Onboarding] Full response:", data);
-    console.log("[Onboarding] Resolved sellerId:", sellerId || "❌ NOT FOUND IN RESPONSE");
-
-    if (sellerId) {
-      localStorage.setItem("sellerId", String(sellerId));
-      sessionStorage.setItem("sellerId", String(sellerId));
-      localStorage.setItem("__haatza_sellerId", String(sellerId));
-      sessionStorage.setItem("__haatza_sellerId", String(sellerId));
-      console.log("[Onboarding] ✅ Stored sellerId:", sellerId);
-    } else {
-      console.warn("[Onboarding] ⚠️ sellerId not in response — check above log for correct path");
-    }
-
-    // ── Capture sellerPinCode from onboarding response ──────────────────
-    const sellerPinCodeFromApi =
-      data?.message?.sellerPinCode    ||
-      data?.message?.body?.sellerPinCode ||
-      data?.message?.pinCode          ||
-      data?.message?.body?.pinCode    ||
-      data?.sellerPinCode             ||
-      data?.pinCode                   ||
-      "";
-
-    if (sellerPinCodeFromApi && /^\d{6}$/.test(String(sellerPinCodeFromApi).trim())) {
-      const pin = String(sellerPinCodeFromApi).trim();
-      sessionStorage.setItem("__haatza_sellerPinCode", pin);
-      localStorage.setItem("__haatza_sellerPinCode", pin);
-      sessionStorage.setItem("sellerPinCode", pin);
-      localStorage.setItem("sellerPinCode", pin);
-      console.log("[Onboarding] ✅ Stored sellerPinCode from API:", pin);
-    } else {
-      // Fallback: use the pinCode the seller entered in the form
-      const formPin = form.pinCode.trim();
-      if (formPin && /^\d{6}$/.test(formPin)) {
-        sessionStorage.setItem("__haatza_sellerPinCode", formPin);
-        localStorage.setItem("__haatza_sellerPinCode", formPin);
-        sessionStorage.setItem("sellerPinCode", formPin);
-        localStorage.setItem("sellerPinCode", formPin);
-        console.log("[Onboarding] ✅ Stored sellerPinCode from form input:", formPin);
+      console.group("[Onboarding] API response");
+      console.log("HTTP status:", res.status);
+      console.log("Full response:", JSON.stringify(data, null, 2));
+      console.groupEnd();
+      if (!res.ok) {
+        const serverMsg = data?.message || data?.error || `Server error ${res.status}`;
+        setSubmitError(typeof serverMsg === 'string' ? serverMsg : JSON.stringify(serverMsg));
+        return;
       }
+
+      const isSuccess =
+        data?.status === 'success' ||
+        data?.message?.message?.toLowerCase().includes('success');
+
+      if (isSuccess) {
+        // Extract sellerId from onboarding response
+        const sellerId =
+          data?.message?.sellerId ||
+          data?.message?.body?.sellerId ||
+          data?.message?.SellerID ||
+          data?.message?.body?.SellerID ||
+          data?.data?.sellerId ||
+          data?.data?.SellerID ||
+          data?.seller?.sellerId ||
+          data?.SellerID ||
+          data?.sellerId ||
+          "";
+
+        console.log("[Onboarding] Full response:", data);
+        console.log("[Onboarding] Resolved sellerId:", sellerId || "❌ NOT FOUND IN RESPONSE");
+
+        if (sellerId) {
+          localStorage.setItem("sellerId", String(sellerId));
+          sessionStorage.setItem("sellerId", String(sellerId));
+          localStorage.setItem("__haatza_sellerId", String(sellerId));
+          sessionStorage.setItem("__haatza_sellerId", String(sellerId));
+          console.log("[Onboarding] ✅ Stored sellerId:", sellerId);
+        } else {
+          console.warn("[Onboarding] ⚠️ sellerId not in response — check above log for correct path");
+        }
+
+        // ── Capture sellerPinCode from onboarding response ──────────────────
+        const sellerPinCodeFromApi =
+          data?.message?.sellerPinCode ||
+          data?.message?.body?.sellerPinCode ||
+          data?.message?.pinCode ||
+          data?.message?.body?.pinCode ||
+          data?.sellerPinCode ||
+          data?.pinCode ||
+          "";
+
+        if (sellerPinCodeFromApi && /^\d{6}$/.test(String(sellerPinCodeFromApi).trim())) {
+          const pin = String(sellerPinCodeFromApi).trim();
+          sessionStorage.setItem("__haatza_sellerPinCode", pin);
+          localStorage.setItem("__haatza_sellerPinCode", pin);
+          sessionStorage.setItem("sellerPinCode", pin);
+          localStorage.setItem("sellerPinCode", pin);
+          console.log("[Onboarding] ✅ Stored sellerPinCode from API:", pin);
+        } else {
+          // Fallback: use the pinCode the seller entered in the form
+          const formPin = form.pinCode.trim();
+          if (formPin && /^\d{6}$/.test(formPin)) {
+            sessionStorage.setItem("__haatza_sellerPinCode", formPin);
+            localStorage.setItem("__haatza_sellerPinCode", formPin);
+            sessionStorage.setItem("sellerPinCode", formPin);
+            localStorage.setItem("sellerPinCode", formPin);
+            console.log("[Onboarding] ✅ Stored sellerPinCode from form input:", formPin);
+          }
+        }
+
+        // Store pinCode so settlement + listing payload can find it
+        const pinCode = form.pinCode.trim();
+        if (pinCode) {
+          localStorage.setItem("sellerPinCode", pinCode);
+          sessionStorage.setItem("sellerPinCode", pinCode);
+          console.log("[Onboarding] ✅ Stored sellerPinCode:", pinCode);
+        }
+        const CANONICAL_PIN_KEY = "__haatza_sellerPinCode";
+        const CANONICAL_SELLER_KEY = "__haatza_sellerId";
+
+        if (pinCode) {
+          sessionStorage.setItem(CANONICAL_PIN_KEY, pinCode);
+          localStorage.setItem(CANONICAL_PIN_KEY, pinCode);
+          // Also write to legacy keys so any fallback reads still work
+          sessionStorage.setItem("sellerPinCode", pinCode);
+          localStorage.setItem("sellerPinCode", pinCode);
+          console.log("[Onboarding] ✅ Wrote pinCode to canonical + legacy keys:", pinCode);
+        }
+
+        // If the onboarding response included a sellerId, write it to canonical key too
+        if (sellerId) {
+          sessionStorage.setItem(CANONICAL_SELLER_KEY, String(sellerId));
+          localStorage.setItem(CANONICAL_SELLER_KEY, String(sellerId));
+          console.log("[Onboarding] ✅ Wrote sellerId to canonical key:", sellerId);
+        }
+
+        // Re-fetch profile so canonical cache is authoritative for QC payload
+
+        // ✅ ADD THIS: cache under the canonical key and re-fetch full profile
+
+        // Store email under all keys the listing flow checks
+        if (userEmail) {
+          localStorage.setItem("userEmail", userEmail);
+          sessionStorage.setItem("userEmail", userEmail);
+        }
+
+        // Cache tradeName as companyName
+        const companyName = form.tradeName.trim();
+        if (companyName) {
+          localStorage.setItem("companyName", companyName);
+          sessionStorage.setItem("companyName", companyName);
+          try {
+            const currentUser = JSON.parse(sessionStorage.getItem("haatza_user") || localStorage.getItem("haatza_user") || "{}");
+            currentUser.companyName = companyName;
+            currentUser.email = currentUser.email || userEmail;
+            sessionStorage.setItem("haatza_user", JSON.stringify(currentUser));
+            localStorage.setItem("haatza_user", JSON.stringify(currentUser));
+          } catch { }
+          console.log("[Onboarding] ✅ companyName saved to storage:", companyName);
+        }
+
+        navigate('/dashboard');
+      } else {
+        setSubmitError(data?.message || 'Submission failed. Please try again.');
+      }
+    } catch (err) {
+      console.error('Onboarding fetch error:', err);
+      setSubmitError('Network error. Please check your connection and try again.');
+    } finally {
+      setSubmitLoading(false);
     }
-
-    // Store pinCode so settlement + listing payload can find it
-    const pinCode = form.pinCode.trim();
-    if (pinCode) {
-      localStorage.setItem("sellerPinCode", pinCode);
-      sessionStorage.setItem("sellerPinCode", pinCode);
-      console.log("[Onboarding] ✅ Stored sellerPinCode:", pinCode);
-    }
-    const CANONICAL_PIN_KEY    = "__haatza_sellerPinCode";
-const CANONICAL_SELLER_KEY = "__haatza_sellerId";
-
-if (pinCode) {
-  sessionStorage.setItem(CANONICAL_PIN_KEY, pinCode);
-  localStorage.setItem(CANONICAL_PIN_KEY,   pinCode);
-  // Also write to legacy keys so any fallback reads still work
-  sessionStorage.setItem("sellerPinCode", pinCode);
-  localStorage.setItem("sellerPinCode",   pinCode);
-  console.log("[Onboarding] ✅ Wrote pinCode to canonical + legacy keys:", pinCode);
-}
-
-// If the onboarding response included a sellerId, write it to canonical key too
-if (sellerId) {
-  sessionStorage.setItem(CANONICAL_SELLER_KEY, String(sellerId));
-  localStorage.setItem(CANONICAL_SELLER_KEY,   String(sellerId));
-  console.log("[Onboarding] ✅ Wrote sellerId to canonical key:", sellerId);
-}
-
-// Re-fetch profile so canonical cache is authoritative for QC payload
-
-    // ✅ ADD THIS: cache under the canonical key and re-fetch full profile
-
-    // Store email under all keys the listing flow checks
-    if (userEmail) {
-      localStorage.setItem("userEmail", userEmail);
-      sessionStorage.setItem("userEmail", userEmail);
-    }
-
-    // Cache tradeName as companyName
-    const companyName = form.tradeName.trim();
-    if (companyName) {
-      localStorage.setItem("companyName", companyName);
-      sessionStorage.setItem("companyName", companyName);
-      try {
-        const currentUser = JSON.parse(sessionStorage.getItem("haatza_user") || localStorage.getItem("haatza_user") || "{}");
-        currentUser.companyName = companyName;
-        currentUser.email = currentUser.email || userEmail;
-        sessionStorage.setItem("haatza_user", JSON.stringify(currentUser));
-        localStorage.setItem("haatza_user", JSON.stringify(currentUser));
-      } catch {}
-      console.log("[Onboarding] ✅ companyName saved to storage:", companyName);
-    }
-
-    navigate('/dashboard');
-  } else {
-    setSubmitError(data?.message || 'Submission failed. Please try again.');
-  }
-} catch (err) {
-  console.error('Onboarding fetch error:', err);
-  setSubmitError('Network error. Please check your connection and try again.');
-} finally {
-  setSubmitLoading(false);
-}    
   };
 
   const handleBack = () => {
@@ -1044,12 +1376,12 @@ if (sellerId) {
   const handleLocationSelect = (parsed) => {
     setForm((prev) => ({
       ...prev,
-      houseNo:  parsed.houseNo  || prev.houseNo,
+      houseNo: parsed.houseNo || prev.houseNo,
       roadName: parsed.roadName || prev.roadName,
-      pinCode:  parsed.pinCode  || prev.pinCode,
-      city:     parsed.city     || prev.city,
-      state:    parsed.state    || prev.state,
-      country:  parsed.country  || prev.country,
+      pinCode: parsed.pinCode || prev.pinCode,
+      city: parsed.city || prev.city,
+      state: parsed.state || prev.state,
+      country: parsed.country || prev.country,
       landmark: parsed.landmark || prev.landmark,
     }));
     setErrors((prev) => {
@@ -1060,7 +1392,11 @@ if (sellerId) {
     setAutofilled(true);
     setShowToast(true);
     setTimeout(() => setAutofilled(false), 1700);
-    setTimeout(() => setShowToast(false),  2700);
+    setTimeout(() => setShowToast(false), 2700);
+  };
+
+  const handleLocationButtonClick = () => {
+    setShowMapModal(true);
   };
 
   const selectBank = (bankName) => {
@@ -1072,10 +1408,10 @@ if (sellerId) {
 
   const handleBankKeyDown = (e) => {
     if (!showBankList) return;
-    if      (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => Math.min(i + 1, filteredBanks.length - 1)); }
-    else if (e.key === 'ArrowUp')   { e.preventDefault(); setActiveIndex((i) => Math.max(i - 1, 0)); }
-    else if (e.key === 'Enter')     { e.preventDefault(); if (activeIndex >= 0 && filteredBanks[activeIndex]) selectBank(filteredBanks[activeIndex]); }
-    else if (e.key === 'Escape')    { setShowBankList(false); setActiveIndex(-1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => Math.min(i + 1, filteredBanks.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (activeIndex >= 0 && filteredBanks[activeIndex]) selectBank(filteredBanks[activeIndex]); }
+    else if (e.key === 'Escape') { setShowBankList(false); setActiveIndex(-1); }
   };
 
   /* ─── Brand bar ── */
@@ -1083,9 +1419,9 @@ if (sellerId) {
     <div className="ob-brand">
       <div className="ob-brand-icon">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
-          <line x1="3" y1="6" x2="21" y2="6"/>
-          <path d="M16 10a4 4 0 01-8 0"/>
+          <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <path d="M16 10a4 4 0 01-8 0" />
         </svg>
       </div>
       <h1>Complete your onboarding</h1>
@@ -1103,122 +1439,122 @@ if (sellerId) {
 
           {/* ── Step 0: Business Details ── */}
           {step === 0 && (
-  <div className="ob-body">
-    <h2 className="ob-section-title">Business Details</h2>
-    <p className="ob-section-sub">Do you have a GSTIN? Enter it below to get started.</p>
+            <div className="ob-body">
+              <h2 className="ob-section-title">Business Details</h2>
+              <p className="ob-section-sub">Do you have a GSTIN Number?</p>
 
-    {/* GSTIN field — always visible */}
-    {(() => {
-      const isValid = !errors.gstin && form.gstin.length === 15 && gstinStatus !== 'exists';
-      return (
-        <FormField label="GSTIN" required={!form.noGstin} error={!form.noGstin ? errors.gstin : undefined}>
-          <div style={{ position: 'relative' }}>
-            <input
-              className={`form-input ${!form.noGstin && errors.gstin ? 'input-error' : !form.noGstin && isValid ? 'input-valid' : ''}`}
-              style={{ paddingRight: 40, opacity: form.noGstin ? 0.45 : 1 }}
-              type="text" placeholder="e.g. 22ABCDE1234F1Z5" maxLength={15}
-              value={form.gstin}
-              disabled={form.noGstin}
-              onChange={(e) => handleChange('gstin', e.target.value.toUpperCase())}
-            />
-            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
-              {!form.noGstin && gstinStatus === 'checking' ? (
-                <SpinnerIcon />
-              ) : !form.noGstin && isValid ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20,6 9,17 4,12"/>
-                </svg>
-              ) : null}
-            </span>
-          </div>
-          {!form.noGstin && !errors.gstin && (
-            <span className="field-hint">
-              Format: 2-digit state code + PAN + 1Z + check digit (15 chars) · {form.gstin.length}/15
-            </span>
+              {/* GSTIN field — always visible */}
+              {(() => {
+                const isValid = !errors.gstin && form.gstin.length === 15 && gstinStatus !== 'exists';
+                return (
+                  <FormField label="GSTIN" required={!form.noGstin} error={!form.noGstin ? errors.gstin : undefined}>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        className={`form-input ${!form.noGstin && errors.gstin ? 'input-error' : !form.noGstin && isValid ? 'input-valid' : ''}`}
+                        style={{ paddingRight: 40, opacity: form.noGstin ? 0.45 : 1 }}
+                        type="text" placeholder="GSTIN" maxLength={15}
+                        value={form.gstin}
+                        disabled={form.noGstin}
+                        onChange={(e) => handleChange('gstin', e.target.value.toUpperCase())}
+                      />
+                      <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
+                        {!form.noGstin && gstinStatus === 'checking' ? (
+                          <SpinnerIcon />
+                        ) : !form.noGstin && isValid ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20,6 9,17 4,12" />
+                          </svg>
+                        ) : null}
+                      </span>
+                    </div>
+                    {!form.noGstin && !errors.gstin && (
+                      <span className="field-hint">
+
+                      </span>
+                    )}
+                    {!form.noGstin && <GstinStatusBadge status={gstinStatus} />}
+                  </FormField>
+                );
+              })()}
+
+              {/* Checkbox */}
+              <label className="checkbox-label">
+                <input
+                  type="checkbox" className="checkbox-input" checked={form.noGstin}
+                  onChange={(e) => {
+                    handleChange('noGstin', e.target.checked);
+                    if (e.target.checked) { handleChange('gstin', ''); setGstinStatus('idle'); }
+                    else { handleChange('panCard', ''); }
+                  }}
+                />
+                <span className="checkbox-text">Don't have a GSTIN Number?</span>
+              </label>
+
+              {/* No-GST nudge message */}
+              {form.noGstin && (
+                <div className="no-gstin-nudge">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                  <span>No GST? No problem! Start selling with just your EID in minutes.</span>
+                </div>
+              )}
+
+              {/* Trade Name — shown when noGstin is checked */}
+              {form.noGstin && (
+                <FormField label="Trade Name" required error={errors.tradeName}>
+                  <input
+                    className={`form-input ${errors.tradeName ? 'input-error' : ''}`}
+                    type="text" placeholder="Trade Name"
+                    value={form.tradeName}
+                    onChange={(e) => handleChange('tradeName', e.target.value)}
+                  />
+                </FormField>
+              )}
+
+              {/* Trade Name — shown when noGstin is NOT checked (GSTIN flow) */}
+              {!form.noGstin && (
+                <FormField label="Trade Name" required error={errors.tradeName}>
+                  <input
+                    className={`form-input ${errors.tradeName ? 'input-error' : ''}`}
+                    type="text" placeholder="Trade Name"
+                    value={form.tradeName}
+                    onChange={(e) => handleChange('tradeName', e.target.value)}
+                  />
+                </FormField>
+              )}
+
+              {/* PAN field — shown only when noGstin is checked */}
+              {form.noGstin && (() => {
+                const isValid = !errors.panCard && form.panCard.length === 10 && validatePAN(form.panCard);
+                return (
+                  <FormField label="PAN Card Number" required error={errors.panCard}>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        className={`form-input ${errors.panCard ? 'input-error' : isValid ? 'input-valid' : ''}`}
+                        style={{ paddingRight: 40 }}
+                        type="text" placeholder="PAN Card"
+                        value={form.panCard} maxLength={10}
+                        onChange={(e) => handleChange('panCard', e.target.value.toUpperCase())}
+                      />
+                      {isValid && (
+                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20,6 9,17 4,12" />
+                          </svg>
+                        </span>
+                      )}
+                    </div>
+                    {!errors.panCard && (
+                      <span className="field-hint">
+
+                      </span>
+                    )}
+                  </FormField>
+                );
+              })()}
+            </div>
           )}
-          {!form.noGstin && <GstinStatusBadge status={gstinStatus} />}
-        </FormField>
-      );
-    })()}
-
-    {/* Checkbox */}
-    <label className="checkbox-label">
-      <input
-        type="checkbox" className="checkbox-input" checked={form.noGstin}
-        onChange={(e) => {
-          handleChange('noGstin', e.target.checked);
-          if (e.target.checked) { handleChange('gstin', ''); setGstinStatus('idle'); }
-          else { handleChange('panCard', ''); }
-        }}
-      />
-      <span className="checkbox-text">I don't have a GSTIN</span>
-    </label>
-
-    {/* No-GST nudge message */}
-    {form.noGstin && (
-      <div className="no-gstin-nudge">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-        </svg>
-        <span>No GST? No problem! Start selling with just your EID in minutes.</span>
-      </div>
-    )}
-
-    {/* Trade Name — shown when noGstin is checked */}
-    {form.noGstin && (
-      <FormField label="Trade Name" required error={errors.tradeName}>
-        <input
-          className={`form-input ${errors.tradeName ? 'input-error' : ''}`}
-          type="text" placeholder="Trade Name"
-          value={form.tradeName}
-          onChange={(e) => handleChange('tradeName', e.target.value)}
-        />
-      </FormField>
-    )}
-
-    {/* Trade Name — shown when noGstin is NOT checked (GSTIN flow) */}
-    {!form.noGstin && (
-      <FormField label="Trade Name" required error={errors.tradeName}>
-        <input
-          className={`form-input ${errors.tradeName ? 'input-error' : ''}`}
-          type="text" placeholder="Trade Name"
-          value={form.tradeName}
-          onChange={(e) => handleChange('tradeName', e.target.value)}
-        />
-      </FormField>
-    )}
-
-    {/* PAN field — shown only when noGstin is checked */}
-    {form.noGstin && (() => {
-      const isValid = !errors.panCard && form.panCard.length === 10 && validatePAN(form.panCard);
-      return (
-        <FormField label="PAN Card Number" required error={errors.panCard}>
-          <div style={{ position: 'relative' }}>
-            <input
-              className={`form-input ${errors.panCard ? 'input-error' : isValid ? 'input-valid' : ''}`}
-              style={{ paddingRight: 40 }}
-              type="text" placeholder="e.g. ABCDE1234F"
-              value={form.panCard} maxLength={10}
-              onChange={(e) => handleChange('panCard', e.target.value.toUpperCase())}
-            />
-            {isValid && (
-              <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20,6 9,17 4,12"/>
-                </svg>
-              </span>
-            )}
-          </div>
-          {!errors.panCard && (
-            <span className="field-hint">
-              Format: 5 letters + 4 digits + 1 letter · {form.panCard.length}/10
-            </span>
-          )}
-        </FormField>
-      );
-    })()}
-  </div>
-)}
 
           {/* ── Step 1: Pickup Address ── */}
           {step === 1 && (
@@ -1228,12 +1564,16 @@ if (sellerId) {
                   <h2 className="ob-section-title">Pickup Address</h2>
                   <p className="ob-section-sub" style={{ marginBottom: 0 }}>Where will your products be picked up from?</p>
                 </div>
-                <button className="location-btn" onClick={() => setShowMapModal(true)}>
-                  <LocationIcon /><span>Use My Location</span>
+                <button
+                  className="location-btn"
+                  onClick={handleLocationButtonClick}
+                  disabled={detectingLoc}
+                >
+                  <LocationIcon /><span>{detectingLoc ? 'Detecting...' : 'Use My Location'}</span>
                 </button>
               </div>
 
-              <FormField label="House / Building" required error={errors.houseNo}>
+              <FormField label="House no. / Building Name" required error={errors.houseNo}>
                 <input
                   className={`form-input ${errors.houseNo ? 'input-error' : ''} ${autofilled && form.houseNo ? 'autofilled' : ''}`}
                   type="text" placeholder="House no. / Building Name"
@@ -1242,7 +1582,7 @@ if (sellerId) {
                 />
               </FormField>
 
-              <FormField label="Road / Area" required error={errors.roadName}>
+              <FormField label="Road Name/Area/Colony" required error={errors.roadName}>
                 <input
                   className={`form-input ${errors.roadName ? 'input-error' : ''} ${autofilled && form.roadName ? 'autofilled' : ''}`}
                   type="text" placeholder="Road Name / Area / Colony"
@@ -1257,7 +1597,7 @@ if (sellerId) {
                     <input
                       className={`form-input ${errors.pinCode ? 'input-error' : pincodeStatus === 'success' ? 'input-valid' : ''} ${autofilled && form.pinCode ? 'autofilled' : ''}`}
                       style={{ paddingRight: pincodeStatus === 'loading' ? 40 : 14 }}
-                      type="text" placeholder="6-digit Pin Code"
+                      type="text" placeholder="Pin Code"
                       value={form.pinCode} maxLength={6}
                       onChange={(e) => {
                         setPincodeStatus('idle');
@@ -1318,7 +1658,7 @@ if (sellerId) {
               <FormField label="Landmark (Optional)">
                 <input
                   className={`form-input ${autofilled && form.landmark ? 'autofilled' : ''}`}
-                  type="text" placeholder="Near…"
+                  type="text" placeholder="Landmark"
                   value={form.landmark}
                   onChange={(e) => handleChange('landmark', e.target.value)}
                 />
@@ -1329,19 +1669,19 @@ if (sellerId) {
           {/* ── Step 2: Bank Details ── */}
           {step === 2 && (
             <div className="ob-body">
-              <h2 className="ob-section-title">Bank Details</h2>
-              <p className="ob-section-sub">Where should we send your payouts? Account name must match your GSTIN or Trade name.</p>
+              <h2 className="ob-section-title">Bank Account Information</h2>
+              <p className="ob-section-sub">For a successful bank verification, account name must match with the registered GSTIN name or trade name</p>
 
               <FormField label="Bank Name" required error={errors.bankName}>
                 <div className="bank-selector">
                   <div className="bank-input-wrap">
                     <svg className="bank-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
                     </svg>
                     <input
                       ref={bankInputRef}
                       className={`form-input bank-search-input ${errors.bankName ? 'input-error' : ''}`}
-                      type="text" placeholder="Search bank name…" autoComplete="off"
+                      type="text" placeholder="Bank Name" autoComplete="off"
                       value={form.bankName ? form.bankName : bankSearch}
                       onFocus={() => {
                         if (form.bankName) setBankSearch('');
@@ -1377,7 +1717,7 @@ if (sellerId) {
                     <div className="bank-dropdown-wrap">
                       <div className="bank-dropdown-header">
                         {bankSearch.trim() === '' ? (
-                          <span>{WORLD_BANKS.length} banks available — type to search</span>
+                          <span>{bankList.length} banks available — type to search</span>
                         ) : (
                           <span>{filteredBanks.length} result{filteredBanks.length !== 1 ? 's' : ''} for "<strong>{bankSearch}</strong>"</span>
                         )}
@@ -1386,7 +1726,7 @@ if (sellerId) {
                         {filteredBanks.length > 0 ? filteredBanks.map((b, idx) => {
                           const lowerB = b.toLowerCase();
                           const lowerQ = bankSearch.toLowerCase().trim();
-                          const start  = lowerQ ? lowerB.indexOf(lowerQ) : -1;
+                          const start = lowerQ ? lowerB.indexOf(lowerQ) : -1;
                           return (
                             <li
                               key={b} data-index={idx}
@@ -1415,7 +1755,7 @@ if (sellerId) {
               <FormField label="Account Holder Name" required error={errors.accountHolderName}>
                 <input
                   className={`form-input ${errors.accountHolderName ? 'input-error' : ''}`}
-                  type="text" placeholder="Full name as per bank records"
+                  type="text" placeholder="Account Holder Name"
                   value={form.accountHolderName}
                   onChange={(e) => handleChange('accountHolderName', e.target.value)}
                 />
@@ -1430,7 +1770,7 @@ if (sellerId) {
                       <input
                         className={`form-input account-input ${errors.accountNumber ? 'input-error' : isValid ? 'input-valid' : ''}`}
                         type={showAccountNumber ? 'text' : 'password'}
-                        placeholder="9–18 digit account number"
+                        placeholder="Account Number"
                         value={form.accountNumber} maxLength={18}
                         onChange={(e) => handleChange('accountNumber', e.target.value.replace(/\D/g, ''))}
                       />
@@ -1439,7 +1779,7 @@ if (sellerId) {
                       </button>
                     </div>
                     {!errors.accountNumber && (
-                      <span className="field-hint">Digits only, 9–18 characters · {form.accountNumber.length} entered</span>
+                      <span className="field-hint"></span>
                     )}
                   </FormField>
                 );
@@ -1454,7 +1794,7 @@ if (sellerId) {
                       <input
                         className={`form-input account-input ${errors.reAccountNumber ? 'input-error' : match ? 'input-valid' : ''}`}
                         type={showReAccountNumber ? 'text' : 'password'}
-                        placeholder="Re-enter account number"
+                        placeholder="Re-enter Account Number"
                         value={form.reAccountNumber} maxLength={18}
                         onChange={(e) => handleChange('reAccountNumber', e.target.value.replace(/\D/g, ''))}
                       />
@@ -1475,20 +1815,20 @@ if (sellerId) {
                       <input
                         className={`form-input ${errors.ifscCode ? 'input-error' : isValid ? 'input-valid' : ''}`}
                         style={{ paddingRight: 40 }}
-                        type="text" placeholder="e.g. SBIN0001234"
+                        type="text" placeholder="IFSC Code"
                         value={form.ifscCode} maxLength={11}
                         onChange={(e) => handleChange('ifscCode', e.target.value.toUpperCase())}
                       />
                       {isValid && (
                         <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="20,6 9,17 4,12"/>
+                            <polyline points="20,6 9,17 4,12" />
                           </svg>
                         </span>
                       )}
                     </div>
                     {!errors.ifscCode && (
-                      <span className="field-hint">Format: 4 letters + 0 + 6 alphanumeric · {form.ifscCode.length}/11</span>
+                      <span className="field-hint"></span>
                     )}
                   </FormField>
                 );
@@ -1514,7 +1854,7 @@ if (sellerId) {
               <div className="btn-spacer" />
             )}
             <button className="btn-continue" onClick={handleContinue} disabled={submitLoading}>
-              {step < 2 ? 'Continue' : submitLoading ? 'Submitting…' : 'Submit Application'}
+              {step < 2 ? 'Continue' : 'Submit'}
             </button>
           </div>
 

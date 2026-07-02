@@ -32,8 +32,20 @@ function SignInPage() {
   };
 
   const handleForgotPasswordToggle = () => {
-    setForgotPasswordError("");
-    setShowForgotPasswordConfirm((prev) => !prev);
+    navigate("/forgot-password", {
+      state: {
+        prefillContact: contact,
+        showPassword: showPassword,
+        verifiedContact: verifiedContact
+      }
+    });
+  };
+
+  const handleChangeEmail = () => {
+    setShowPassword(false);
+    setPassword("");
+    setVerifiedContact(null);
+    setError("");
   };
 
   const handleForgotPasswordConfirm = async () => {
@@ -65,11 +77,13 @@ function SignInPage() {
     }
   };
 
-  // ─── Prefill contact from OTP "Change Number" flow ───────────────────────
+  // ─── Prefill contact from OTP "Change Number" flow or Sign Up flow ────────
   useEffect(() => {
-    const prefill = location.state?.prefillContact;
+    const prefill = location.state?.prefillContact || location.state?.prefillEmail;
     if (prefill) setContact(prefill);
-  }, []);
+    if (location.state?.showPassword) setShowPassword(true);
+    if (location.state?.verifiedContact) setVerifiedContact(location.state.verifiedContact);
+  }, [location.state]);
 
   // ─── Handle Continue (email/phone check) ─────────────────────────────────
   const handleContinue = async () => {
@@ -112,8 +126,11 @@ function SignInPage() {
           });
         }
       } else {
-        // ❌ Not registered → show inline error
+        // ❌ Not registered → show inline error and redirect after 1 second
         setError("Account not found. Please complete the signup process first.");
+        setTimeout(() => {
+          navigate("/signup", { state: { prefillContact: trimmed } });
+        }, 1000);
       }
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
@@ -241,7 +258,8 @@ function SignInPage() {
 
   // ─── Reset password step if contact field changes ─────────────────────────
   const handleContactChange = (value) => {
-    setContact(value);
+    const cleaned = value.replace(/[^a-zA-Z0-9@._\-+]/g, "");
+    setContact(cleaned);
     if (showPassword) {
       setShowPassword(false);
       setPassword("");
@@ -251,7 +269,8 @@ function SignInPage() {
   };
 
   const handlePasswordChange = (value) => {
-    setPassword(value);
+    const cleaned = value.replace(/[\s]/g, "").replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]/g, "");
+    setPassword(cleaned);
     if (error) setError("");
   };
 
@@ -274,6 +293,7 @@ function SignInPage() {
         onForgotPasswordConfirm={handleForgotPasswordConfirm}
         forgotPasswordLoading={forgotPasswordLoading}
         forgotPasswordError={forgotPasswordError}
+        onChangeEmail={handleChangeEmail}
       />
       {toast.show && (
         <div className={`signin-toast ${toast.type}`}>

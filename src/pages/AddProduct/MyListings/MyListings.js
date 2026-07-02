@@ -6,7 +6,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   Eye, Edit2, Copy, Trash2, RefreshCw, Search, Package,
   AlertTriangle, Plus, ChevronLeft, ChevronRight, MoreVertical, ArrowLeft,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Calendar,
 } from "lucide-react";
 import { fetchSellerListings, fetchProductDetails } from "../../../services/sellerService";
 import { resolveSellerEmail } from "../../../utils/sellerSession";
@@ -185,6 +185,14 @@ const formatDiscount = (discount) => {
   return null;
 };
 
+const getCalculatedDiscount = (price, discount) => {
+  if (!discount?.type || discount.value == null) return 0;
+  const val = parseFloat(discount.value) || 0;
+  if (discount.type === "AMOUNT") return val;
+  if (discount.type === "PERCENTAGE") return (parseFloat(price) || 0) * val / 100;
+  return 0;
+};
+
 const statusClass = (status) => {
   const s = (status || "").toLowerCase();
   if (s === "approved")          return "ml-badge ml-badge--approved";
@@ -281,9 +289,6 @@ const DotMenu = ({ onView, onEdit, onDuplicate, onDelete }) => {
           <button onClick={() => { onView();      setOpen(false); }}><Eye size={14} /> View</button>
           <button onClick={() => { onEdit();      setOpen(false); }}><Edit2 size={14} /> Edit</button>
           <button onClick={() => { onDuplicate(); setOpen(false); }}><Copy size={14} /> Duplicate</button>
-          <button className="ml-dd-delete" onClick={() => { onDelete(); setOpen(false); }}>
-            <Trash2 size={14} /> Delete
-          </button>
         </div>
       )}
     </div>
@@ -308,9 +313,155 @@ const MyListings = ({ embedded = false }) => {
   const [detailsError,           setDetailsError]           = useState(null);
   const [activeImage,            setActiveImage]            = useState(null);
 
-  const [searchRaw,    setSearchRaw]    = useState("");
+ const [searchRaw,    setSearchRaw]    = useState("");
   const [search,       setSearch]       = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [priceFilter,  setPriceFilter]  = useState("all");
+
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
+  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
+  const [hoverDate, setHoverDate] = useState(null);
+
+  const datePickerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (datePickerRef.current && !datePickerRef.current.contains(event.target)) {
+        setCalendarOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const today = new Date();
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
+  const selectYears = useMemo(() => {
+    const yrs = [];
+    for (let y = 2024; y <= today.getFullYear(); y++) {
+      yrs.push(y);
+    }
+    return yrs;
+  }, [today]);
+
+  const handlePrevMonth = () => {
+    if (calendarMonth === 0) {
+      setCalendarMonth(11);
+      setCalendarYear((y) => y - 1);
+    } else {
+      setCalendarMonth((m) => m - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (calendarYear === today.getFullYear() && calendarMonth >= today.getMonth()) return;
+    if (calendarMonth === 11) {
+      setCalendarMonth(0);
+      setCalendarYear((y) => y + 1);
+    } else {
+      setCalendarMonth((m) => m + 1);
+    }
+  };
+
+  const getCalendarDays = () => {
+    const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay();
+    const totalDays = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+    const days = [];
+    for (let i = 0; i < firstDayIndex; i++) {
+      days.push({ day: null, date: null });
+    }
+    for (let d = 1; d <= totalDays; d++) {
+      days.push({
+        day: d,
+        date: new Date(calendarYear, calendarMonth, d)
+      });
+    }
+    return days;
+  };
+
+  const calendarDays = getCalendarDays();
+
+  const getDayClassNames = (dayDate) => {
+    if (!dayDate) return "orders-calendar-day-empty";
+    const time = dayDate.getTime();
+    const startTime = startDate ? new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime() : null;
+    const endTime = endDate ? new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime() : null;
+    const hoverTime = hoverDate ? new Date(hoverDate.getFullYear(), hoverDate.getMonth(), hoverDate.getDate()).getTime() : null;
+
+    let classes = "orders-calendar-day";
+    if (startTime && time === startTime) classes += " is-start-date";
+    if (endTime && time === endTime) classes += " is-end-date";
+    if (startTime && endTime && time > startTime && time < endTime) classes += " in-range";
+    if (startTime && !endTime && hoverTime && time > startTime && time <= hoverTime) classes += " in-range-hover";
+    return classes;
+  };
+
+  const handleDayClick = (dayDate) => {
+    if (!dayDate) return;
+    const normalizedDate = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
+    if (normalizedDate.getTime() > todayMidnight) return;
+
+    if (!startDate || (startDate && endDate)) {
+      setStartDate(normalizedDate);
+      setEndDate(null);
+    } else if (startDate && !endDate) {
+      if (normalizedDate.getTime() >= startDate.getTime()) {
+        setEndDate(normalizedDate);
+        setCalendarOpen(false);
+      } else {
+        setStartDate(normalizedDate);
+        setEndDate(null);
+      }
+    }
+    setPage(1);
+  };
+
+  const handleQuickPreset = (preset) => {
+    const todayVal = new Date();
+    todayVal.setHours(0, 0, 0, 0);
+
+    if (preset === "today") {
+      setStartDate(todayVal);
+      setEndDate(todayVal);
+      setCalendarOpen(false);
+    } else if (preset === "yesterday") {
+      const yesterday = new Date(todayVal);
+      yesterday.setDate(todayVal.getDate() - 1);
+      setStartDate(yesterday);
+      setEndDate(yesterday);
+      setCalendarOpen(false);
+    } else if (preset === "last7") {
+      const last7 = new Date(todayVal);
+      last7.setDate(todayVal.getDate() - 6);
+      setStartDate(last7);
+      setEndDate(todayVal);
+      setCalendarOpen(false);
+    } else if (preset === "last30") {
+      const last30 = new Date(todayVal);
+      last30.setDate(todayVal.getDate() - 29);
+      setStartDate(last30);
+      setEndDate(todayVal);
+      setCalendarOpen(false);
+    } else if (preset === "thisMonth") {
+      const startOfMonth = new Date(todayVal.getFullYear(), todayVal.getMonth(), 1);
+      setStartDate(startOfMonth);
+      setEndDate(todayVal);
+      setCalendarOpen(false);
+    } else if (preset === "clear") {
+      setStartDate(null);
+      setEndDate(null);
+    }
+    setPage(1);
+  };
 
   const [allProducts,   setAllProducts]   = useState([]);
   const [isFetchingAll, setIsFetchingAll] = useState(false);
@@ -321,13 +472,13 @@ const MyListings = ({ embedded = false }) => {
     setError(null);
     try {
       const result = await fetchSellerListings({
-        email: sellerEmail, page: 1, limit: 100, type: "mylisting",
+        email: sellerEmail, page: 1, limit: 100,
       });
       let all = [...result.products];
       if (result.totalPages > 1) {
         const rest = await Promise.all(
           Array.from({ length: result.totalPages - 1 }, (_, i) =>
-            fetchSellerListings({ email: sellerEmail, page: i + 2, limit: 100, type: "mylisting" })
+            fetchSellerListings({ email: sellerEmail, page: i + 2, limit: 100 })
           )
         );
         rest.forEach(r => { all = all.concat(r.products); });
@@ -344,6 +495,16 @@ const MyListings = ({ embedded = false }) => {
     if (sellerEmail) loadListings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sellerEmail]);
+
+  // ── auto-refresh when navigated back from create/update flow ─────────────────
+  useEffect(() => {
+    if (location.state?.refresh && sellerEmail) {
+      console.log("[MyListings] Auto-refresh triggered — timestamp:", location.state.timestamp);
+      setPage(1);
+      loadListings();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.timestamp, sellerEmail]);
 
   const debounceRef = useRef(null);
   const handleSearchChange = (val) => {
@@ -365,28 +526,7 @@ const MyListings = ({ embedded = false }) => {
     setSelectedProductDetails(null);
     setActiveImage(null);
     try {
-      const res = await fetch(
-        `https://www.haatza.com/_functions/sellerProductDetails?Table_ID=${tableId}`
-      );
-      if (!res.ok) throw new Error(`Failed to fetch product details (${res.status})`);
-      const data = await res.json();
-      const candidates = [
-        data?.message?.body?.product,
-        data?.message?.body,
-        data?.body?.product,
-        data?.body,
-        data,
-      ];
-      const details = candidates.find(
-        (c) =>
-          c &&
-          typeof c === "object" &&
-          !Array.isArray(c) &&
-          (c.name || c.price != null || c.status || c.Table_ID)
-      ) ?? data;
-      if (!details || typeof details !== "object") {
-        throw new Error("Product not found or response format changed.");
-      }
+      const details = await fetchProductDetails(tableId);
       setSelectedProductDetails(details);
       setActiveImage(resolveWixImage(details.mainmedia) || null);
     } catch (err) {
@@ -404,16 +544,34 @@ const MyListings = ({ embedded = false }) => {
     setActiveImage(null);
   };
 
+  const extractProduct = (data) => {
+    if (!data) return null;
+    const candidates = [
+      data?.message?.body?.product,
+      data?.message?.data?.product,
+      data?.message?.body,
+      data?.message?.data,
+      data?.body?.product,
+      data?.body,
+      data?.data,
+      data,
+    ];
+    return candidates.find(
+      (c) =>
+        c &&
+        typeof c === "object" &&
+        !Array.isArray(c) &&
+        (c.name || c.price != null || c.status || c.Table_ID || c._id)
+    ) ?? data;
+  };
+
   const handleEditListing = async (tableId) => {
     if (!tableId) return;
     try {
-      const res = await fetch(
-        `https://www.haatza.com/_functions/sellerProductDetails?Table_ID=${tableId}`
-      );
-      if (!res.ok) throw new Error(`Failed to fetch product details (${res.status})`);
-      const editData = await res.json();
+      const editData = await fetchProductDetails(tableId);
+      const isDraft = (editData?.status || "").toLowerCase() === "draft";
       navigate(`/dashboard/listing/edit/${tableId}/product-info`, {
-        state: { editData, tableId, isEditMode: true, origin: "my-listings" },
+        state: { editData, tableId, isEditMode: true, isDraftMode: isDraft, origin: "my-listings" },
       });
     } catch (err) {
       console.error("[MyListings] Edit fetch error:", err);
@@ -424,13 +582,9 @@ const MyListings = ({ embedded = false }) => {
   const handleDuplicateListing = async (tableId) => {
     if (!tableId) return;
     try {
-      const res = await fetch(
-        `https://www.haatza.com/_functions/sellerProductDetails?Table_ID=${tableId}`
-      );
-      if (!res.ok) throw new Error(`Failed to fetch product details (${res.status})`);
-      const rawData = await res.json();
+      const extracted = await fetchProductDetails(tableId);
 
-      const duplicateData = { ...rawData };
+      const duplicateData = { ...extracted };
       [
         "Table_ID", "tableId", "table_id", "productId", "product_id",
         "_id", "id", "sellerId", "seller_id", "status",
@@ -438,8 +592,8 @@ const MyListings = ({ embedded = false }) => {
       ].forEach(k => delete duplicateData[k]);
 
       const category = {
-        name: duplicateData.categoryName || "",
-        _id:  duplicateData.categoryId   || duplicateData.CategoryID || "",
+        name: duplicateData.categoryName?.[0] || duplicateData.mainCategory || "",
+        _id:  duplicateData.categoryId?.[0]   || duplicateData.categoryId || "",
       };
       const subcategory = {
         name:          duplicateData.subCategory    || "",
@@ -467,8 +621,18 @@ const MyListings = ({ embedded = false }) => {
   const filtered = useMemo(() => {
     let list = [...allProducts];
 
-    // Only show approved listings
-    list = list.filter(p => (p.status || "").toLowerCase() === "approved");
+    // Show approved and draft listings
+    list = list.filter(p => {
+      const s = (p.status || "").toLowerCase();
+      return s === "approved" || s === "draft";
+    });
+
+    if (statusFilter !== "all") {
+      list = list.filter(p =>
+        (p.status || "").toLowerCase() === statusFilter.toLowerCase()
+      );
+    }
+
     if (search) {
       const q = search.trim().toLowerCase();
       list = list.filter(p =>
@@ -490,8 +654,30 @@ const MyListings = ({ embedded = false }) => {
         computeFinalPrice(Number(b.price) || 0, b.discount || {})
       );
     }
+
+    if (startDate && endDate) {
+      list = list.filter(p => {
+        const createdRaw = p.createdAt || p.createdDate || p.updatedAt;
+        if (!createdRaw) return false;
+        const created = new Date(createdRaw);
+        const createdTime = new Date(created.getFullYear(), created.getMonth(), created.getDate()).getTime();
+        const startTime = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime();
+        const endTime = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
+        return createdTime >= startTime && createdTime <= endTime;
+      });
+    } else if (startDate) {
+      list = list.filter(p => {
+        const createdRaw = p.createdAt || p.createdDate || p.updatedAt;
+        if (!createdRaw) return false;
+        const created = new Date(createdRaw);
+        const createdTime = new Date(created.getFullYear(), created.getMonth(), created.getDate()).getTime();
+        const startTime = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime();
+        return createdTime === startTime;
+      });
+    }
+
     return list;
-  }, [allProducts, search, priceFilter]);
+  }, [allProducts, search, statusFilter, priceFilter, startDate, endDate]);
 
   const total = filtered.length;
   const totalPages = Math.ceil(total / LIMIT) || 1;
@@ -546,6 +732,11 @@ const MyListings = ({ embedded = false }) => {
           </div>
 
 
+          <select className="ml-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }}>
+            <option value="all">All Status</option>
+            <option value="approved">Approved</option>
+            <option value="draft">Draft</option>
+          </select>
 
           <select className="ml-select" value={priceFilter} onChange={e => { setPriceFilter(e.target.value); setPage(1); }}>
             <option value="all">All Prices</option>
@@ -637,9 +828,6 @@ const MyListings = ({ embedded = false }) => {
                             <button className="ml-action-btn" title="Duplicate" onClick={() => handleDuplicateListing(product.Table_ID)}>
                               <Copy size={15} />
                             </button>
-                            <button className="ml-action-btn ml-action-btn--delete" title="Delete" onClick={() => console.log("Delete:", product.Table_ID)}>
-                              <Trash2 size={15} />
-                            </button>
                           </div>
                           <div className="ml-actions ml-actions-mobile">
                             <DotMenu
@@ -697,7 +885,7 @@ const MyListings = ({ embedded = false }) => {
                 <div className="ml-empty-icon"><Package size={32} /></div>
                 <h3>No Listings Found</h3>
                 <p>
-                  {search || priceFilter !== "all"
+                  {search || statusFilter !== "all" || priceFilter !== "all"
                     ? "No products match your current filters."
                     : "You haven't created any listings yet."}
                 </p>
@@ -773,6 +961,28 @@ const MyListings = ({ embedded = false }) => {
               const additionalSections =
                 Array.isArray(d.additionalInfoSections) && d.additionalInfoSections.length > 0
                   ? d.additionalInfoSections : null;
+
+              const optionNamesSet = new Set(
+                productOptions 
+                  ? productOptions.map(opt => (opt.name || "").toLowerCase().trim())
+                  : []
+              );
+              optionNamesSet.add("size");
+              optionNamesSet.add("sizes");
+              optionNamesSet.add("color");
+              optionNamesSet.add("colour");
+              optionNamesSet.add("colours");
+              optionNamesSet.add("color picker");
+
+              const filteredAdditionalSections = additionalSections ? additionalSections.map(section => {
+                const skipKeys = new Set(["title", "description"]);
+                const otherEntries = Object.entries(section).filter(([key, val]) => {
+                  const keyNorm = key.toLowerCase().replace(/_/g, " ").trim();
+                  if (optionNamesSet.has(keyNorm)) return false;
+                  return !skipKeys.has(key) && val != null && val !== "";
+                });
+                return { ...section, otherEntries };
+              }).filter(section => section.otherEntries.length > 0 || (section.description && section.description.trim() !== "")) : null;
 
               const keywords = resolveKeywords(d.search_keywords);
 
@@ -860,6 +1070,10 @@ const MyListings = ({ embedded = false }) => {
                             <span className="ml-modal-value">{d.status || "Draft"}</span>
                           </div>
                           <div className="ml-modal-field">
+                            <span className="ml-modal-label">SKU</span>
+                            <span className="ml-modal-value">{d.skuCode || d.sku_code || d.sku || d.SKU || "Not Available"}</span>
+                          </div>
+                          <div className="ml-modal-field">
                             <span className="ml-modal-label">Manage Variants</span>
                             <span className="ml-modal-value">
                               {d.manageVariants === true ? "Yes"
@@ -879,13 +1093,23 @@ const MyListings = ({ embedded = false }) => {
                           <div className="ml-modal-field">
                             <span className="ml-modal-label">Discount</span>
                             <span className="ml-modal-value ml-modal-value--discount">
-                              {formatDiscount(d.discount) || "Not Applicable"}
+                              {(() => {
+                                const priceVal = Number(d.price || 0);
+                                const discountAmt = getCalculatedDiscount(priceVal, d.discount);
+                                return discountAmt > 0 ? `₹${discountAmt.toFixed(2)}` : "Not Applicable";
+                              })()}
                             </span>
                           </div>
                           <div className="ml-modal-field">
                             <span className="ml-modal-label">Final Price</span>
                             <span className="ml-modal-value ml-modal-value--final">
-                              ₹{computeFinalPrice(Number(d.price || 0), d.discount).toFixed(2)}
+                              {(() => {
+                                const priceVal = Number(d.price || 0);
+                                const discountAmt = getCalculatedDiscount(priceVal, d.discount);
+                                return discountAmt > 0
+                                  ? `₹${computeFinalPrice(priceVal, d.discount).toFixed(2)}`
+                                  : `₹${priceVal.toFixed(2)}`;
+                              })()}
                             </span>
                           </div>
                         </div>
@@ -925,9 +1149,8 @@ const MyListings = ({ embedded = false }) => {
                           <div className="ml-modal-field">
                             <span className="ml-modal-label">Delivery Charges</span>
                             <span className="ml-modal-value">
-                              {d.deliveryCharges === false ? "Not Applicable"
-                                : d.deliveryCharges ? `₹${d.deliveryCharges}`
-                                : "Not Available"}
+                              {d.deliveryCharges === true || d.deliveryCharges === "true" || d.deliveryCharges === "yes" ? "Yes"
+                                : "No"}
                             </span>
                           </div>
                         </div>
@@ -944,23 +1167,48 @@ const MyListings = ({ embedded = false }) => {
                                 <span className="ml-modal-option-name">
                                   {opt.name || `Option ${idx + 1}`}
                                 </span>
-                                <div className="ml-modal-option-chips">
+                                <div className="ml-modal-option-chips" style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                                   {choices.map((choice, ci) => {
                                     const label = typeof choice === "object"
                                       ? choice.description || choice.value || choice.name || ""
                                       : String(choice);
+                                    const mediaList = choice?.mediaItems || choice?.productImages || choice?.images || [];
                                     return (
-                                      <span key={ci} className="ml-modal-option-chip"
-                                        style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                                        {isColor && choice?.value && /^#[0-9a-f]{3,6}/i.test(choice.value) && (
-                                          <span style={{
-                                            width: 10, height: 10, borderRadius: "50%",
-                                            background: choice.value,
-                                            border: "1px solid rgba(0,0,0,0.15)", flexShrink: 0,
-                                          }} />
+                                      <div key={ci} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                        <span className="ml-modal-option-chip"
+                                          style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                                          {isColor && choice?.value && /^#[0-9a-f]{3,6}/i.test(choice.value) && (
+                                            <span style={{
+                                              width: 10, height: 10, borderRadius: "50%",
+                                              background: choice.value,
+                                              border: "1px solid rgba(0,0,0,0.15)", flexShrink: 0,
+                                            }} />
+                                          )}
+                                          {label}
+                                        </span>
+                                        {isColor && mediaList.length > 0 && (
+                                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                            {mediaList.map((media, mi) => {
+                                              const rawUrl = media?.src || media?.url || media?.mediaUrl || media;
+                                              const imgUrl = resolveWixImage(rawUrl);
+                                              if (!imgUrl) return null;
+                                              return (
+                                                <img
+                                                  key={mi}
+                                                  src={imgUrl}
+                                                  alt={`${label} image ${mi + 1}`}
+                                                  style={{
+                                                    width: 36, height: 36, objectFit: "cover",
+                                                    borderRadius: 6, border: "1px solid rgba(0,0,0,0.08)",
+                                                    cursor: "pointer", background: "white"
+                                                  }}
+                                                  onClick={() => setActiveImage(imgUrl)}
+                                                />
+                                              );
+                                            })}
+                                          </div>
                                         )}
-                                        {label}
-                                      </span>
+                                      </div>
                                     );
                                   })}
                                   {choices.length === 0 && <span className="ml-modal-value">—</span>}
@@ -971,13 +1219,10 @@ const MyListings = ({ embedded = false }) => {
                         </CollapseSection>
                       )}
 
-                      <CollapseSection title="Additional Information" defaultOpen={false}>
-                        {additionalSections && additionalSections.length > 0 ? (
-                          additionalSections.map((section, idx) => {
-                            const skipKeys = new Set(["title", "description"]);
-                            const otherEntries = Object.entries(section).filter(
-                              ([key, val]) => !skipKeys.has(key) && val != null && val !== ""
-                            );
+                      <CollapseSection title="Product Specifications" defaultOpen={false}>
+                        {filteredAdditionalSections && filteredAdditionalSections.length > 0 ? (
+                          filteredAdditionalSections.map((section, idx) => {
+                            const { otherEntries } = section;
                             return (
                               <div key={idx} className="ml-modal-info-block">
                                 {section.title && (
@@ -1052,7 +1297,11 @@ const MyListings = ({ embedded = false }) => {
                         <div className="ml-modal-grid">
                           <div className="ml-modal-field">
                             <span className="ml-modal-label">Payment Type</span>
-                            <span className="ml-modal-value">{d.paymentType || "Not Applicable"}</span>
+                            <span className="ml-modal-value">
+                              {d.paymentType === "Cash on Delivery Available"
+                                ? "Cash on Delivery Available"
+                                : "Cash on Delivery Not Available"}
+                            </span>
                           </div>
                         </div>
                         <div className="ml-modal-policy-section">
@@ -1111,7 +1360,10 @@ const MyListings = ({ embedded = false }) => {
                     <button
                       className="ml-btn-outline"
                       onClick={() => {
-                        const id = d.Table_ID || d.tableId || d.table_id || d.productId || d.id || d._id || selectedProductId;
+                        // Never fall back to d.productId — it's a separate Wix
+                        // product reference, not the DB record id required by
+                        // updateSellerProduct.
+                        const id = d.Table_ID || d.tableId || d.table_id || d._id || d.id || selectedProductId;
                         const capturedData = selectedProductDetails;
                         handleCloseModal();
                         if (!id) { alert("Unable to determine product ID. Please try again."); return; }

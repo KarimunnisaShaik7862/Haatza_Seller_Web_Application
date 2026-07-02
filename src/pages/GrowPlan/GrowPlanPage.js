@@ -330,7 +330,7 @@ const GrowPlanPage = () => {
 
     try {
       // 1. Fetch Plans
-      console.log("[GrowPlanPage] Fetching plans... GET https://haatzaseller.com/_functions/getPlans");
+      console.log("[GrowPlanPage] Fetching plans... GET https://www.haatzaseller.com/_functions/getPlans");
       let planItems = [];
       try {
         const plansRes = await sellerService.fetchPricingplans();
@@ -363,7 +363,7 @@ const GrowPlanPage = () => {
 
       // 3. Fetch Seller Current Subscription
       if (sellerEmail) {
-        console.log(`[GrowPlanPage] Fetching active subscription... GET https://haatzaseller.com/_functions/sellersubscription?email=${sellerEmail}`);
+        console.log(`[GrowPlanPage] Fetching active subscription... GET https://www.haatzaseller.com/_functions/sellersubscription?email=${sellerEmail}`);
         try {
           const subRes = await sellerService.fetchSubscriptionPlan(sellerEmail);
           setSubscriptionRes(subRes);
@@ -477,10 +477,10 @@ const GrowPlanPage = () => {
     const enteredCode = referralCode.trim();
 
     console.log("[GrowPlanPage] Checking referral code:", referralCode);
-    console.log("[GrowPlanPage] Referral Check URL:", `https://haatzaseller.com/_functions/referralCheck?referralCode=${referralCode}`);
+    console.log("[GrowPlanPage] Referral Check URL:", `https://www.haatzaseller.com/_functions/referralCheck?referralCode=${referralCode}`);
 
     try {
-      const res = await axios.get("https://haatzaseller.com/_functions/referralCheck", {
+      const res = await axios.get("https://www.haatzaseller.com/_functions/referralCheck", {
         params: { referralCode: enteredCode }
       });
       console.log("[GrowPlanPage] Referral Check Response:", res.data);
@@ -745,7 +745,7 @@ const GrowPlanPage = () => {
 
               console.log("[GrowPlan] Subscription Payload", storePayload);
 
-              const storeRes = await axios.post("https://haatzaseller.com/_functions/processSubscriptionOrder", storePayload);
+              const storeRes = await axios.post("https://www.haatzaseller.com/_functions/processSubscriptionOrder", storePayload);
               console.log("[GrowPlan] Subscription Response", storeRes.data);
 
               const success =
@@ -756,7 +756,7 @@ const GrowPlanPage = () => {
                 throw new Error("Subscription order processing failed on backend.");
               }
 
-              console.log("[GrowPlan] Subscription Fetch URL", "https://haatzaseller.com/_functions/sellersubscription?email=" + sellerEmail);
+              console.log("[GrowPlan] Subscription Fetch URL", "https://www.haatzaseller.com/_functions/sellersubscription?email=" + sellerEmail);
               const verifySubscription = await sellerService.fetchSubscriptionPlan(sellerEmail);
 
               console.log("[GrowPlan] Subscription Fetch Response", verifySubscription);
@@ -768,7 +768,7 @@ const GrowPlanPage = () => {
               }
 
               // Refresh sellersubscription records from backend
-              console.log(`[GrowPlanPage] Refreshing subscription records... GET https://haatzaseller.com/_functions/sellersubscription?email=${sellerEmail}`);
+              console.log(`[GrowPlanPage] Refreshing subscription records... GET https://www.haatzaseller.com/_functions/sellersubscription?email=${sellerEmail}`);
               try {
                 const subRes = await sellerService.fetchSubscriptionPlan(sellerEmail);
                 setSubscriptionRes(subRes);
@@ -914,8 +914,8 @@ const GrowPlanPage = () => {
 
         console.log("[GrowPlan] Subscription Payload", storePayload);
 
-        console.log("[GrowPlanPage] Processing direct free/wallet subscription order: POST https://haatzaseller.com/_functions/processSubscriptionOrder", storePayload);
-        const storeRes = await axios.post("https://haatzaseller.com/_functions/processSubscriptionOrder", storePayload);
+        console.log("[GrowPlanPage] Processing direct free/wallet subscription order: POST https://www.haatzaseller.com/_functions/processSubscriptionOrder", storePayload);
+        const storeRes = await axios.post("https://www.haatzaseller.com/_functions/processSubscriptionOrder", storePayload);
         console.log("[GrowPlan] Subscription Response", storeRes.data);
 
         const success =
@@ -926,7 +926,7 @@ const GrowPlanPage = () => {
           throw new Error("Subscription order processing failed on backend.");
         }
 
-        console.log("[GrowPlan] Subscription Fetch URL", "https://haatzaseller.com/_functions/sellersubscription?email=" + sellerEmail);
+        console.log("[GrowPlan] Subscription Fetch URL", "https://www.haatzaseller.com/_functions/sellersubscription?email=" + sellerEmail);
         const verifySubscription = await sellerService.fetchSubscriptionPlan(sellerEmail);
 
         console.log("[GrowPlan] Subscription Fetch Response", verifySubscription);
@@ -938,7 +938,7 @@ const GrowPlanPage = () => {
         }
 
         // Refresh sellersubscription records from backend
-        console.log(`[GrowPlanPage] Refreshing subscription records... GET https://haatzaseller.com/_functions/sellersubscription?email=${sellerEmail}`);
+        console.log(`[GrowPlanPage] Refreshing subscription records... GET https://www.haatzaseller.com/_functions/sellersubscription?email=${sellerEmail}`);
         try {
           const subRes = await sellerService.fetchSubscriptionPlan(sellerEmail);
           setSubscriptionRes(subRes);

@@ -355,11 +355,7 @@ function DashboardLayout() {
         sidebarCollapsed ? "sidebar-collapsed" : "",
       ].filter(Boolean).join(" ")}
     >
-      <HaatzaNavbar seller={user || {}} onToggleSidebar={handleSidebarToggle} />
-
-      {isMobile && sidebarOpen && (
-        <div className="sidebar-mobile-backdrop" onClick={handleSidebarClose} />
-      )}
+      <HaatzaNavbar seller={user || {}} />
 
       <Sidebar
         isOpen={sidebarOpen}

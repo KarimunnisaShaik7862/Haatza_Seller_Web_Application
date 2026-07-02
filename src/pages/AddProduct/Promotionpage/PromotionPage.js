@@ -241,23 +241,42 @@ const compressImage = (file) =>
   );
 
   /* ── IMAGE UPLOAD ZONE ── */
-  const ImageUploadZone = ({ image, onUpload, onReplace, onDelete, error }) => {
+  const ImageUploadZone = ({ image, onUpload, onDelete, error }) => {
     const inputRef = useRef(null);
     const [dragging, setDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
 
-    const processFile = useCallback((file) => {
-      if (!file) return;
-      const allowed = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
-      if (!allowed.includes(file.type)) {
-        onUpload(null, "Only PNG, JPG/JPEG, and WEBP formats are supported.");
-        return;
+    const imagesList = Array.isArray(image) ? image : (image ? [image] : []);
+
+    const processFiles = useCallback(async (files) => {
+      if (!files || files.length === 0) return;
+
+      const maxAllowed = 5 - imagesList.length;
+      let exceeded = false;
+      let filesToProcess = Array.from(files);
+
+      if (filesToProcess.length > maxAllowed) {
+        exceeded = true;
+        filesToProcess = filesToProcess.slice(0, Math.max(0, maxAllowed));
       }
+
+      if (exceeded) {
+        onUpload(null, "You can't upload more than 5 images.");
+      }
+
+      if (filesToProcess.length === 0) return;
 
       setUploading(true);
 
-      const performUpload = async (base64, mediaType, size) => {
+      for (const file of filesToProcess) {
+        const allowed = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+        if (!allowed.includes(file.type)) {
+          onUpload(null, `Unsupported format for "${file.name}". Use PNG, JPG, or WEBP.`);
+          continue;
+        }
+
         try {
+          const { blob, base64, mediaType } = await compressImage(file);
           const fileName = file.name;
           const res = await fetch("https://haatza.com/_functions/uploadMedia", {
             method: "POST",
@@ -276,50 +295,75 @@ const compressImage = (file) =>
             null;
           if (!uploadedUrl) throw new Error("No URL returned from upload");
           const resolvedUrl = resolveWixImage(uploadedUrl) || uploadedUrl;
-          onUpload({ url: resolvedUrl, name: file.name, size, wixResponse: data }, null);
+          onUpload({ url: resolvedUrl, name: file.name, size: blob.size, wixResponse: data }, null);
         } catch (err) {
-          onUpload(null, `Upload failed: ${err.message}`);
-        } finally {
-          setUploading(false);
+          onUpload(null, `Upload failed for ${file.name}: ${err.message}`);
         }
-      };
-
-      if (file.size > 150 * 1024) {
-        compressImage(file)
-          .then(({ blob, base64, mediaType }) => {
-            performUpload(base64, mediaType, blob.size);
-          })
-          .catch((err) => {
-            onUpload(null, `Compression failed: ${err.message}`);
-            setUploading(false);
-          });
-      } else {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const base64 = e.target.result.split(",")[1];
-          performUpload(base64, file.type, file.size);
-        };
-        reader.onerror = () => {
-          onUpload(null, "Failed to read file.");
-          setUploading(false);
-        };
-        reader.readAsDataURL(file);
       }
-    }, [onUpload]);
+      setUploading(false);
+    }, [onUpload, imagesList.length]);
 
     const handleDrop = useCallback((e) => {
       e.preventDefault();
       setDragging(false);
-      const file = e.dataTransfer.files?.[0];
-      processFile(file);
-    }, [processFile]);
+      const files = e.dataTransfer.files;
+      processFiles(files);
+    }, [processFiles]);
 
     const handleDragOver = (e) => { e.preventDefault(); setDragging(true); };
     const handleDragLeave = () => setDragging(false);
 
     return (
       <div className="pp-upload-section">
-        {!image ? (
+        {imagesList.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+            {imagesList.map((img, idx) => (
+              <div
+                key={idx}
+                style={{
+                  width: 100, height: 100, borderRadius: 10,
+                  overflow: "hidden", position: "relative",
+                  border: "2px solid rgba(0,0,0,0.1)",
+                  boxSizing: "border-box",
+                }}
+              >
+                <img
+                  src={img.url}
+                  alt={`Promotion ${idx + 1}`}
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => onDelete(idx)}
+                  style={{
+                    position: "absolute",
+                    top: 4,
+                    right: 4,
+                    width: 18,
+                    height: 18,
+                    borderRadius: "50%",
+                    background: "#ef4444",
+                    border: "none",
+                    color: "white",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 10,
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    zIndex: 50,
+                    lineHeight: 1,
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                  }}
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {imagesList.length < 5 && (
           <div
             className={`pp-dropzone ${dragging ? "pp-dropzone--dragging" : ""} ${error ? "pp-dropzone--error" : ""} ${uploading ? "pp-dropzone--uploading" : ""}`}
             onDrop={handleDrop}
@@ -344,7 +388,7 @@ const compressImage = (file) =>
                     <span className="pp-format-badge">PNG</span>
                     <span className="pp-format-badge">JPG/JPEG</span>
                     <span className="pp-format-badge">WEBP</span>
-                    <span className="pp-format-size">Max 150KB</span>
+                    <span className="pp-format-size">Max 5 images · ~150KB each</span>
                   </div>
                 </>
               )}
@@ -353,38 +397,14 @@ const compressImage = (file) =>
               ref={inputRef}
               type="file"
               accept="image/png,image/jpeg,image/jpg,image/webp"
+              multiple
               style={{ display: "none" }}
-              onChange={e => { processFile(e.target.files?.[0]); e.target.value = ""; }}
-            />
-          </div>
-        ) : (
-          <div className="pp-preview-wrap">
-            <div className="pp-preview-img-container">
-              <img src={image.url} alt="Promotion" className="pp-preview-img" />
-              <div className="pp-preview-overlay">
-                <button className="pp-img-action-btn pp-img-action-btn--replace" onClick={() => inputRef.current?.click()}>
-                  <RefreshIcon size={13} /> Replace
-                </button>
-                <button className="pp-img-action-btn pp-img-action-btn--delete" onClick={onDelete}>
-                  <TrashIcon size={13} /> Remove
-                </button>
-              </div>
-            </div>
-            <div className="pp-preview-meta">
-              <div className="pp-preview-filename">{image.name}</div>
-              <div className="pp-preview-filesize">{(image.size / 1024).toFixed(1)} KB</div>
-            </div>
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/jpg,image/webp"
-              style={{ display: "none" }}
-              onChange={e => { processFile(e.target.files?.[0]); e.target.value = ""; }}
+              onChange={e => { processFiles(e.target.files); e.target.value = ""; }}
             />
           </div>
         )}
         {error && (
-          <div className="pp-field-error">
+          <div className="pp-field-error" style={{ marginTop: 8 }}>
             <AlertCircleIcon size={13} />
             {error}
           </div>
@@ -511,24 +531,28 @@ const compressImage = (file) =>
     const [mounted, setMounted] = useState(false);
   const prefillPromoImage = (() => {
     if (location.state?.promotionImage !== undefined) {
-      return location.state.promotionImage;
+      const val = location.state.promotionImage;
+      if (Array.isArray(val)) return val;
+      return val ? [val] : [];
     }
     if ((isEditMode || isDuplicateMode) && editData) {
-      const photos = editData.promotionPhotos;
+      const photos = editData.promotionPhotos || editData.promotion_photos || editData.promoPhotos || editData.promotionImages;
       if (Array.isArray(photos) && photos.length > 0) {
-        const url = typeof photos[0] === "string" ? photos[0] : photos[0]?.url || photos[0]?.src || null;
-        if (url) return { url: resolveWixImage(url) || url, name: "promotion-image", size: 0 };
+        return photos.map((p, idx) => {
+          const url = typeof p === "string" ? p : p?.url || p?.src || null;
+          return url ? { url: resolveWixImage(url) || url, name: `promotion-image-${idx + 1}`, size: 0 } : null;
+        }).filter(Boolean);
       }
     }
-    return null;
+    return [];
   })();
 
   const prefillKeywords = (() => {
     if (Array.isArray(location.state?.keywords)) {
       return location.state.keywords;
     }
-    if ((isEditMode || isDuplicateMode) && editData?.search_keywords) {
-      const kw = editData.search_keywords;
+    const kw = editData?.search_keywords || editData?.searchKeywords || editData?.keywords;
+    if ((isEditMode || isDuplicateMode) && kw) {
       if (Array.isArray(kw)) return kw.map(k => String(k)).filter(Boolean);
       if (typeof kw === "string") return kw.split(",").map(k => k.trim()).filter(Boolean);
     }
@@ -545,16 +569,27 @@ const compressImage = (file) =>
     const handleImageUpload = (img, err) => {
       if (err) {
         setImageError(err);
-        setPromotionImage(null);
-      } else {
-        setPromotionImage(img);
-        setImageError("");
-        const uploadedPromotionImages = img ? [img.url] : [];
-        console.log("Uploaded Promotion Images:", uploadedPromotionImages);
+      } else if (img) {
+        setPromotionImage(prev => {
+          const current = Array.isArray(prev) ? prev : (prev ? [prev] : []);
+          if (current.length >= 5) {
+            setImageError("You can't upload more than 5 images.");
+            return current;
+          }
+          setImageError("");
+          return [...current, img];
+        });
       }
     };
 
-    const handleImageDelete = () => { setPromotionImage(null); setImageError(""); };
+    const handleImageDelete = (idx) => {
+      setPromotionImage(prev => {
+        const current = Array.isArray(prev) ? prev : (prev ? [prev] : []);
+        const updated = current.filter((_, i) => i !== idx);
+        setImageError("");
+        return updated;
+      });
+    };
 
     // ── CHANGE 1: Promotion details are now optional — no validation required ──
     const handleContinue = () => {

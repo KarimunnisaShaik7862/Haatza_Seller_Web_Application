@@ -87,6 +87,8 @@ function OtpScreen({
       } else if (index > 0) {
         inputRefs.current[index - 1].focus();
       }
+    } else if (e.key === "Enter") {
+      onVerify();
     }
   };
 
@@ -184,24 +186,7 @@ function OtpScreen({
           )
         ),
 
-        // Timer
-        React.createElement(
-          "div",
-          { className: "otp-timer-row" },
-          timeLeft > 0
-            ? React.createElement(
-                "span",
-                { className: "otp-timer" },
-                "Resend OTP in " + timerDisplay
-              )
-            : React.createElement(
-                "span",
-                { className: "otp-timer expired" },
-                "You can now resend OTP"
-              )
-        ),
-
-        // Actions Row
+        // Actions Row (contains Change Number on left, and Timer/Resend button on right)
         React.createElement(
           "div",
           { className: "otp-actions" },
@@ -210,15 +195,21 @@ function OtpScreen({
             { className: "otp-change-number", onClick: onChangeNumber },
             "Change Number"
           ),
-          React.createElement(
-            "button",
-            {
-              className: "otp-resend",
-              onClick: onResend,
-              disabled: timerActive || resendLoading,
-            },
-            resendLoading ? "Resending..." : "Resend OTP"
-          )
+          timeLeft > 0
+            ? React.createElement(
+                "span",
+                { className: "otp-timer" },
+                "Resend OTP in " + timerDisplay
+              )
+            : React.createElement(
+                "button",
+                {
+                  className: "otp-resend",
+                  onClick: onResend,
+                  disabled: resendLoading,
+                },
+                resendLoading ? "Resending..." : "Resend OTP"
+              )
         ),
 
         // Error Message

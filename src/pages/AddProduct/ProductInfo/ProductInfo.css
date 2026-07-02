@@ -680,6 +680,8 @@
   min-height: 32px;
   display: flex;
   align-items: flex-end;
+  white-space: nowrap;
+  flex-wrap: nowrap;
 }
 
 /* ── Sale grid: align columns to the bottom so both inputs sit at
@@ -989,6 +991,8 @@
   .pi-form-grid--three  { grid-template-columns: 1fr; }
   .pi-form-grid--three .pi-label {
     min-height: auto;
+    white-space: normal;
+    flex-wrap: wrap;
   }
 
   /* On mobile the sale grid stacks to single column;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "./ReviewSubmit.css";
 import {
@@ -11,6 +11,27 @@ import {
   getCachedSellerId,
   getCachedSellerPinCode,
 } from "../../../services/sellerService";
+
+const normalizeVariantKey = (key) => {
+  if (!key) return "";
+  return key.toLowerCase().replace(/\s*\(\s*#[0-9a-fA-F]+\s*\)/g, "").replace(/\s+/g, "").trim();
+};
+
+const getVariantPriceData = (vKey, pricesObj) => {
+  if (!pricesObj) return null;
+  const target = normalizeVariantKey(vKey);
+  const foundKey = Object.keys(pricesObj).find(k => normalizeVariantKey(k) === target);
+  return foundKey ? pricesObj[foundKey] : null;
+};
+
+const isCODEnabled = (val) => {
+  if (val === true) return true;
+  if (val === false || val === undefined || val === null) return false;
+  const normalized = String(val).toLowerCase().trim();
+  if (!normalized) return false;
+  const CODIndicators = ["yes", "true", "1", "cod", "cash on delivery", "cash on delivery available", "delivery available"];
+  return CODIndicators.some(ind => normalized === ind || normalized.includes(ind));
+};
 
 /* ── SVG ICONS ── */
 const ArrowLeftIcon = ({ size = 16 }) => (
@@ -200,7 +221,7 @@ const ReviewSubmitPage = () => {
     isEditMode,
     isDuplicateMode,
     isViewMode,
-    editData,
+    editData: rawEditData,
     tableId,
     optionFields: rawOptionFields = [],
     specFieldsList = [],
@@ -212,6 +233,35 @@ const ReviewSubmitPage = () => {
     origin,
     email,
   } = location.state || {};
+
+  const editData = useMemo(() => {
+    if (!rawEditData) return null;
+    const copied = { ...rawEditData };
+    if (typeof copied.productOptions === "string" && copied.productOptions.trim() !== "") {
+      try {
+        copied.productOptions = JSON.parse(copied.productOptions);
+      } catch (e) {
+        console.error("Failed to parse productOptions:", e);
+      }
+    }
+    if (typeof copied.varientPrice === "string" && copied.varientPrice.trim() !== "") {
+      try {
+        copied.varientPrice = JSON.parse(copied.varientPrice);
+      } catch (e) {
+        console.error("Failed to parse varientPrice:", e);
+      }
+    }
+    if (typeof copied.specifications === "string" && copied.specifications.trim() !== "") {
+      try {
+        copied.specifications = JSON.parse(copied.specifications);
+      } catch (e) {
+        console.error("Failed to parse specifications:", e);
+      }
+    }
+    return copied;
+  }, [rawEditData]);
+
+
 
   useEffect(() => {
     console.group("[ReviewSubmitPage] === STATE RECEIVED ===");
@@ -268,7 +318,13 @@ const ReviewSubmitPage = () => {
 
   useEffect(() => { setMounted(true); }, []);
 
-const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
+  const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
+  const isDraftEdit = isUpdate && (
+    (editData?.status || "").toLowerCase() === "draft" ||
+    location.state?.isDraftMode === true
+  );
+  const isNewProduct = !isUpdate;
+  const isInProgressEdit = isUpdate && !isDraftEdit;
   // ── DIRECT size chart extractor — scans specifications for any uploaded URL ──
   const extractSizeChartUrl = (specs) => {
     if (!specs || typeof specs !== "object") return "";
@@ -342,14 +398,19 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
     const resolveSellerPinCode = () => {
       const canonicalPin =
         sessionStorage.getItem("__haatza_sellerPinCode") ||
-        localStorage.getItem("__haatza_sellerPinCode");
-      if (canonicalPin && /^\d{6}$/.test(canonicalPin.trim())) {
-        return canonicalPin.trim();
+        localStorage.getItem("__haatza_sellerPinCode") ||
+        editData?.sellerPinCode ||
+        editData?.sellerPincode ||
+        formData?.sellerPinCode ||
+        formData?.sellerPincode ||
+        location.state?.sellerPinCode;
+      if (canonicalPin && /^\d{6}$/.test(String(canonicalPin).trim())) {
+        return String(canonicalPin).trim();
       }
       const legacyKeys = ["sellerPinCode", "pinCode", "pincode", "seller_pincode"];
       for (const key of legacyKeys) {
         const raw = sessionStorage.getItem(key) || localStorage.getItem(key);
-        if (raw && /^\d{6}$/.test(raw.trim())) return raw.trim();
+        if (raw && /^\d{6}$/.test(String(raw).trim())) return String(raw).trim();
       }
       return "000000";
     };
@@ -357,12 +418,14 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
     setSettlementLoading(true);
     setSettlementError("");
 
+    const sellerId = getCachedSellerId();
     const settlementParams = {
       orderAmount:     price,
       categoryId:      subcategory?.SubCategoryID || subcategory?.subcategoryId || subcategory?.subCategoryId || subcategory?.subCategoryID || subcategory?._id || subcategory?.id || catId,
       deliveryCharges: formData.deliveryCharge === "yes",
-      shippingWeight:  Math.min(parseFloat(formData.shippingWeight) || 0, 5000),
+      shippingWeight:  parseFloat(formData.shippingWeight) || 0,
       sellerPinCode:   resolveSellerPinCode(),
+      sellerId:        sellerId,
     };
 
     fetchSettlementSummary(settlementParams)
@@ -421,7 +484,7 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
 
     // ── Step 3: build the payload ──
     let payload;
-    const shouldUseUpdatePayload = !!(isUpdate && origin !== "inprogress");
+    const shouldUseUpdatePayload = isUpdate;
     if (shouldUseUpdatePayload) {
       payload = buildUpdatePayload({
         tableId,
@@ -467,7 +530,7 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
     payload.sellerPinCode = Number(sellerPinCode) || 0;
 
     // Inject DB identifier fields so backend know which record to update/save
-    if (origin === "inprogress" && tableId) {
+    if (isUpdate && tableId) {
       payload.Id = tableId;
       payload._id = tableId;
       payload.Table_ID = tableId;
@@ -483,6 +546,50 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
       console.log("[ReviewSubmitPage:buildPayload] sizeChart is empty — no size chart uploaded");
     }
 
+    // Always force SKU — same pattern as sizeChart, to guarantee it's never dropped
+    // Always force SKU from the current form state — this is the source of truth
+    // for whatever the user typed on the Product Info page (including edits).
+    const finalSku = String(formData?.sku ?? "").trim();
+    payload.sku = finalSku;
+    payload.SKU = finalSku;
+    payload.skuCode = finalSku;
+    payload.sku_code = finalSku;
+    payload.Sku = finalSku;
+    delete payload.SkuCode;
+    delete payload.Sku_Code;
+
+    // Force-sync reselling details for Draft → Send for QC flow, same pattern as SKU
+    // Force-sync reselling details from current form state — same pattern as SKU —
+    // this guarantees the value the seller just typed always wins over whatever
+    // buildCreatePayload/buildUpdatePayload derived from stale editData.
+    // Force-sync reselling details for Draft → Send for QC flow, same pattern as SKU
+    // Force-sync reselling details from current form state — same pattern as SKU —
+    // this guarantees the value the seller just typed always wins over whatever
+    // buildCreatePayload/buildUpdatePayload derived from stale editData.
+    const finalResellingProfit = parseFloat(formData?.resellingProfit) || 0;
+    payload.resellingProfit = finalResellingProfit;
+    payload.sellAndEarnCommission = finalResellingProfit;
+    payload.sellAndEarn = finalResellingProfit > 0;
+
+    // Force-sync Available Stock from current form state — same pattern as SKU —
+    // this guarantees the value the seller just typed always wins over whatever
+    // buildCreatePayload/buildUpdatePayload derived from stale editData.
+    // Force-sync Available Stock from current form state — same pattern as SKU —
+    // this guarantees the value the seller just typed always wins over whatever
+    // buildCreatePayload/buildUpdatePayload derived from stale editData.
+    // NOTE: only totalQuantity is a valid backend field; do not add inventory/stock
+    // to the payload sent to the server — that caused 400 Bad Request errors.
+    const finalTotalQuantity = parseInt(formData?.availableStock, 10) || 0;
+    payload.totalQuantity = finalTotalQuantity;
+
+    // Force-sync Price from current form state — same pattern as SKU —
+    // guarantees the seller's latest edited price always wins over any
+    // stale value buildCreatePayload/buildUpdatePayload derived from editData.
+    const finalPrice = parseFloat(formData?.price) || 0;
+    payload.price = finalPrice;
+
+    console.log("[ReviewSubmitPage:buildPayload] ✅ SKU FORCE SET (final, post-buildPayload):", finalSku, "| formData.sku was:", formData?.sku);
+    console.log("[ReviewSubmitPage:buildPayload] ✅ Price FORCE SET (final, post-buildPayload):", finalPrice, "| formData.price was:", formData?.price);
     // Final guard: never send sentinel to DB
     if (!payload.sizeChart || payload.sizeChart === "__PENDING_FILE__") {
       payload.sizeChart = "";
@@ -505,7 +612,7 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
   }, [isUpdate, tableId, formData, images, specifications, optionFields, variants, variantPrices, promotionImage, keywords, discountType, category, subcategory, editData, colourImages, confirmedColors, origin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Shared post-save navigation ── */
-  const navigateToInProgress = useCallback((email) => {
+  const navigateToListings = useCallback((email, tabName = "inprogress") => {
     const resolvedEmail =
       email                                     ||
       location.state?.email                     ||
@@ -523,7 +630,7 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
         refresh:   true,
         timestamp: Date.now(),
         email:     resolvedEmail,
-        tab:       "inprogress",
+        tab:       tabName,
       },
     });
   }, [navigate, location.state?.email]);
@@ -533,20 +640,28 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
     setSubmitting(true);
     setSubmitError("");
     try {
-      const payload = await buildPayload("Under Review");
-      if (isUpdate && origin !== "inprogress") {
+      // Non-Draft products edited from My Listings must move to In Progress
+      // Listings with status "Update Requested" (space, not underscore) —
+      // never stay in My Listings.
+      const resolvedStatus = origin === "my-listings" ? "Update Requested" : "Under Review";
+      const payload = await buildPayload(resolvedStatus);
+      if (isUpdate) {
         await updateListing(payload);
       } else {
         await createListing(payload);
       }
       setSubmitSuccess(true);
-      setTimeout(() => navigateToInProgress(location.state?.email), 2200);
+      const savedId = tableId || "";
+      sessionStorage.setItem(`__haatza_lastSku_${savedId}`, payload.sku || "");
+      sessionStorage.setItem(`__haatza_lastResellingProfit_${savedId}`, String(payload.resellingProfit ?? ""));
+      sessionStorage.setItem(`__haatza_lastStock_${savedId}`, String(payload.totalQuantity ?? ""));
+      setTimeout(() => navigateToListings(location.state?.email, "inprogress"), 2200);
     } catch (err) {
       setSubmitError(err.message || "Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
-  }, [buildPayload, isUpdate, origin, navigateToInProgress, location.state?.email]);
+  }, [buildPayload, isUpdate, origin, navigateToListings, location.state?.email, editData]);
 
   /* ── Save as Draft handler ── */
   const handleSaveAsDraft = useCallback(async () => {
@@ -563,22 +678,26 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
       console.groupEnd();
 
       let response;
-      if (isUpdate && origin !== "inprogress") {
+      if (isUpdate) {
         response = await updateListing(payload);
       } else {
         response = await createListing(payload);
       }
 
       console.log("[ReviewSubmitPage:handleSaveAsDraft] ✅ Draft saved:", response?._id ?? response?.Table_ID);
+      const savedId = tableId || response?.Table_ID || response?._id || response?.Id || "";
+      sessionStorage.setItem(`__haatza_lastSku_${savedId}`, payload.sku || "");
+      sessionStorage.setItem(`__haatza_lastResellingProfit_${savedId}`, String(payload.resellingProfit ?? ""));
+      sessionStorage.setItem(`__haatza_lastStock_${savedId}`, String(payload.totalQuantity ?? ""));
       setDraftSuccess(true);
-      setTimeout(() => navigateToInProgress(location.state?.email), 1500);
+      setTimeout(() => navigateToListings(location.state?.email, "my-listings"), 1500);
     } catch (err) {
       console.error("[ReviewSubmitPage:handleSaveAsDraft] Error:", err);
       setDraftError(err.message || "Could not save draft. Please try again.");
     } finally {
       setDraftLoading(false);
     }
-  }, [buildPayload, isUpdate, origin, navigateToInProgress, location.state?.email]);
+  }, [buildPayload, isUpdate, origin, navigateToListings, location.state?.email]);
 
   /* ── Send for QC handler ── */
   const handleSendForQC = useCallback(async () => {
@@ -595,22 +714,26 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
       console.groupEnd();
 
       let response;
-      if (isUpdate && origin !== "inprogress") {
+      if (isUpdate) {
         response = await updateListing(payload);
       } else {
         response = await createListing(payload);
       }
 
-      console.log("[ReviewSubmitPage:handleSendForQC] ✅ Saved:", response?._id ?? response?.Table_ID);
+       console.log("[ReviewSubmitPage:handleSendForQC] ✅ Saved:", response?._id ?? response?.Table_ID);
+      const savedId = tableId || response?.Table_ID || response?._id || response?.Id || "";
+      sessionStorage.setItem(`__haatza_lastSku_${savedId}`, payload.sku || "");
+      sessionStorage.setItem(`__haatza_lastResellingProfit_${savedId}`, String(payload.resellingProfit ?? ""));
+      sessionStorage.setItem(`__haatza_lastStock_${savedId}`, String(payload.totalQuantity ?? ""));
       setQcSuccess(true);
-      setTimeout(() => navigateToInProgress(location.state?.email), 1500);
+      setTimeout(() => navigateToListings(location.state?.email, "inprogress"), 1500);
     } catch (err) {
       console.error("[ReviewSubmitPage:handleSendForQC] Error:", err);
       setQcError(err.message || "Could not send for QC. Please try again.");
     } finally {
       setQcLoading(false);
     }
-  }, [buildPayload, isUpdate, origin, navigateToInProgress, location.state?.email]);
+  }, [buildPayload, isUpdate, origin, navigateToListings, location.state?.email]);
 
   const handleBack = () => {
     navigate(
@@ -704,29 +827,26 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
         selected: confirmedColors.map(c => c.name),
         colorDetails: confirmedColors.map(c => {
           const img = colourImages[c.name];
-          let resolvedUrl = null;
+          let resolvedUrls = [];
           if (img) {
-            if (img instanceof File) {
-              resolvedUrl = URL.createObjectURL(img);
-            } else if (Array.isArray(img)) {
-              const first = img.find(Boolean);
-              if (first) {
-                if (first instanceof File) {
-                  resolvedUrl = URL.createObjectURL(first);
-                } else {
-                  resolvedUrl = typeof first === "string" ? first : first.url || first.mediaUrl || first.src || null;
+            const arr = Array.isArray(img) ? img : [img];
+            arr.forEach(item => {
+              if (item) {
+                if (item instanceof File) {
+                  resolvedUrls.push(URL.createObjectURL(item));
+                } else if (typeof item === "object") {
+                  const url = item.url || item.mediaUrl || item.src || null;
+                  if (url) resolvedUrls.push(url);
+                } else if (typeof item === "string") {
+                  resolvedUrls.push(item);
                 }
               }
-            } else if (typeof img === "object") {
-              resolvedUrl = img.url || img.mediaUrl || img.src || null;
-            } else if (typeof img === "string") {
-              resolvedUrl = img;
-            }
+            });
           }
           return {
             name:      c.name,
             hex:       c.hex,
-            imageUrl:  resolvedUrl,
+            imageUrls: resolvedUrls,
           };
         }),
         isColour: true,
@@ -739,23 +859,25 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
 
   const specRows = (() => {
     if (specFieldsList && specFieldsList.length > 0) {
-      return specFieldsList.map(f => {
-        const key = f.fieldId || f.title;
-        const val = specifications[key];
-        return {
-          title: f.title,
-          value: val,
-        };
-      }).filter(row => {
-        const val = row.value;
-        if (!val || val === "") return false;
-        if (val instanceof File) return false;
-        if (typeof val === "object" && (val.isExisting || val.url || val.mediaUrl || val.src)) return false;
-        return true;
-      }).map(row => ({
-        key: row.title,
-        value: Array.isArray(row.value) ? row.value.join(", ") : String(row.value),
-      }));
+      return specFieldsList
+        .filter(f => (f.type || "").toLowerCase() !== "product options")
+        .map(f => {
+          const key = f.fieldId || f.title;
+          const val = specifications[key];
+          return {
+            title: f.title,
+            value: val,
+          };
+        }).filter(row => {
+          const val = row.value;
+          if (!val || val === "") return false;
+          if (val instanceof File) return false;
+          if (typeof val === "object" && (val.isExisting || val.url || val.mediaUrl || val.src)) return false;
+          return true;
+        }).map(row => ({
+          key: row.title,
+          value: Array.isArray(row.value) ? row.value.join(", ") : String(row.value),
+        }));
     }
 
     // Fallback: original logic
@@ -763,6 +885,10 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
       if (optionKeySet.has(key)) return false;
       if (optionKeySet.has(key.toLowerCase())) return false;
       if (optionFields.some(f => (f.fieldId || "").toLowerCase() === key.toLowerCase() || (f.title || "").toLowerCase() === key.toLowerCase())) return false;
+      
+      const kLower = key.toLowerCase().trim();
+      if (kLower === "size" || kLower === "color" || kLower === "colour") return false;
+
       if (!val || val === "") return false;
       if (val instanceof File) return false;
       // Skip size chart objects
@@ -785,22 +911,6 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
       <button className="rsp-back-btn" onClick={isViewMode ? () => navigate(-1) : handleBack}>
   <ArrowLeftIcon size={15} /> {isViewMode ? "Back to Listings" : "Back to Promotions"}
 </button>        
-
-        {isUpdate && !isViewMode && origin === "my-listings" && (
-  <button
-    className={`rsp-topright-update-btn ... ${submitting ? "rsp-topright-update-btn--loading" : ""}`}
-            onClick={handleSubmit}
-            disabled={anyActionRunning || anyActionSuccess}
-          >
-            {submitting ? (
-              <><LoaderIcon size={15} /> Updating…</>
-            ) : submitSuccess ? (
-              <><CheckCircleIcon size={15} /> Updated!</>
-            ) : (
-              <><EditIcon size={15} /> Update Listing</>
-            )}
-          </button>
-        )}
       </div>
 
       {/* Header */}
@@ -895,18 +1005,16 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
               <>
                 <DataRow
                   label="Discount"
-                  value={discountType === "flat"
-                    ? `₹ ${formData.discountPercent}`
-                    : `${formData.discountPercent}%`}
+                  value={`₹ ${(price - salePrice).toFixed(2)}`}
                 />
                 <DataRow label="On Sale Price" value={`₹ ${salePrice.toFixed(2)}`} highlight />
               </>
             )}
             <div className="rsp-divider" />
             <DataRow
-              label="Accept COD"
-              value={formData.acceptCOD === "yes" ? "Cash on Delivery Available" : "Prepaid Only"}
-            />
+  label="Accept COD"
+  value={isCODEnabled(formData.acceptCOD) ? "Cash on Delivery Available" : "Prepaid Only"}
+/>
             <DataRow label="Product Return" value={returnLabel} />
             <DataRow
               label="Delivery Charge Applicable"
@@ -955,43 +1063,48 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
                         }}>
                           Color Variants
                         </p>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 12 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
                           {opt.colorDetails.map((c) => (
                             <div key={c.name} style={{
-                              border: "1px solid rgba(0,0,0,0.06)", borderRadius: 10, padding: "10px 8px",
-                              display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                              border: "1px solid rgba(0,0,0,0.06)", borderRadius: 10, padding: "12px",
+                              display: "flex", flexDirection: "column", gap: 10,
                               background: "#f8f9fa", boxShadow: "0 2px 8px rgba(0,0,0,0.02)"
                             }}>
-                              {c.imageUrl ? (
-                                <img
-                                  src={c.imageUrl}
-                                  alt={c.name}
-                                  style={{
-                                    width: 80, height: 80, objectFit: "cover",
-                                    borderRadius: 8, border: "1px solid rgba(0,0,0,0.06)",
-                                    background: "white"
-                                  }}
-                                  onError={(e) => { e.target.style.display = "none"; }}
-                                />
-                              ) : (
-                                <div style={{
-                                  width: 80, height: 80, borderRadius: 8,
-                                  border: "1px dashed rgba(0,0,0,0.1)", background: "white",
-                                  display: "flex", alignItems: "center", justifyContent: "center",
-                                  fontSize: 10, color: "#64748b", fontWeight: 600
-                                }}>
-                                  No Image
-                                </div>
-                              )}
-                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid rgba(0,0,0,0.05)", paddingBottom: 6 }}>
                                 <span style={{
                                   width: 10, height: 10, borderRadius: "50%",
                                   background: c.hex, border: "1px solid rgba(0,0,0,0.15)",
                                   display: "inline-block", flexShrink: 0,
                                 }}/>
-                                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--rsp-text)", fontFamily: "var(--ff-display)" }}>
+                                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--rsp-text)", fontFamily: "var(--ff-display)" }}>
                                   {c.name}
                                 </span>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                {c.imageUrls && c.imageUrls.length > 0 ? (
+                                  c.imageUrls.map((url, imgIdx) => (
+                                    <img
+                                      key={imgIdx}
+                                      src={url}
+                                      alt={`${c.name} ${imgIdx + 1}`}
+                                      style={{
+                                        width: 80, height: 80, objectFit: "cover",
+                                        borderRadius: 8, border: "1px solid rgba(0,0,0,0.06)",
+                                        background: "white"
+                                      }}
+                                      onError={(e) => { e.target.style.display = "none"; }}
+                                    />
+                                  ))
+                                ) : (
+                                  <div style={{
+                                    width: 80, height: 80, borderRadius: 8,
+                                    border: "1px dashed rgba(0,0,0,0.1)", background: "white",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    fontSize: 10, color: "#64748b", fontWeight: 600
+                                  }}>
+                                    No Image
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -1022,7 +1135,8 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
               const optionFieldName = variants.find(v => v.optionField)?.optionField || "Option";
               const priceMap = {};
               variants.forEach(v => {
-                const diff = parseFloat(variantPrices[v.key]?.appliedDiff ?? 0) || 0;
+                const pData = getVariantPriceData(v.key, variantPrices);
+                const diff = parseFloat(pData?.appliedDiff ?? 0) || 0;
                 priceMap[`${v.color}__${v.optionLabel}`] = base + diff;
               });
 
@@ -1089,7 +1203,8 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
                     </thead>
                     <tbody>
                       {variants.map((v) => {
-                        const diff = parseFloat(variantPrices[v.key]?.appliedDiff ?? 0) || 0;
+                        const pData = getVariantPriceData(v.key, variantPrices);
+                        const diff = parseFloat(pData?.appliedDiff ?? 0) || 0;
                         const finalPrice = base + diff;
                         return (
                           <tr key={v.key}>
@@ -1151,16 +1266,25 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
           )}
 
           {/* PROMOTION IMAGE */}
-          {promotionImage?.url && (
+          {((Array.isArray(promotionImage) && promotionImage.length > 0) || (promotionImage && !Array.isArray(promotionImage) && promotionImage.url)) && (
             <div className="rsp-card">
-              <SectionHeader icon={<ImageIcon size={18} />} title="Promotion Image" />
-              <div className="rsp-promo-img-wrap">
-                <img
-                  src={promotionImage.url}
-                  alt="Promotion"
-                  className="rsp-promo-img"
-                  onError={(e) => { e.target.style.display = "none"; }}
-                />
+              <SectionHeader icon={<ImageIcon size={18} />} title="Promotion Images" />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                {(Array.isArray(promotionImage) ? promotionImage : [promotionImage]).map((img, idx) => {
+                  const url = img?.url || img?.mediaUrl || img?.src;
+                  if (!url) return null;
+                  return (
+                    <div key={idx} className="rsp-promo-img-wrap" style={{ flexShrink: 0, width: 120, height: 120 }}>
+                      <img
+                        src={url}
+                        alt={`Promotion ${idx + 1}`}
+                        className="rsp-promo-img"
+                        style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 8 }}
+                        onError={(e) => { e.target.style.display = "none"; }}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1185,52 +1309,72 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
 
             {!settlementLoading && settlement && (
               <div className="rsp-settlement-body">
-                <SettlementRow label="Product MRP"          value={`₹ ${price.toFixed(0)}`} />
-                <SettlementRow label="Selling Price"        value={`₹ ${Number(settlement.sellingPrice || displayPrice).toFixed(0)}`} />
-                <div className="rsp-settle-divider" />
-                {settlement.commission > 0 && (
-                  <SettlementRow label="Platform Commission" value={`- ₹${Number(settlement.commission).toFixed(0)}`} type="red" />
-                )}
-                {settlement.gstOnCommission > 0 && (
-                  <SettlementRow label="GST on Platform Commission" value={`- ₹${Number(settlement.gstOnCommission).toFixed(0)}`} type="red" />
-                )}
-                {settlement.pgCharges > 0 && (
-                  <SettlementRow label="PG Charges" value={`- ₹${Number(settlement.pgCharges).toFixed(0)}`} type="red" />
-                )}
-                {settlement.gstOnPgCharges > 0 && (
-                  <SettlementRow label="GST on PG Charges" value={`- ₹${Number(settlement.gstOnPgCharges).toFixed(0)}`} type="red" />
-                )}
-                {settlement.productGST > 0 && (
-                  <SettlementRow label="Product GST" value={`- ₹${Number(settlement.productGST).toFixed(0)}`} type="red" />
-                )}
-                {settlement.tcs > 0 && (
-                  <SettlementRow label="TCS" value={`- ₹${Number(settlement.tcs).toFixed(0)}`} type="red" />
-                )}
-                {settlement.tds > 0 && (
-                  <SettlementRow label="TDS" value={`- ₹${Number(settlement.tds).toFixed(0)}`} type="red" />
-                )}
-                {settlement.shippingFee > 0 && (
-                  <SettlementRow label="Approx Shipping Fee" value={`- ₹${Number(settlement.shippingFee).toFixed(0)}`} type="red" />
-                )}
-                {settlement.gstOnShippingFee > 0 && (
-                  <SettlementRow label="GST on Shipping Fee" value={`- ₹${Number(settlement.gstOnShippingFee).toFixed(0)}`} type="red" />
-                )}
-                {settlement.fixedFee > 0 && (
-                  <SettlementRow label="Fixed Fee" value={`- ₹${Number(settlement.fixedFee).toFixed(0)}`} type="red" />
-                )}
-                {settlement.handlingFee > 0 && (
-                  <SettlementRow label="Handling Fee" value={`- ₹${Number(settlement.handlingFee).toFixed(0)}`} type="red" />
-                )}
-                <SettlementRow label="Total Debit" value={`- ₹${Number(settlement.totalDebit).toFixed(0)}`} type="red" />
-                {settlement.note && (
-                  <div className="rsp-settle-note">{settlement.note}</div>
-                )}
-                <div className="rsp-settle-divider" />
-                <SettlementRow
-                  label="Approx Settlement Amount:"
-                  value={`₹ ${Number(settlement.settlementAmount).toFixed(0)}`}
-                  bold
-                />
+                {(() => {
+                  const formatVal = (val) => {
+                    if (val === undefined || val === null) return "0";
+                    const num = Number(val);
+                    if (isNaN(num)) return String(val);
+                    return num % 1 === 0 ? num.toString() : num.toFixed(2);
+                  };
+
+                  const raw = settlement.raw || {};
+                  // Use raw values from backend if present, fallback to normalized
+                  const sellingPrice = raw.sellingPrice !== undefined ? raw.sellingPrice : (settlement.sellingPrice || 0);
+                  const productGST = raw.productGST !== undefined ? raw.productGST : (settlement.productGST || 0);
+                  const tcs = raw.tcsAmount !== undefined ? raw.tcsAmount : (settlement.tcs || 0);
+                  const shippingFee = raw.approxShippingFee !== undefined ? raw.approxShippingFee : (settlement.shippingFee || 0);
+                  const totalDebit = raw.totalDebit !== undefined ? raw.totalDebit : (settlement.totalDebit || 0);
+                  const settlementAmount = raw.settlementAmount !== undefined ? raw.settlementAmount : (settlement.settlementAmount || 0);
+
+                  return (
+                    <>
+                      <SettlementRow label="Product MRP:" value={`₹ ${formatVal(price)}`} />
+                      <SettlementRow label="Selling Price:" value={`₹ ${formatVal(sellingPrice)}`} />
+                      <div className="rsp-settle-divider" />
+                      
+                      <SettlementRow
+                        label="Product GST:"
+                        value={productGST > 0 ? `- ₹${formatVal(productGST)}` : `₹ ${formatVal(productGST)}`}
+                        type={productGST > 0 ? "red" : ""}
+                      />
+                      
+                      <SettlementRow
+                        label="TCS:"
+                        value={tcs > 0 ? `- ₹${formatVal(tcs)}` : `₹ ${formatVal(tcs)}`}
+                        type={tcs > 0 ? "red" : ""}
+                      />
+                      
+                      {/* Commission displayed as ₹0 */}
+                      <SettlementRow label="Commision:" value="₹ 0" type="green" />
+                      
+                      <SettlementRow
+                        label="Approx Shipping Fee:"
+                        value={shippingFee > 0 ? `- ₹${formatVal(shippingFee)}` : `₹ ${formatVal(shippingFee)}`}
+                        type="red"
+                      />
+                      
+                      <SettlementRow
+                        label="Total Debit:"
+                        value={totalDebit > 0 ? `- ₹${formatVal(totalDebit)}` : `₹ ${formatVal(totalDebit)}`}
+                        type={totalDebit > 0 ? "red" : ""}
+                      />
+                      
+                      {settlement.note && (() => {
+                        const clean = settlement.note.trim();
+                        const displayNote = clean.toLowerCase().startsWith("note:") ? clean : `Note: ${clean}`;
+                        return <div className="rsp-settle-note">{displayNote}</div>;
+                      })()}
+                      
+                      <div className="rsp-settle-divider" />
+                      
+                      <SettlementRow
+                        label="Approx Settlement Amount:"
+                        value={`₹ ${formatVal(settlementAmount)}`}
+                        bold
+                      />
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -1239,34 +1383,72 @@ const isUpdate = !!(isEditMode && !isDuplicateMode && tableId && !isViewMode);
       </div>
 
       {/* INLINE ACTION BUTTONS — visible above fixed bar on create mode or editing from In Progress */}
-      {(!isUpdate || origin === "inprogress") && !isViewMode && (
+      {!isViewMode && (
         <div className="rsp-inline-actions">
-          <button
-            className={`rsp-action-btn rsp-action-btn--draft ${draftLoading ? "rsp-action-btn--loading" : ""} ${draftSuccess ? "rsp-action-btn--success" : ""}`}
-            onClick={handleSaveAsDraft}
-            disabled={anyActionRunning || anyActionSuccess}
-          >
-            {draftLoading ? (
-              <><LoaderIcon size={15} /> Saving…</>
-            ) : draftSuccess ? (
-              <><CheckCircleIcon size={15} /> Saved!</>
-            ) : (
-              <><SaveIcon size={15} /> Save as Draft</>
-            )}
-          </button>
-          <button
-            className={`rsp-action-btn rsp-action-btn--qc ${qcLoading ? "rsp-action-btn--loading" : ""} ${qcSuccess ? "rsp-action-btn--success" : ""}`}
-            onClick={handleSendForQC}
-            disabled={anyActionRunning || anyActionSuccess}
-          >
-            {qcLoading ? (
-              <><LoaderIcon size={15} /> Sending…</>
-            ) : qcSuccess ? (
-              <><CheckCircleIcon size={15} /> Sent!</>
-            ) : (
-              <><SendIcon size={15} /> Send for QC</>
-            )}
-          </button>
+          {isNewProduct && (
+            <>
+              <button
+                className={`rsp-action-btn rsp-action-btn--draft ${draftLoading ? "rsp-action-btn--loading" : ""} ${draftSuccess ? "rsp-action-btn--success" : ""}`}
+                onClick={handleSaveAsDraft}
+                disabled={anyActionRunning || anyActionSuccess}
+              >
+                {draftLoading ? (
+                  <><LoaderIcon size={15} /> Saving…</>
+                ) : draftSuccess ? (
+                  <><CheckCircleIcon size={15} /> Saved!</>
+                ) : (
+                  <><SaveIcon size={15} /> Save as Draft</>
+                )}
+              </button>
+              <button
+                className={`rsp-action-btn rsp-action-btn--qc ${qcLoading ? "rsp-action-btn--loading" : ""} ${qcSuccess ? "rsp-action-btn--success" : ""}`}
+                onClick={handleSendForQC}
+                disabled={anyActionRunning || anyActionSuccess}
+              >
+                {qcLoading ? (
+                  <><LoaderIcon size={15} /> Sending…</>
+                ) : qcSuccess ? (
+                  <><CheckCircleIcon size={15} /> Sent!</>
+                ) : (
+                  <><SendIcon size={15} /> Send for QC</>
+                )}
+              </button>
+            </>
+          )}
+
+          {isDraftEdit && (
+            <button
+              className={`rsp-action-btn rsp-action-btn--qc ${qcLoading ? "rsp-action-btn--loading" : ""} ${qcSuccess ? "rsp-action-btn--success" : ""}`}
+              onClick={handleSendForQC}
+              disabled={anyActionRunning || anyActionSuccess}
+              style={{ width: "100%" }}
+            >
+              {qcLoading ? (
+                <><LoaderIcon size={15} /> Sending…</>
+              ) : qcSuccess ? (
+                <><CheckCircleIcon size={15} /> Sent!</>
+              ) : (
+                <><SendIcon size={15} /> Send for QC</>
+              )}
+            </button>
+          )}
+
+          {isInProgressEdit && (
+            <button
+              className={`rsp-action-btn rsp-action-btn--qc ${submitting ? "rsp-action-btn--loading" : ""} ${submitSuccess ? "rsp-action-btn--success" : ""}`}
+              onClick={handleSubmit}
+              disabled={anyActionRunning || anyActionSuccess}
+              style={{ width: "100%" }}
+            >
+              {submitting ? (
+                <><LoaderIcon size={15} /> Updating…</>
+              ) : submitSuccess ? (
+                <><CheckCircleIcon size={15} /> Updated!</>
+              ) : (
+                <><EditIcon size={15} /> Update Listing</>
+              )}
+            </button>
+          )}
         </div>
       )}
 

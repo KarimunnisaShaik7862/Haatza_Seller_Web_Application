@@ -1,10 +1,11 @@
-import React, { lazy, Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import React, { lazy, Suspense, useEffect } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 // ─── Auth & Onboarding (your existing flow) ───────────────────────────────────
 import SignInPage    from "../pages/auth/SignInPage";
 import SignUpPage    from "../pages/auth/SignUpPage";
 import OtpPage       from "../pages/auth/OtpPage";
+import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage";
 import OnboardingPage from "../pages/Onboarding/Onboarding";
 import WarehouseGetStarted from "../pages/Warehouse/WarehouseGetStarted";
 
@@ -59,6 +60,7 @@ const InfluenceBrandingDetails = lazy(() => import("../pages/InfluenceBranding/I
 const WarehousePage = lazy(() => import("../pages/Warehouse/Warehouse"));
 const QualityInsightsPage = lazy(() => import("../pages/qualityinsights/QualityInsights"));
 const GrowthCentral = lazy(() => import("../pages/GrowthCentral/GrowthCentral"));
+
 // ─── Loading Spinner ──────────────────────────────────────────────────────────
 const PageLoader = () => (
   <div style={{
@@ -96,20 +98,45 @@ const PlaceholderPage = ({ title }) => (
   </div>
 );
 
+// ─── Scroll To Top component to reset scrollbars on route transitions ─────────
+function ScrollToTop() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    const scrollContainers = [
+      document.querySelector(".dashboard-content-wrapper"),
+      document.querySelector(".dashboard-main"),
+      document.querySelector(".settings-page"),
+      document.querySelector("main"),
+    ];
+    scrollContainers.forEach((container) => {
+      if (container) {
+        container.scrollTop = 0;
+      }
+    });
+  }, [pathname]);
+
+  return null;
+}
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 function AppRoutes() {
   return (
     <Suspense fallback={<PageLoader />}>
+      <ScrollToTop />
       <Routes>
 
         {/* ── Auth flow (your existing flow — entry point of the app) ── */}
-        <Route path="/"           element={<Navigate to="/signup" replace />} />
+        <Route path="/"           element={<Navigate to="/signin" replace />} />
         <Route path="/signin"     element={<SignInPage />} />
         <Route path="/signup"     element={<SignUpPage />} />
         <Route path="/otp"        element={<OtpPage />} />
-       <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/privacy"    element={<PrivacyPolicyPage />} />
         <Route path="/terms"      element={<TermsOfUsePage />} />
+
         {/* ── Dashboard shell — all protected pages live inside here ── */}
         {/*    DashboardLayout (Document 2) renders <Outlet /> for children */}
         {/*    and handles session validation / redirect to /signin        */}
@@ -247,7 +274,7 @@ function AppRoutes() {
         </Route>
 
         {/* Catch-all — redirect unknown routes back to signup */}
-        <Route path="*" element={<Navigate to="/signup" replace />} />
+        <Route path="*" element={<Navigate to="/signin" replace />} />
 
       </Routes>
     </Suspense>

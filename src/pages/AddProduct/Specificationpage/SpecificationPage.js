@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "./SpecificationPage.css";
 import { fetchCategoryFields } from "../../../services/sellerService";
@@ -612,22 +612,34 @@ const isSizeChart = !isOptionField && (
       return (
         <textarea className={`sp-textarea ${hasError ? "sp-input--error" : ""}`}
           placeholder={field.placeholderText || `Enter ${field.title}`}
-          value={value || ""} onChange={e => onChange(e.target.value)} rows={3}/>
+          value={value || ""} onChange={e => onChange(e.target.value.replace(/[^A-Za-z0-9\s]/g, ""))} rows={3}/>
       );
-    if (et === "number")
+    // True numeric measurement fields (weight, dimensions, etc.) always carry an
+    // explicit unit from the backend (cm, kg, ml...). Keep these digit-only, but
+    // render as type="text" so no native browser +/- spinner arrows appear.
+    if (et === "number" && field.unit)
       return (
         <div className="sp-input-wrap">
-          <input type="number" className={`sp-input ${field.unit ? "sp-input--suffix" : ""} ${hasError ? "sp-input--error" : ""}`}
+          <input
+            type="text"
+            inputMode="decimal"
+            className={`sp-input sp-input--suffix ${hasError ? "sp-input--error" : ""}`}
             placeholder={field.placeholderText || `Enter ${field.title}`}
-            value={value || ""} onChange={e => onChange(e.target.value)}/>
-          {field.unit && <span className="sp-input-suffix">{field.unit}</span>}
+            value={value || ""}
+            onChange={e => onChange(e.target.value.replace(/[^0-9.]/g, ""))}
+          />
+          <span className="sp-input-suffix">{field.unit}</span>
         </div>
       );
+
+    // Manual-entry fields — including any backend field marked elementType "number"
+    // but with no unit (these are not real numeric measurements) — get a plain
+    // alphanumeric text input: letters, numbers, and spaces.
     return (
       <div className="sp-input-wrap">
         <input type="text" className={`sp-input ${hasError ? "sp-input--error" : ""}`}
           placeholder={field.placeholderText || `Enter ${field.title}`}
-          value={value || ""} onChange={e => onChange(e.target.value)}/>
+          value={value || ""} onChange={e => onChange(e.target.value.replace(/[^A-Za-z0-9\s]/g, ""))}/>
       </div>
     );
   };
@@ -1270,13 +1282,107 @@ const ColorPickerModal = ({ open, availableColors, tempColors, onToggle, onAdd, 
 /* ────────────────────────────────────────────────────
    VARIANT PRICING MODAL
 ──────────────────────────────────────────────────── */
+const cleanColorName = (name) => {
+  if (!name) return "";
+  return name.replace(/\s*\(\s*#[0-9a-fA-F]+\s*\)/g, "").trim();
+};
+
+const normalizeVariantKey = (key) => {
+  if (!key) return "";
+  return key.toLowerCase().replace(/\s*\(\s*#[0-9a-fA-F]+\s*\)/g, "").replace(/\s+/g, "").trim();
+};
+
+const getVariantPriceData = (vKey, pricesObj) => {
+  if (!pricesObj) return null;
+  const target = normalizeVariantKey(vKey);
+  const foundKey = Object.keys(pricesObj).find(k => normalizeVariantKey(k) === target);
+  return foundKey ? pricesObj[foundKey] : null;
+};
+
+const getOriginalBasePrice = (p) => {
+  if (!p) return 0;
+  const base = parseFloat(p.price) || 0;
+  const d = p.discount;
+  if (!d?.type || d.value == null) return base;
+  const val = parseFloat(d.value);
+  if (isNaN(val)) return base;
+  if (d.type === "PERCENTAGE" || d.type === "PERCENT") {
+    return Math.max(0, base - (base * val) / 100);
+  }
+  if (d.type === "AMOUNT") {
+    return Math.max(0, base - val);
+  }
+  return base;
+};
+
+const getInitialVariantPrices = (variantsList, varientPriceObj, editData) => {
+  const initialPrices = {};
+  if (!varientPriceObj || !Array.isArray(varientPriceObj.products)) return initialPrices;
+  
+  const originalBase = getOriginalBasePrice(editData);
+  
+  variantsList.forEach(v => {
+    // find a matching product in varientPriceObj.products
+    const foundProduct = varientPriceObj.products.find(p => {
+      const info = p.variantInfo?.[0];
+      if (!info || !info.choices) return false;
+      
+      const choices = info.choices;
+      // Match color
+      if (v.color) {
+        const cVal = choices["Color"] || choices["color"] || choices["Colour"] || choices["colour"];
+        if (cVal !== v.color) return false;
+      } else {
+        // If variant doesn't have color, choices shouldn't have color
+        const cVal = choices["Color"] || choices["color"] || choices["Colour"] || choices["colour"];
+        if (cVal) return false;
+      }
+      
+      // Match option
+      if (v.optionLabel) {
+        const oVal = choices[v.optionField];
+        if (oVal !== v.optionLabel) return false;
+      } else if (v.optionField) {
+        // If variant doesn't have optionLabel but has field, choices shouldn't have it
+        const oVal = choices[v.optionField];
+        if (oVal) return false;
+      }
+      
+      return true;
+    });
+    
+    if (foundProduct) {
+      const priceInfo = foundProduct.variantInfo?.[0];
+      // Only reconstruct a value if the seller actually entered one previously.
+      // Without this check, every variant saved with a default (base + 0) price
+      // would falsely appear as "filled" when re-opening the listing for edit.
+      if (priceInfo?.priceModified !== true) return;
+      const variantPrice = parseFloat(priceInfo?.price);
+      if (!isNaN(variantPrice)) {
+        // diff is variantPrice - originalBase
+        const diff = variantPrice - originalBase;
+        const op = diff >= 0 ? "+" : "-";
+        const absDiff = Math.abs(diff);
+        initialPrices[v.key] = {
+          op,
+          inputVal: absDiff > 0 ? String(absDiff) : "",
+          appliedDiff: diff,
+        };
+      }
+    }
+  });
+  
+  return initialPrices;
+};
+
 const VariantPricingModal = ({ open, variants, availableColors, variantPrices, onPriceChange, onClose, basePrice }) => {
   if (!open) return null;
 
   const base = parseFloat(basePrice) || 0;
 
   const totalDiff = variants.reduce((sum, v) => {
-    return sum + (parseFloat(variantPrices[v.key]?.appliedDiff ?? 0) || 0);
+    const pData = getVariantPriceData(v.key, variantPrices);
+    return sum + (parseFloat(pData?.appliedDiff ?? 0) || 0);
   }, 0);
   const totalAmount = base + totalDiff;
 
@@ -1304,17 +1410,13 @@ const VariantPricingModal = ({ open, variants, availableColors, variantPrices, o
             <span className="sp-vmodal-total-label">Base Price</span>
             <span className="sp-vmodal-base-price" style={{ fontSize: 12 }}>₹{base.toFixed(2)}</span>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <span className="sp-vmodal-total-label">Total</span>
-            <span className="sp-vmodal-total-val" style={{ fontSize: 15 }}>₹{totalAmount.toFixed(2)}</span>
-          </div>
         </div>
 
         {/* Variant rows */}
         <div className="sp-dialog-body sp-variant-body" style={{ padding: "4px 18px" }}>
           {variants.map(v => {
             const colorObj    = v.color ? availableColors.find(x => x.name === v.color) : null;
-            const variantData = variantPrices[v.key] || { op: "+", inputVal: "", appliedDiff: 0 };
+            const variantData = getVariantPriceData(v.key, variantPrices) || { op: "+", inputVal: "", appliedDiff: 0 };
             const { op, inputVal, appliedDiff } = variantData;
             const variantFinalPrice = base + (parseFloat(appliedDiff) || 0);
             const handleOpSelect = (selectedOp) => {
@@ -1328,9 +1430,23 @@ const VariantPricingModal = ({ open, variants, availableColors, variantPrices, o
               onPriceChange(v.key, { ...variantData, inputVal: val, appliedDiff: newDiff });
             };
             let label = "";
-            if (v.color && v.optionLabel) label = `${v.color} / ${v.optionField}: ${v.optionLabel}`;
-            else if (v.optionLabel)        label = `${v.optionField}: ${v.optionLabel}`;
-            else if (v.color)              label = v.color;
+            const isOptionColor = (v.optionField || "").toLowerCase() === "color" || (v.optionField || "").toLowerCase() === "colour";
+
+            if (v.color && v.optionLabel) {
+              if (isOptionColor) {
+                label = cleanColorName(v.optionLabel);
+              } else {
+                label = `${cleanColorName(v.color)} / ${v.optionLabel}`;
+              }
+            } else if (v.optionLabel) {
+              if (isOptionColor) {
+                label = cleanColorName(v.optionLabel);
+              } else {
+                label = v.optionLabel;
+              }
+            } else if (v.color) {
+              label = cleanColorName(v.color);
+            }
 
             return (
               <div key={v.key} className="sp-variant-card" style={{ padding: "12px 0" }}>
@@ -1345,7 +1461,8 @@ const VariantPricingModal = ({ open, variants, availableColors, variantPrices, o
                     <button className="sp-var-btn" onClick={() => handleOpSelect("-")}
                       style={{ width: 40, height: 40, background: op === "-" ? "var(--sp-red, #ef4444)" : "var(--sp-primary)", opacity: op === "-" ? 1 : 0.45 }}>−</button>
                     <input className="sp-var-input" type="number" placeholder="Enter amount"
-                      value={inputVal} min="0" onChange={e => handleInputChange(e.target.value)}/>
+                      value={inputVal} min="0" onChange={e => handleInputChange(e.target.value)}
+                      onWheel={e => e.target.blur()}/>
                     <button className="sp-var-btn" onClick={() => handleOpSelect("+")}
                       style={{ width: 40, height: 40, background: op === "+" ? "var(--sp-green, #059669)" : "var(--sp-primary)", opacity: op === "+" ? 1 : 0.45 }}>+</button>
                   </div>
@@ -1371,11 +1488,12 @@ const VariantPricingModal = ({ open, variants, availableColors, variantPrices, o
 
 /* ── COLOUR AND EDIT SECTION ── */
 /* ── CONNECT IMAGE MODAL ── */
-const ConnectImageModal = ({ open, onClose, confirmedColors, uploadedProductImages, colourImages, onColourImagesChange }) => {
+const ConnectImageModal = ({ open, onClose, confirmedColors, uploadedProductImages, colourImages, onColourImagesChange, onAddUploadedImage }) => {
   const [selectedColor, setSelectedColor] = useState("");
   const [localMappings, setLocalMappings] = useState({});
   const [colorDropOpen, setColorDropOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [limitError, setLimitError] = useState("");
   const fileRef = useRef(null);
 
   // Sync localMappings from parent when modal opens
@@ -1383,8 +1501,14 @@ const ConnectImageModal = ({ open, onClose, confirmedColors, uploadedProductImag
     if (open) {
       setLocalMappings({ ...colourImages });
       setSelectedColor(confirmedColors.length > 0 ? confirmedColors[0].name : "");
+      setLimitError("");
     }
   }, [open, colourImages, confirmedColors]);
+
+  // Reset limitError when selected color changes
+  useEffect(() => {
+    setLimitError("");
+  }, [selectedColor]);
 
   if (!open) return null;
 
@@ -1407,6 +1531,11 @@ const ConnectImageModal = ({ open, onClose, confirmedColors, uploadedProductImag
         return [val];
       })();
       const exists = current.includes(imgUrl);
+      if (!exists && current.length >= 10) {
+        setLimitError("Maximum 10 images per color are allowed.");
+        return prev;
+      }
+      setLimitError("");
       const updated = exists ? current.filter(u => u !== imgUrl) : [...current, imgUrl];
       return { ...prev, [selectedColor]: updated };
     });
@@ -1419,15 +1548,9 @@ const ConnectImageModal = ({ open, onClose, confirmedColors, uploadedProductImag
     setUploading(true);
     try {
       const resolvedUrl = await uploadFileToWix(file);
-      setLocalMappings(prev => {
-        const current = (() => {
-          const val = prev[selectedColor];
-          if (!val) return [];
-          if (Array.isArray(val)) return val;
-          return [val];
-        })();
-        return { ...prev, [selectedColor]: [...current, resolvedUrl] };
-      });
+      if (onAddUploadedImage) {
+        onAddUploadedImage(resolvedUrl);
+      }
     } catch (err) {
       console.error("[ColorImageUpload] Error:", err);
       alert(err.message || "Upload failed. Please try again.");
@@ -1437,6 +1560,17 @@ const ConnectImageModal = ({ open, onClose, confirmedColors, uploadedProductImag
   };
 
   const handleDone = () => {
+    if (selectedColor) {
+      const urls = localMappings[selectedColor] || [];
+      if (urls.length === 0) {
+        alert(`Please select at least 1 image for ${selectedColor}.`);
+        return;
+      }
+      if (urls.length > 10) {
+        setLimitError(`Maximum 10 images per color are allowed. ${selectedColor} has ${urls.length} images.`);
+        return;
+      }
+    }
     onColourImagesChange(localMappings);
     onClose();
   };
@@ -1583,21 +1717,52 @@ const ConnectImageModal = ({ open, onClose, confirmedColors, uploadedProductImag
                       style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                     />
                     {isSelected && (
-                      <div style={{
-                        position: "absolute", inset: 0,
-                        background: "rgba(41,98,255,0.2)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}>
+                      <>
                         <div style={{
-                          width: 24, height: 24, borderRadius: "50%",
-                          background: "#2962ff",
+                          position: "absolute", inset: 0,
+                          background: "rgba(41,98,255,0.2)",
                           display: "flex", alignItems: "center", justifyContent: "center",
                         }}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                            <path d="M5 13l4 4L19 7" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-                          </svg>
+                          <div style={{
+                            width: 24, height: 24, borderRadius: "50%",
+                            background: "#2962ff",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                          }}>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                              <path d="M5 13l4 4L19 7" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
+                            </svg>
+                          </div>
                         </div>
-                      </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleImage(imgUrl);
+                          }}
+                          style={{
+                            position: "absolute",
+                            top: 4,
+                            right: 4,
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            background: "#ef4444",
+                            border: "none",
+                            color: "white",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 10,
+                            fontWeight: "bold",
+                            cursor: "pointer",
+                            zIndex: 50,
+                            lineHeight: 1,
+                            boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                          }}
+                        >
+                          &times;
+                        </button>
+                      </>
                     )}
                     <div style={{
                       position: "absolute", bottom: 3, right: 4,
@@ -1649,6 +1814,17 @@ const ConnectImageModal = ({ open, onClose, confirmedColors, uploadedProductImag
                 color: "#2962ff", fontWeight: 600,
               }}>
                 {selectedUrls.length} image{selectedUrls.length > 1 ? "s" : ""} selected for {selectedColor}
+              </p>
+            )}
+
+            {/* Limit error feedback */}
+            {limitError && (
+              <p style={{
+                marginTop: 6,
+                fontFamily: "var(--ff-display)", fontSize: 12,
+                color: "#ef4444", fontWeight: 600,
+              }}>
+                ⚠️ {limitError}
               </p>
             )}
           </>
@@ -1703,6 +1879,7 @@ const ColourAndEditSection = ({
   colorError, variantPrices, onVariantPricesChange,
   uploadedProductImages = [],
   colourImages = {},
+  onAddUploadedImage,
 }) => {
   const [availableColors,  setAvailableColors]  = useState(DEFAULT_COLORS);
   const [tempColors,       setTempColors]       = useState([]);
@@ -1751,24 +1928,36 @@ const ColourAndEditSection = ({
       return { fieldTitle: f.title, selected };
     }).filter(x => x.selected.length > 0);
 
-    const optionCombos = optionSelections.flatMap(({ fieldTitle, selected }) =>
+    const nonColorOptionSelections = optionSelections.filter(x => {
+      const titleLower = (x.fieldTitle || "").toLowerCase().trim();
+      return titleLower !== "color" && titleLower !== "colour";
+    });
+
+    const nonColorOptionCombos = nonColorOptionSelections.flatMap(({ fieldTitle, selected }) =>
       selected.map(label => ({ optionField: fieldTitle, optionLabel: label }))
     );
 
-    if (optionCombos.length === 0) return [];
-
     if (confirmedColors.length > 0) {
-      return confirmedColors.flatMap(col =>
-        optionCombos.map(opt => ({
+      if (nonColorOptionCombos.length > 0) {
+        return confirmedColors.flatMap(col =>
+          nonColorOptionCombos.map(opt => ({
+            color:       col.name,
+            optionField: opt.optionField,
+            optionLabel: opt.optionLabel,
+            key:         `${col.name}__${opt.optionField}__${opt.optionLabel}`,
+          }))
+        );
+      } else {
+        return confirmedColors.map(col => ({
           color:       col.name,
-          optionField: opt.optionField,
-          optionLabel: opt.optionLabel,
-          key:         `${col.name}__${opt.optionField}__${opt.optionLabel}`,
-        }))
-      );
+          optionField: null,
+          optionLabel: null,
+          key:         col.name,
+        }));
+      }
     }
 
-    return optionCombos.map(opt => ({
+    return nonColorOptionCombos.map(opt => ({
       color:       null,
       optionField: opt.optionField,
       optionLabel: opt.optionLabel,
@@ -1839,7 +2028,21 @@ const ColourAndEditSection = ({
         <div style={{ marginTop: 16 }}>
           {/* Header row: Colour label + Connect Image button */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <label className="sp-label" style={{ margin: 0 }}>Color</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <label className="sp-label" style={{ margin: 0 }}>Color</label>
+              <button
+                type="button"
+                className="sp-ms-chip"
+                style={{
+                  borderStyle: "dashed", margin: 0, padding: "4px 10px", fontSize: 12, height: "auto",
+                  background: "transparent", border: "1px dashed #d1d5db", borderRadius: 6, cursor: "pointer",
+                  color: "#4b5563"
+                }}
+                onClick={handleOpenColorPicker}
+              >
+                {confirmedColors.length === 0 ? "+ Select colors" : "Edit colors"}
+              </button>
+            </div>
             {confirmedColors.length > 0 && (
               <div style={{ position: "relative" }}>
                 <button
@@ -1858,7 +2061,7 @@ const ColourAndEditSection = ({
                     <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="1.5"/>
                     <polyline points="21 15 16 10 5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                   </svg>
-                  Connect Image
+                  {mappedCount > 0 ? "Edit Connected Images" : "Connect Image"}
                   {mappedCount > 0 && (
                     <span style={{
                       background: "var(--sp-primary, #2962ff)", color: "white",
@@ -1868,17 +2071,7 @@ const ColourAndEditSection = ({
                     </span>
                   )}
                 </button>
-                <ConnectImageModal
-                  open={connectImageOpen}
-                  onClose={() => setConnectImageOpen(false)}
-                  confirmedColors={confirmedColors}
-                  uploadedProductImages={uploadedProductImages}
-                  colourImages={colourImages}
-                  onColourImagesChange={(newMappings) => {
-                    if (onColourImagesChange) onColourImagesChange(newMappings);
-                    setConnectImageOpen(false);
-                  }}
-                />
+                {/* ConnectImageModal removed here to prevent double rendering */}
               </div>
             )}
           </div>
@@ -1908,14 +2101,6 @@ const ColourAndEditSection = ({
                 </div>
               );
             })}
-            <button
-              type="button"
-              className="sp-ms-chip"
-              style={{ borderStyle: "dashed" }}
-              onClick={handleOpenColorPicker}
-            >
-              {confirmedColors.length === 0 ? "+ Select colors" : "Edit colors"}
-            </button>
           </div>
 
           {/* Selected colours summary */}
@@ -2005,7 +2190,6 @@ const ColourAndEditSection = ({
         </button>
       </div>
 
-      {/* Connect Image Modal */}
       <ConnectImageModal
         open={connectImageOpen}
         onClose={() => setConnectImageOpen(false)}
@@ -2016,6 +2200,7 @@ const ColourAndEditSection = ({
           if (onColourImagesChange) onColourImagesChange(newMappings);
           setConnectImageOpen(false);
         }}
+        onAddUploadedImage={onAddUploadedImage}
       />
 
       {/* Color Picker Modal */}
@@ -2065,8 +2250,50 @@ const resolveSubcategoryId = (subcategory, category) => {
 const SpecificationPage = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
-  const { category, subcategory, formData, images, specifications, isEditMode, isDuplicateMode, editData, tableId, origin, email } = location.state || {};
-  const basePrice = formData?.price || "";
+  const { category: rawCategory, subcategory: rawSubcategory, formData, images: initialImages, specifications, isEditMode, isDuplicateMode, editData: rawEditData, tableId, origin, email } = location.state || {};
+
+  const editData = useMemo(() => {
+    if (!rawEditData) return null;
+    const copied = { ...rawEditData };
+    if (typeof copied.productOptions === "string" && copied.productOptions.trim() !== "") {
+      try {
+        copied.productOptions = JSON.parse(copied.productOptions);
+      } catch (e) {
+        console.error("Failed to parse productOptions:", e);
+      }
+    }
+    if (typeof copied.varientPrice === "string" && copied.varientPrice.trim() !== "") {
+      try {
+        copied.varientPrice = JSON.parse(copied.varientPrice);
+      } catch (e) {
+        console.error("Failed to parse varientPrice:", e);
+      }
+    }
+    if (typeof copied.specifications === "string" && copied.specifications.trim() !== "") {
+      try {
+        copied.specifications = JSON.parse(copied.specifications);
+      } catch (e) {
+        console.error("Failed to parse specifications:", e);
+      }
+    }
+    return copied;
+  }, [rawEditData]);
+
+  const category = rawCategory || (editData ? {
+    name: editData.categoryName?.[0] || editData.mainCategory || "",
+    _id: editData.categoryId?.[0] || "",
+  } : null);
+
+  const subcategory = rawSubcategory || (editData ? {
+    name: editData.subCategory || "",
+    _id: editData.subCategoryId || editData.SubCategoryID || editData.subcategoryId || "",
+    subcategoryId: editData.subCategoryId || editData.SubCategoryID || editData.subcategoryId || "",
+    SubCategoryID: editData.SubCategoryID || "",
+  } : null);
+  const basePrice = (formData?.onSale && formData?.salePrice) ? formData.salePrice : (formData?.price || "");
+
+  const [images, setImages] = useState(() => initialImages || []);
+  const [newlyUploadedImages, setNewlyUploadedImages] = useState([]);
 
   const [fields,          setFields]          = useState([]);
   const [confirmedColors, setConfirmedColors] = useState(() => {
@@ -2117,73 +2344,132 @@ const SpecificationPage = () => {
     }
     return {};
   });
-  const [variantPrices,   setVariantPrices]   = useState(location.state?.variantPrices || {});
-  // In edit mode, merge editData fields into initial values if no prior specifications exist
-// Resolve size chart URL from editData
-const resolveSizeChartUrl = () =>
-  editData?.sizeChart ||
-  editData?.size_chart ||
-  editData?.sizeChartUrl ||
-  editData?.size_chart_url ||
-  editData?.sizeChartImage ||
-  null;
+  // Resolve size chart URL from editData
+  const resolveSizeChartUrl = () =>
+    editData?.sizeChart ||
+    editData?.size_chart ||
+    editData?.sizeChartUrl ||
+    editData?.size_chart_url ||
+    editData?.sizeChartImage ||
+    null;
 
-const buildInitialValues = () => {
-  if (specifications && Object.keys(specifications).length > 0) return specifications;
-  if ((isEditMode || isDuplicateMode) && editData) {
-    const merged = {};
+  const buildInitialValues = () => {
+    if (specifications && Object.keys(specifications).length > 0) return specifications;
+    if ((isEditMode || isDuplicateMode) && editData) {
+      const merged = {};
 
-    // Pull from additionalInfoSections (spec fields)
-    if (Array.isArray(editData.additionalInfoSections)) {
-      editData.additionalInfoSections.forEach(section => {
-        Object.entries(section).forEach(([k, v]) => {
-          if (k !== "title" && k !== "description" && v != null && v !== "") {
-            merged[k] = v;
-          }
+      // Pull from additionalInfoSections (spec fields)
+      if (Array.isArray(editData.additionalInfoSections)) {
+        editData.additionalInfoSections.forEach(section => {
+          Object.entries(section).forEach(([k, v]) => {
+            if (k !== "title" && k !== "description" && v != null && v !== "") {
+              merged[k] = v;
+            }
+          });
         });
+      }
+
+      // Pull from productOptions (option fields like Size, Color)
+      const rawOptions = editData.productOptions;
+      const optionsArray = Array.isArray(rawOptions)
+        ? rawOptions
+        : rawOptions && typeof rawOptions === "object"
+          ? Object.entries(rawOptions).map(([key, opt]) => ({
+              name: opt?.name || key,
+              choices: opt?.choices || [],
+            }))
+          : [];
+
+      optionsArray.forEach(opt => {
+        const optName = (opt.name || opt.optionType || "").trim();
+        if (!optName) return;
+
+        const choices = opt.choices || opt.values || opt.options || [];
+        const selectedValues = choices
+          .map(c => (typeof c === "object" ? (c.value || c.description || c.name || "") : String(c)))
+          .filter(Boolean);
+
+        if (selectedValues.length === 0) return;
+
+        const keyVariants = [
+          optName,
+          optName.toLowerCase(),
+          optName.toUpperCase(),
+          optName.charAt(0).toUpperCase() + optName.slice(1).toLowerCase(),
+        ];
+
+        const storeValue = selectedValues.length === 1 ? selectedValues[0] : selectedValues;
+        keyVariants.forEach(k => { merged[k] = storeValue; });
       });
+      return merged;
     }
+    return {};
+  };
 
-    // Pull from productOptions (option fields like Size, Color)
-    // Pull from productOptions — handles both array format AND keyed-object format
-// Array format:  [{ name: "Size", choices: [...] }]
-// Object format: { "Size": { choices: [...] }, "Color": { choices: [...] } }
-const rawOptions = editData.productOptions;
-const optionsArray = Array.isArray(rawOptions)
-  ? rawOptions
-  : rawOptions && typeof rawOptions === "object"
-    ? Object.entries(rawOptions).map(([key, opt]) => ({
-        name: opt?.name || key,
-        choices: opt?.choices || [],
-      }))
-    : [];
+  const [values, setValues] = useState(buildInitialValues);
 
-optionsArray.forEach(opt => {
-  const optName = (opt.name || opt.optionType || "").trim();
-  if (!optName) return;
+  const [variantPrices,   setVariantPrices]   = useState(location.state?.variantPrices || {});
+  const variantPricesLoadedRef = useRef(!!location.state?.variantPrices);
 
-  const choices = opt.choices || opt.values || opt.options || [];
-  const selectedValues = choices
-    .map(c => (typeof c === "object" ? (c.value || c.description || c.name || "") : String(c)))
-    .filter(Boolean);
+  useEffect(() => {
+    if ((isEditMode || isDuplicateMode) && editData?.varientPrice && !variantPricesLoadedRef.current) {
+      const currentOptionFields = fields.filter(f => f.type === "Product Options");
+      if (currentOptionFields.length === 0 && confirmedColors.length === 0) return;
 
-  if (selectedValues.length === 0) return;
+      const optionSelections = currentOptionFields.map(f => {
+        const key = f.fieldId || f.title;
+        const v = values[key];
+        const selected = Array.isArray(v) ? v : (v ? [v] : []);
+        return { fieldTitle: f.title, selected };
+      }).filter(x => x.selected.length > 0);
 
-  const keyVariants = [
-    optName,
-    optName.toLowerCase(),
-    optName.toUpperCase(),
-    optName.charAt(0).toUpperCase() + optName.slice(1).toLowerCase(),
-  ];
+      const nonColorOptionSelections = optionSelections.filter(x => {
+        const titleLower = (x.fieldTitle || "").toLowerCase().trim();
+        return titleLower !== "color" && titleLower !== "colour";
+      });
 
-  const storeValue = selectedValues.length === 1 ? selectedValues[0] : selectedValues;
-  keyVariants.forEach(k => { merged[k] = storeValue; });
-});
-    return merged;
-  }
-  return {};
-};
-const [values, setValues] = useState(buildInitialValues);
+      const nonColorOptionCombos = nonColorOptionSelections.flatMap(({ fieldTitle, selected }) =>
+        selected.map(label => ({ optionField: fieldTitle, optionLabel: label }))
+      );
+
+      let currentVariants = [];
+      if (confirmedColors.length > 0) {
+        if (nonColorOptionCombos.length > 0) {
+          currentVariants = confirmedColors.flatMap(col =>
+            nonColorOptionCombos.map(opt => ({
+              color: col.name,
+              optionField: opt.optionField,
+              optionLabel: opt.optionLabel,
+              key: `${col.name}__${opt.optionField}__${opt.optionLabel}`,
+            }))
+          );
+        } else {
+          currentVariants = confirmedColors.map(col => ({
+            color: col.name,
+            optionField: null,
+            optionLabel: null,
+            key: col.name,
+          }));
+        }
+      } else {
+        currentVariants = nonColorOptionCombos.map(opt => ({
+          color: null,
+          optionField: opt.optionField,
+          optionLabel: opt.optionLabel,
+          key: `${opt.optionField}__${opt.optionLabel}`,
+        }));
+      }
+
+      if (currentVariants.length > 0) {
+        const initialPrices = getInitialVariantPrices(currentVariants, editData.varientPrice, editData);
+        if (Object.keys(initialPrices).length > 0) {
+          setVariantPrices(initialPrices);
+        }
+        variantPricesLoadedRef.current = true;
+      }
+    }
+  }, [editData, fields, values, confirmedColors, isEditMode, isDuplicateMode]);
+  // In edit mode, merge editData fields into initial values if no prior specifications exist
   const [loading,         setLoading]         = useState(false);
   const [apiError,        setApiError]        = useState("");
   const [fieldErrors,     setFieldErrors]     = useState({});
@@ -2485,24 +2771,36 @@ console.groupEnd();
         return { fieldTitle: f.title, selected };
       }).filter(x => x.selected.length > 0);
 
-      const optionCombos = optionSelections.flatMap(({ fieldTitle, selected }) =>
+      const nonColorOptionSelections = optionSelections.filter(x => {
+        const titleLower = (x.fieldTitle || "").toLowerCase().trim();
+        return titleLower !== "color" && titleLower !== "colour";
+      });
+
+      const nonColorOptionCombos = nonColorOptionSelections.flatMap(({ fieldTitle, selected }) =>
         selected.map(label => ({ optionField: fieldTitle, optionLabel: label }))
       );
 
-      if (optionCombos.length === 0) return [];
-
       if (confirmedColors.length > 0) {
-        return confirmedColors.flatMap(col =>
-          optionCombos.map(opt => ({
+        if (nonColorOptionCombos.length > 0) {
+          return confirmedColors.flatMap(col =>
+            nonColorOptionCombos.map(opt => ({
+              color: col.name,
+              optionField: opt.optionField,
+              optionLabel: opt.optionLabel,
+              key: `${col.name}__${opt.optionField}__${opt.optionLabel}`,
+            }))
+          );
+        } else {
+          return confirmedColors.map(col => ({
             color: col.name,
-            optionField: opt.optionField,
-            optionLabel: opt.optionLabel,
-            key: `${col.name}__${opt.optionField}__${opt.optionLabel}`,
-          }))
-        );
+            optionField: null,
+            optionLabel: null,
+            key: col.name,
+          }));
+        }
       }
 
-      return optionCombos.map(opt => ({
+      return nonColorOptionCombos.map(opt => ({
         color: null,
         optionField: opt.optionField,
         optionLabel: opt.optionLabel,
@@ -2547,6 +2845,7 @@ console.groupEnd();
           variantPrices: variantPrices, // lifted state — contains actual pricing data
           promotionImage: location.state?.promotionImage || null,
           keywords: location.state?.keywords || null,
+          discountType: location.state?.discountType,
         },
       }
     );
@@ -2575,6 +2874,7 @@ console.groupEnd();
           variantPrices,
           promotionImage: location.state?.promotionImage || null,
           keywords: location.state?.keywords || null,
+          discountType: location.state?.discountType,
         },
       }
     );
@@ -2589,24 +2889,36 @@ console.groupEnd();
       return { fieldTitle: f.title, selected };
     }).filter(x => x.selected.length > 0);
 
-    const optionCombos = optionSelections.flatMap(({ fieldTitle, selected }) =>
+    const nonColorOptionSelections = optionSelections.filter(x => {
+      const titleLower = (x.fieldTitle || "").toLowerCase().trim();
+      return titleLower !== "color" && titleLower !== "colour";
+    });
+
+    const nonColorOptionCombos = nonColorOptionSelections.flatMap(({ fieldTitle, selected }) =>
       selected.map(label => ({ optionField: fieldTitle, optionLabel: label }))
     );
 
-    if (optionCombos.length === 0) return [];
-
     if (confirmedColors.length > 0) {
-      return confirmedColors.flatMap(col =>
-        optionCombos.map(opt => ({
+      if (nonColorOptionCombos.length > 0) {
+        return confirmedColors.flatMap(col =>
+          nonColorOptionCombos.map(opt => ({
+            color: col.name,
+            optionField: opt.optionField,
+            optionLabel: opt.optionLabel,
+            key: `${col.name}__${opt.optionField}__${opt.optionLabel}`,
+          }))
+        );
+      } else {
+        return confirmedColors.map(col => ({
           color: col.name,
-          optionField: opt.optionField,
-          optionLabel: opt.optionLabel,
-          key: `${col.name}__${opt.optionField}__${opt.optionLabel}`,
-        }))
-      );
+          optionField: null,
+          optionLabel: null,
+          key: col.name,
+        }));
+      }
     }
 
-    return optionCombos.map(opt => ({
+    return nonColorOptionCombos.map(opt => ({
       color: null,
       optionField: opt.optionField,
       optionLabel: opt.optionLabel,
@@ -2615,15 +2927,21 @@ console.groupEnd();
   })();
 
   const previewPromotionImage = (() => {
-    if (location.state?.promotionImage !== undefined) return location.state.promotionImage;
+    if (location.state?.promotionImage !== undefined) {
+      const val = location.state.promotionImage;
+      if (Array.isArray(val)) return val;
+      return val ? [val] : [];
+    }
     if ((isEditMode || isDuplicateMode) && editData) {
       const photos = editData.promotionPhotos;
       if (Array.isArray(photos) && photos.length > 0) {
-        const url = typeof photos[0] === "string" ? photos[0] : photos[0]?.url || photos[0]?.src || null;
-        if (url) return { url: resolveWixImage(url) || url, name: "promotion-image", size: 0 };
+        return photos.map((p, idx) => {
+          const url = typeof p === "string" ? p : p?.url || p?.src || null;
+          return url ? { url: resolveWixImage(url) || url, name: `promotion-image-${idx + 1}`, size: 0 } : null;
+        }).filter(Boolean);
       }
     }
-    return null;
+    return [];
   })();
 
   const previewKeywords = (() => {
@@ -2755,14 +3073,25 @@ console.groupEnd();
                         variantPrices={variantPrices}
                         onVariantPricesChange={setVariantPrices}
                         colourImages={colourImages}
-                        uploadedProductImages={
-                          (images || [])
+                        uploadedProductImages={(() => {
+                          const productUrls = (images || [])
                             .map(img => img?.mediaUrl || img?.url || img?.preview || null)
-                            .filter(Boolean)
-                        }
+                            .filter(Boolean);
+                          const colorUrls = Object.values(colourImages || {})
+                            .flatMap(val => {
+                              if (!val) return [];
+                              if (Array.isArray(val)) return val;
+                              return [val];
+                            })
+                            .filter(Boolean);
+                          return Array.from(new Set([...productUrls, ...newlyUploadedImages, ...colorUrls]));
+                        })()}
                         onColourImagesChange={(imgs) => {
                           setColourImages(imgs);
                           console.log("Colour Image Data:", imgs);
+                        }}
+                        onAddUploadedImage={(newImgUrl) => {
+                          setNewlyUploadedImages(prev => [...prev, newImgUrl]);
                         }}
                       />
                     </>

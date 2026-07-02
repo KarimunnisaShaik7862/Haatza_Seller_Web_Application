@@ -21,6 +21,10 @@ function SignUpForm({
   loading,
   error,
   success,
+  phoneError,
+  emailError,
+  onPhoneBlur,
+  onEmailBlur,
   onRegister,
   onNavigateSignIn,
 }) {
@@ -165,10 +169,26 @@ function SignUpForm({
             value: form.phone,
             maxLength: 10,
             onChange: (e) => onFormChange("phone", e.target.value),
+            onBlur: () => onPhoneBlur && onPhoneBlur(),
             onKeyDown: handleKeyDown,
             disabled: loading,
           })
         ),
+        phoneError
+          ? React.createElement(
+              "p",
+              {
+                style: {
+                  color: "#e53935",
+                  fontSize: "12.5px",
+                  margin: "-8px 0 8px 4px",
+                  textAlign: "left",
+                  width: "100%",
+                },
+              },
+              phoneError
+            )
+          : null,
 
         // EMAIL
         React.createElement("input", {
@@ -177,9 +197,25 @@ function SignUpForm({
           className: "input-box",
           value: form.email,
           onChange: (e) => onFormChange("email", e.target.value),
+          onBlur: () => onEmailBlur && onEmailBlur(),
           onKeyDown: handleKeyDown,
           disabled: loading,
         }),
+        emailError
+          ? React.createElement(
+              "p",
+              {
+                style: {
+                  color: "#e53935",
+                  fontSize: "12.5px",
+                  margin: "-8px 0 8px 4px",
+                  textAlign: "left",
+                  width: "100%",
+                },
+              },
+              emailError
+            )
+          : null,
 
         // PASSWORD
         React.createElement(
@@ -209,9 +245,9 @@ function SignUpForm({
           "p",
           { className: "terms" },
           "By continuing, you agree to our ",
-          React.createElement(Link, { to: "/terms", className: "link" }, "Terms of Use"),
+          React.createElement("a", { href: "/terms", target: "_blank", rel: "noopener noreferrer", className: "link" }, "Terms of Use"),
           " and ",
-          React.createElement(Link, { to: "/privacy", className: "link" }, "Privacy Policy"),
+          React.createElement("a", { href: "/privacy", target: "_blank", rel: "noopener noreferrer", className: "link" }, "Privacy Policy"),
           "."
         ),
 

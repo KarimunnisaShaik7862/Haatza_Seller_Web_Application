@@ -163,11 +163,11 @@ const SECTIONS = [
 
 function SectionContent({ content }) {
   return (
-    <div className="pp-section-body">
+    <div className="prp-section-body">
       {content.map((block, i) => {
         if (block.type === "para") {
           return (
-            <p key={i} className="pp-para">
+            <p key={i} className="prp-para">
               {block.text}
             </p>
           );
@@ -176,13 +176,13 @@ function SectionContent({ content }) {
         if (block.type === "highlight-card") {
           const Icon = block.icon;
           return (
-            <div key={i} className={`pp-highlight-card pp-highlight-${block.color}`}>
-              <div className="pp-highlight-icon">
+            <div key={i} className={`prp-highlight-card prp-highlight-${block.color}`}>
+              <div className="prp-highlight-icon">
                 <Icon size={20} />
               </div>
               <div>
-                <div className="pp-highlight-heading">{block.heading}</div>
-                <div className="pp-highlight-text">{block.text}</div>
+                <div className="prp-highlight-heading">{block.heading}</div>
+                <div className="prp-highlight-text">{block.text}</div>
               </div>
             </div>
           );
@@ -191,13 +191,13 @@ function SectionContent({ content }) {
         if (block.type === "sub-section") {
           const Icon = block.icon;
           return (
-            <div key={i} className="pp-sub-section">
-              <div className="pp-sub-header">
-                <span className="pp-sub-label">{block.label}</span>
-                <Icon size={14} className="pp-sub-icon" />
-                <span className="pp-sub-heading">{block.heading}</span>
+            <div key={i} className="prp-sub-section">
+              <div className="prp-sub-header">
+                <span className="prp-sub-label">{block.label}</span>
+                <Icon size={14} className="prp-sub-icon" />
+                <span className="prp-sub-heading">{block.heading}</span>
               </div>
-              <ul className="pp-point-list">
+              <ul className="prp-point-list">
                 {block.points.map((pt, j) => (
                   <li key={j}>{pt}</li>
                 ))}
@@ -208,20 +208,20 @@ function SectionContent({ content }) {
 
         if (block.type === "timeline-steps") {
           return (
-            <div key={i} className="pp-timeline">
+            <div key={i} className="prp-timeline">
               {block.steps.map((step, j) => {
                 const Icon = step.icon;
                 return (
                   <React.Fragment key={j}>
-                    <div className="pp-timeline-step">
-                      <div className="pp-timeline-icon">
+                    <div className="prp-timeline-step">
+                      <div className="prp-timeline-icon">
                         <Icon size={16} />
                       </div>
-                      <div className="pp-timeline-label">{step.label}</div>
-                      <div className="pp-timeline-sub">{step.sub}</div>
+                      <div className="prp-timeline-label">{step.label}</div>
+                      <div className="prp-timeline-sub">{step.sub}</div>
                     </div>
                     {j < block.steps.length - 1 && (
-                      <div className="pp-timeline-arrow">→</div>
+                      <div className="prp-timeline-arrow">→</div>
                     )}
                   </React.Fragment>
                 );
@@ -232,8 +232,8 @@ function SectionContent({ content }) {
 
         if (block.type === "info-box") {
           return (
-            <div key={i} className="pp-info-box">
-              <span className="pp-info-dot" />
+            <div key={i} className="prp-info-box">
+              <span className="prp-info-dot" />
               {block.text}
             </div>
           );
@@ -241,7 +241,7 @@ function SectionContent({ content }) {
 
         if (block.type === "bullet-list") {
           return (
-            <ul key={i} className="pp-bullet-list">
+            <ul key={i} className="prp-bullet-list">
               {block.items.map((item, j) => (
                 <li key={j}>{item}</li>
               ))}
@@ -251,16 +251,16 @@ function SectionContent({ content }) {
 
         if (block.type === "compliance-grid") {
           return (
-            <div key={i} className="pp-compliance-grid">
+            <div key={i} className="prp-compliance-grid">
               {block.items.map((item, j) => {
                 const Icon = item.icon;
                 return (
-                  <div key={j} className="pp-compliance-card">
-                    <div className="pp-compliance-icon">
+                  <div key={j} className="prp-compliance-card">
+                    <div className="prp-compliance-icon">
                       <Icon size={15} />
                     </div>
-                    <div className="pp-compliance-label">{item.label}</div>
-                    <div className="pp-compliance-sub">{item.sub}</div>
+                    <div className="prp-compliance-label">{item.label}</div>
+                    <div className="prp-compliance-sub">{item.sub}</div>
                   </div>
                 );
               })}
@@ -277,23 +277,23 @@ function SectionContent({ content }) {
 function AccordionSection({ section, isOpen, onToggle }) {
   const Icon = section.icon;
   return (
-    <div className={`pp-accordion ${isOpen ? "pp-accordion-open" : ""}`}>
-      <button className="pp-acc-header" onClick={onToggle} aria-expanded={isOpen}>
-        <div className="pp-acc-left">
-          <span className="pp-acc-num">{section.num}</span>
-          <div className="pp-acc-icon">
+    <div className={`prp-accordion ${isOpen ? "prp-accordion-open" : ""}`}>
+      <button className="prp-acc-header" onClick={onToggle} aria-expanded={isOpen}>
+        <div className="prp-acc-left">
+          <span className="prp-acc-num">{section.num}</span>
+          <div className="prp-acc-icon">
             <Icon size={16} />
           </div>
-          <span className="pp-acc-title">{section.title}</span>
+          <span className="prp-acc-title">{section.title}</span>
           {section.highlight && (
-            <span className={`pp-acc-badge pp-badge-${section.highlight.color}`}>
+            <span className={`prp-acc-badge prp-badge-${section.highlight.color}`}>
               {section.highlight.label}
             </span>
           )}
         </div>
         <ChevronDown
           size={16}
-          className="pp-acc-chevron"
+          className="prp-acc-chevron"
           style={{ transform: isOpen ? "rotate(180deg)" : "none" }}
         />
       </button>
@@ -310,51 +310,51 @@ function PricingPage() {
   const toggle = (i) => setOpenSection(openSection === i ? -1 : i);
 
   return (
-    <div className="pp-page">
+    <div className="prp-page">
       {/* ── Hero ── */}
-      <header className="pp-hero">
+      <header className="prp-hero">
         <button
-  className="pp-back-btn"
-  onClick={() => navigate("/dashboard/settings")}
-  aria-label="Back to settings"
->
-  <ChevronLeft size={18} strokeWidth={2.5} color="currentColor" />
-</button>
+          className="prp-back-btn"
+          onClick={() => navigate("/dashboard/settings")}
+          aria-label="Back to settings"
+        >
+          <ChevronLeft size={16} />
+        </button>
 
-        <div className="pp-hero-left">
-          <span className="pp-hero-badge">
+        <div className="prp-hero-left">
+          <span className="prp-hero-badge">
             <RefreshCw size={12} />
             Updated Policy
           </span>
-          <h1 className="pp-hero-title">Pricing &amp; Commission Policy</h1>
-          <p className="pp-hero-sub">
+          <h1 className="prp-hero-title">Pricing &amp; Commission Policy</h1>
+          <p className="prp-hero-sub">
             Understand Haatza's pricing, settlement process, taxes, and seller
             responsibilities.
           </p>
-          <div className="pp-hero-meta">
-            <span className="pp-meta-item">
+          <div className="prp-hero-meta">
+            <span className="prp-meta-item">
               <BadgeCheck size={13} />
               Last updated: June 2025
             </span>
-            <span className="pp-meta-item">
+            <span className="prp-meta-item">
               <ShieldCheck size={13} />
               7 Sections
             </span>
           </div>
         </div>
 
-        <div className="pp-hero-illo" aria-hidden="true">
-          <div className="pp-illo-ring pp-illo-ring-1" />
-          <div className="pp-illo-ring pp-illo-ring-2" />
-          <div className="pp-illo-center">
+        <div className="prp-hero-illo" aria-hidden="true">
+          <div className="prp-illo-ring prp-illo-ring-1" />
+          <div className="prp-illo-ring prp-illo-ring-2" />
+          <div className="prp-illo-center">
             <IndianRupee size={32} />
           </div>
         </div>
       </header>
 
       {/* ── Content ── */}
-      <div className="pp-body">
-        <div className="pp-sections">
+      <div className="prp-body">
+        <div className="prp-sections">
           {SECTIONS.map((section, i) => (
             <AccordionSection
               key={section.id}
@@ -366,36 +366,36 @@ function PricingPage() {
         </div>
 
         {/* ── Contact card ── */}
-        <div className="pp-contact-card">
-          <div className="pp-contact-header">
-            <div className="pp-contact-icon">
+        <div className="prp-contact-card">
+          <div className="prp-contact-header">
+            <div className="prp-contact-icon">
               <MessageSquare size={20} />
             </div>
             <div>
-              <div className="pp-contact-title">Haatza Seller Support</div>
-              <div className="pp-contact-sub">
+              <div className="prp-contact-title">Haatza Seller Support</div>
+              <div className="prp-contact-sub">
                 Have questions about pricing or commissions? We're here.
               </div>
             </div>
           </div>
-          <div className="pp-contact-divider" />
-          <div className="pp-contact-rows">
-            <a href="mailto:sales@haatza.com" className="pp-contact-row">
-              <div className="pp-contact-row-icon">
+          <div className="prp-contact-divider" />
+          <div className="prp-contact-rows">
+            <a href="mailto:sales@haatza.com" className="prp-contact-row">
+              <div className="prp-contact-row-icon">
                 <Mail size={15} />
               </div>
               <div>
-                <div className="pp-contact-row-label">Email</div>
-                <div className="pp-contact-row-val">sales@haatza.com</div>
+                <div className="prp-contact-row-label">Email</div>
+                <div className="prp-contact-row-val">sales@haatza.com</div>
               </div>
             </a>
-            <a href="tel:+919148079015" className="pp-contact-row">
-              <div className="pp-contact-row-icon">
+            <a href="tel:+919148079015" className="prp-contact-row">
+              <div className="prp-contact-row-icon">
                 <Phone size={15} />
               </div>
               <div>
-                <div className="pp-contact-row-label">Phone</div>
-                <div className="pp-contact-row-val">+91 9148079015</div>
+                <div className="prp-contact-row-label">Phone</div>
+                <div className="prp-contact-row-val">+91 9148079015</div>
               </div>
             </a>
           </div>

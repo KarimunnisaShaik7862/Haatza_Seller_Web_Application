@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import OtpScreen from "../../components/auth/OtpScreen/OtpScreen";
-import { generateOtp, verifyOtp, resendOtp, checkOnboardStatus, checkSeller } from "../../services/sellerService";
+import { generateOtp, verifyOtp, resendOtp, checkOnboardStatus, checkSeller, registerUser } from "../../services/sellerService";
 import { saveUser } from "../../utils/userStore";
 import { useAuth } from "../../context/AuthContext";
 const OTP_LENGTH    = 6;
@@ -13,10 +13,10 @@ function OtpPage() {
   const location = useLocation();
   const { login } = useAuth();
 
-  const routeState    = location.state || {};
+ const routeState    = location.state || {};
   const phone         = routeState.phone || routeState.contact || "";
   const emailForStatus = routeState.email;
-
+  const pendingRegistration = routeState.pendingRegistration || null;
   const [otp,          setOtp]          = useState(Array(OTP_LENGTH).fill(""));
   const [timeLeft,     setTimeLeft]     = useState(TIMER_SECONDS);
   const [timerActive,  setTimerActive]  = useState(false);
@@ -28,6 +28,7 @@ function OtpPage() {
 
   const timerRef  = useRef(null);
   const otpSentRef = useRef(false);
+  const lastVerifiedCodeRef = useRef("");
 
   // ─── Timer ────────────────────────────────────────────────────────────────
   const startTimer = useCallback(() => {
@@ -83,32 +84,60 @@ function OtpPage() {
   const handleVerify = () => {
     const code = otp.join("");
 
-    if (!otpGenerated) { setError("OTP was not generated. Please resend."); return; }
-    if (code.length < OTP_LENGTH) { setError("Please enter all 6 digits."); return; }
+    if (!otpGenerated) { setError("OTP was not generated. Please resend."); setSuccessMsg(""); return; }
+    if (code.length < OTP_LENGTH) { setError("Please enter all 6 digits."); setSuccessMsg(""); return; }
 
     setLoading(true);
     setError("");
+    setSuccessMsg("");
+    lastVerifiedCodeRef.current = code;
 
     verifyOtp(phone, code)
       .then(async (verifyResponse) => {
-        clearInterval(timerRef.current);
-        setSuccessMsg("Verified successfully! Checking your account…");
-
-        const response = verifyResponse;
+        let response = verifyResponse;
         console.log("OTP Verification Success:", response);
 
+        // ── If this OTP verification is for a NEW SIGNUP, create the account
+        //    now — only after the OTP has been successfully verified. ──────
+        if (pendingRegistration) {
+          try {
+            const regResult = await registerUser(pendingRegistration);
+            // Merge the freshly created account data into the response so
+            // the rest of this handler (which reads sellerObj/userData etc.)
+            // works exactly as it did before for the existing-user OTP flow.
+            response = {
+              ...verifyResponse,
+              userData: {
+                ...(verifyResponse.userData || {}),
+                ...(regResult.userData || {}),
+                sellerId: regResult.sellerId || verifyResponse?.userData?.sellerId || "",
+                email:    regResult.email    || pendingRegistration.email,
+                phone:    regResult.phone    || pendingRegistration.phone,
+                fullName: regResult.fullName || pendingRegistration.fullName,
+              },
+            };
+          } catch (regErr) {
+            console.error("[OtpPage] Account creation after OTP verification failed:", regErr);
+            setError(regErr.message || "Could not create your account. Please try again.");
+            setSuccessMsg("");
+            setLoading(false);
+            return;
+          }
+        }
+
         const sellerObj =
-          verifyResponse?.message?.seller ||
-          verifyResponse?.seller          ||
-          verifyResponse?.message          ||
-          verifyResponse                   ||
+          response?.message?.seller ||
+          response?.seller          ||
+          response?.message          ||
+          response                   ||
           {};
 
-        // Extract the seller email from the OTP verification response
+        // Extract the seller email from the OTP verification / registration response
         const emailFromResponse =
           sellerObj.email ||
-          verifyResponse?.email ||
-          verifyResponse?.data?.email ||
+          response?.email ||
+          response?.data?.email ||
+          response?.userData?.email ||
           null;
 
         const emailToUse = (emailFromResponse || emailForStatus || "")
@@ -116,11 +145,18 @@ function OtpPage() {
           .toLowerCase();
 
         if (!emailToUse) {
-          setError("Unable to retrieve your account email from the verification response.");
+          setError("Incorrect OTP. Please enter the correct OTP.");
+          setSuccessMsg("");
           setLoading(false);
           return;
         }
 
+        clearInterval(timerRef.current);
+        setSuccessMsg("OTP verified successfully. You can proceed to the next page.");
+        setError("");
+
+        // Do not use any hardcoded, cached, local, or invalid Seller IDs.
+        // Use ONLY the sellerId returned by the authenticated API response.
         // Do not use any hardcoded, cached, local, or invalid Seller IDs.
         // Use ONLY the sellerId returned by the authenticated API response.
         const sellerIdFromOtp =
@@ -131,15 +167,16 @@ function OtpPage() {
           sellerObj.uid ||
           sellerObj.SellerID ||
           sellerObj.Seller_ID ||
-          verifyResponse?.message?.sellerId ||
-          verifyResponse?.message?.seller_id ||
-          verifyResponse?.sellerId ||
-          verifyResponse?.seller_id ||
-          verifyResponse?.SellerID ||
+          response?.message?.sellerId ||
+          response?.message?.seller_id ||
+          response?.sellerId ||
+          response?.seller_id ||
+          response?.SellerID ||
+          response?.userData?.sellerId ||
           "";
 
         // Save new user data and login
-        const sellerData = verifyResponse.userData || {};
+        const sellerData = response.userData || {};
         // Overwrite status, email, phone, and sellerId with the authenticated response fields
         sellerData.sellerId = sellerIdFromOtp;
         sellerData.email = emailToUse;
@@ -188,7 +225,8 @@ function OtpPage() {
         }
       })
       .catch((err) => {
-        setError(err.message || "Invalid OTP. Please try again.");
+        setError("Incorrect OTP. Please enter the correct OTP.");
+        setSuccessMsg("");
         setOtp(Array(OTP_LENGTH).fill(""));
       })
       .finally(() => setLoading(false));
@@ -222,6 +260,23 @@ function OtpPage() {
     setOtp(newOtpArray);
     if (error) setError("");
   };
+
+  useEffect(() => {
+    const code = otp.join("");
+    if (code.length === OTP_LENGTH && !loading && code !== lastVerifiedCodeRef.current) {
+      const isMobileOrTablet = () => {
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        const isScreenSize = window.innerWidth <= 1024;
+        return /android|iphone|ipad|playbook|silk/i.test(userAgent) || (isTouch && isScreenSize);
+      };
+
+      if (isMobileOrTablet()) {
+        handleVerify();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otp, loading]);
 
   return (
     <OtpScreen
