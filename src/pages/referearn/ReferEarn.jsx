@@ -15,7 +15,7 @@ import {
   Info 
 } from "lucide-react";
 import { resolveSellerId } from "../../utils/sellerSession";
-import { RequestTypes } from "../../services/sellerService";
+import { RequestTypes, resolveSellerEmailForApi } from "../../services/sellerService";
 import "./ReferEarn.css";
 
 const FAQ_DATA = [
@@ -133,13 +133,17 @@ export default function ReferEarn() {
       return;
     }
 
-    setLoading(true);
+   setLoading(true);
     try {
       const response = await axios.post(
         RequestTypes.sellerReferralcode,
         {
           sellerId,
-          referralCode: code
+          referralCode: code,
+          status: "Active",
+          rewardEarned: 100,
+          rewardType: "Cash",
+          dateReferred: new Date().toISOString().split("T")[0]
         }
       );
 
@@ -160,9 +164,16 @@ export default function ReferEarn() {
         throw new Error("Failed to create code");
       }
     } catch (err) {
-      console.error("Error creating referral code:", err);
+      console.error("Error creating referral code:", err.response?.data || err.message);
       setLoading(false);
-      showToast("Unable to create referral code", "error");
+      const serverMsg =
+        err.response?.data?.message?.error ||
+        err.response?.data?.message ||
+        err.response?.data?.error;
+      showToast(
+        typeof serverMsg === "string" ? serverMsg : "Unable to create referral code",
+        "error"
+      );
     }
   };
 

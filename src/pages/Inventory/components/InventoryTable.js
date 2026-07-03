@@ -6,7 +6,7 @@ import "./InventoryTable.css";
 const FALLBACK_IMG =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Crect width='60' height='60' fill='%23f1f3f6' rx='8'/%3E%3Ctext x='30' y='35' text-anchor='middle' fill='%23b0b7c3' font-size='22'%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E";
 
-const InventoryTableRow = ({ item, onQuantityChange }) => {
+const InventoryTableRow = ({ item, onQuantityChange, disabled = false }) => {
   const [localQty, setLocalQty] = useState(item.editedQuantity);
 
   useEffect(() => {
@@ -16,6 +16,7 @@ const InventoryTableRow = ({ item, onQuantityChange }) => {
   const hasChanges = item.editedQuantity !== item.originalQuantity;
 
   const handleQuantityChange = (nextQty) => {
+    if (disabled) return;
     setLocalQty(nextQty);
     onQuantityChange(item.rowId, nextQty);
   };
@@ -46,14 +47,15 @@ const InventoryTableRow = ({ item, onQuantityChange }) => {
         <StockBadge stock={item.editedQuantity} />
       </td>
       <td>
-        <QuantityStepper value={localQty} onChange={handleQuantityChange} />
+        <QuantityStepper value={localQty} onChange={handleQuantityChange} disabled={disabled} />
       </td>
     </tr>
   );
 };
 
-const InventoryTable = ({ items = [], onQuantityChange }) => {
+const InventoryTable = ({ items = [], onQuantityChange, disabled = false }) => {
   const handleQuantityChange = (id, nextQty) => {
+    if (disabled) return;
     onQuantityChange?.(id, nextQty);
   };
 
@@ -82,6 +84,7 @@ const InventoryTable = ({ items = [], onQuantityChange }) => {
                 key={item.id}
                 item={item}
                 onQuantityChange={handleQuantityChange}
+                disabled={disabled}
               />
             ))
           )}

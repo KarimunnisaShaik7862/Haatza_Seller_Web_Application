@@ -8,7 +8,7 @@ import "./InventoryPage.css";
 
 const InventoryPage = () => {
   const sellerId = getSellerId();
-  
+
   const {
     filteredItems,
     loading,
@@ -22,6 +22,7 @@ const InventoryPage = () => {
     outOfStockCount,
     handleIncrement,
     handleRefresh,
+    refreshing,
     page,
     setPage,
     totalPages,
@@ -39,40 +40,59 @@ const InventoryPage = () => {
     totalVariant
   } = useInventoryViewModel(sellerId);
 
-  // Helper helper to switch status tab & reset to page 1
+  // Switch status tab and reset pagination.
   const setViewStateAndResetPage = (status) => {
     setStatusFilter(status);
     setPage(1);
   };
 
-  // Calculate items range shown
   const fromItem = totalItems === 0 ? 0 : (page - 1) * limit + 1;
   const toItem = Math.min(page * limit, totalItems);
 
   return (
     <div className={`inv-page-root ${changedRows.length > 0 ? "has-update-bar" : ""}`}>
+      {updating && (
+        <div className="inv-fullscreen-loading" role="status" aria-live="polite">
+          <div className="inv-loader-wrap">
+            <div className="inv-loading-wheel" aria-hidden="true">
+              {Array.from({ length: 16 }).map((_, index) => (
+                <span key={index} style={{ "--i": index }} />
+              ))}
+            </div>
+            <div className="inv-loading-text">Updating inventory....</div>
+          </div>
+        </div>
+      )}
+
       <div className="inv-page-header">
         <h1>Inventory</h1>
         <p>Manage product variants, stock levels, and availability.</p>
       </div>
 
-      {/* Error / Warning Alert Banner */}
       {error && (
         <div className="inv-alert-banner">
           <span>{error}</span>
-          <button type="button" className="inv-alert-close" onClick={() => setError(null)}>&times;</button>
+          <button type="button" className="inv-alert-close" onClick={() => setError(null)}>
+            &times;
+          </button>
         </div>
       )}
 
-      {/* Success Alert Banner */}
       {successMessage && (
-        <div className="inv-alert-banner" style={{ background: "#ecfdf5", borderColor: "#a7f3d0", color: "#065f46" }}>
+        <div
+          className="inv-alert-banner inv-success-banner"
+        >
           <span>{successMessage}</span>
-          <button type="button" className="inv-alert-close" onClick={() => setSuccessMessage(null)} style={{ color: "#047857" }}>&times;</button>
+          <button
+            type="button"
+            className="inv-alert-close inv-success-close"
+            onClick={() => setSuccessMessage(null)}
+          >
+            &times;
+          </button>
         </div>
       )}
 
-      {/* Filters & Content Wrap */}
       <div className="inv-card">
         <div className="inv-card-body">
           <InventoryFilters
@@ -81,14 +101,16 @@ const InventoryPage = () => {
             statusFilter={statusFilter}
             onStatusFilterChange={setViewStateAndResetPage}
             onRefresh={handleRefresh}
+            refreshing={refreshing}
+            disabled={updating}
           />
 
-          {/* Tab Selection */}
           <div className="inv-tabs">
             <button
               type="button"
               className={`inv-tab-btn ${statusFilter === "in_stock" ? "inv-tab-btn--active" : ""}`}
               onClick={() => setViewStateAndResetPage("in_stock")}
+              disabled={updating}
             >
               In Stock ({inStockCount})
             </button>
@@ -96,12 +118,12 @@ const InventoryPage = () => {
               type="button"
               className={`inv-tab-btn ${statusFilter === "out_of_stock" ? "inv-tab-btn--active" : ""}`}
               onClick={() => setViewStateAndResetPage("out_of_stock")}
+              disabled={updating}
             >
               Out of Stock ({outOfStockCount})
             </button>
           </div>
 
-          {/* Desktop Table View */}
           {loading ? (
             <div className="inv-table-loading">
               <div className="inv-loading-spinner" />
@@ -112,9 +134,9 @@ const InventoryPage = () => {
               <InventoryTable
                 items={filteredItems}
                 onQuantityChange={handleIncrement}
+                disabled={updating}
               />
-              
-              {/* Pagination Controls */}
+
               {!error && filteredItems.length > 0 && (
                 <div className="inv-pagination">
                   <div className="inv-pagination-info">
@@ -124,7 +146,7 @@ const InventoryPage = () => {
                     <button
                       type="button"
                       className="inv-page-btn"
-                      disabled={page <= 1}
+                      disabled={page <= 1 || updating}
                       onClick={() => setPage((p) => p - 1)}
                     >
                       <ChevronLeft size={14} /> Previous
@@ -135,7 +157,7 @@ const InventoryPage = () => {
                     <button
                       type="button"
                       className="inv-page-btn"
-                      disabled={page >= totalPages}
+                      disabled={page >= totalPages || updating}
                       onClick={() => setPage((p) => p + 1)}
                     >
                       Next <ChevronRight size={14} />
@@ -143,13 +165,11 @@ const InventoryPage = () => {
                   </div>
                 </div>
               )}
-
             </>
           )}
         </div>
       </div>
 
-      {/* Confirmation Modal Popup */}
       {showConfirmation && (
         <div className="inv-modal-overlay">
           <div className="inv-modal">
@@ -180,14 +200,14 @@ const InventoryPage = () => {
         </div>
       )}
 
-      {/* Viewport-fixed Update Inventory Bar */}
       {changedRows.length > 0 && (
         <div className="inventory-update-bar">
           <button
             type="button"
             onClick={() => setShowConfirmation(true)}
+            disabled={updating}
           >
-            Update Inventory
+            {updating ? "Updating Inventory..." : "Update Inventory"}
           </button>
         </div>
       )}

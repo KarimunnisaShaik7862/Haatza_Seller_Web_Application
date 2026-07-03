@@ -138,8 +138,11 @@
 .settings-footer {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
   margin-top: 24px;
   width: 100%;
+  flex-wrap: wrap;
 }
 
 /* ── Logout Button ────────────────────────────────────────── */
@@ -715,7 +718,17 @@
     width: 100%;
   }
 }
+@media (max-width: 600px) {
+  .settings-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
 
+  .settings-footer .settings-logout-btn,
+  .settings-footer .delete-account-trigger {
+    width: 100%;
+  }
+}
 @media (max-width: 480px) {
   .password-confirm-popup {
     width: 200px;
@@ -1044,4 +1057,4 @@
 .bank-highlight { background: transparent; color: var(--primary, #2962ff); font-weight: 700; text-decoration: underline; text-decoration-color: rgba(41,98,255,0.4); }
 .bank-dropdown::-webkit-scrollbar { width: 5px; }
 .bank-dropdown::-webkit-scrollbar-track { background: var(--bg, #f8fafc); }
-.bank-dropdown::-webkit-scrollbar-thumb { background: var(--border, #e2e8f0); border-radius: 3px; }
+.bank-dropdown::-webkit-scrollbar-thumb { background: var(--border, #e2e8f0); border-radius: 3px; }

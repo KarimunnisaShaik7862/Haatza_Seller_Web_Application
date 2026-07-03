@@ -7,7 +7,6 @@ import haatzaSellerLogo from "../../../assets/Images/haatzaSellerlogo.png";
 import {
   Bell,
   Wallet,
-  MessageSquare,
   Search,
   ChevronDown,
   User,
@@ -39,16 +38,50 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
   const [scrolled, setScrolled]                 = useState(false);
 
   /* ── NEW: Logout confirmation modal state ─────────────────── */
+/* ── NEW: Logout confirmation modal state ─────────────────── */
   const [showLogoutModal, setShowLogoutModal]   = useState(false);
-
-  // Dropdown states
-  const [remindersDropdownOpen, setRemindersDropdownOpen] = useState(false);
 
   const dropdownRef   = useRef(null);
   const mobileIconRef = useRef(null);
 
-  const greeting = getGreeting();
+const greeting = getGreeting();
 
+  /* ── Static module list for the search-as-navigator feature ── */
+  const MODULE_LIST = [
+    { label: "Dashboard", route: "/dashboard" },
+    { label: "Orders", route: "/dashboard/orders" },
+    { label: "Return / Exchange", route: "/dashboard/returns" },
+    { label: "Listing", route: "/dashboard/listing" },
+    { label: "Inventory", route: "/dashboard/inventory" },
+    { label: "Settlements", route: "/dashboard/settlements" },
+    { label: "Help", route: "/dashboard/help" },
+    { label: "Advertisement", route: "/dashboard/advertisement" },
+    { label: "Campaign", route: "/dashboard/advertisement" },
+    { label: "Group Plan", route: "/dashboard/growplan" },
+    { label: "Product Insight", route: "/dashboard/productinsight" },
+    { label: "Warehouse", route: "/dashboard/warehouse" },
+    { label: "Influencer Branding", route: "/dashboard/influencer" },
+    { label: "Growth Central", route: "/dashboard/growthcentral" },
+    { label: "Quality Insights", route: "/dashboard/qualityinsights" },
+    { label: "Refer & Earn", route: "/refer-earn" },
+    { label: "Settings", route: "/dashboard/settings" },
+    { label: "Wallet", route: "/wallet" },
+    { label: "Notifications", route: "/notifications" },
+    { label: "Profile", route: "/profile" },
+  ];
+
+  const filteredModules = searchValue.trim()
+    ? MODULE_LIST.filter((m) =>
+        m.label.toLowerCase().includes(searchValue.trim().toLowerCase())
+      )
+    : [];
+
+  const handleModuleSelect = (route) => {
+    navigate(route);
+    setSearchValue("");
+    setSearchFocused(false);
+    setMobileSearchOpen(false);
+  };
   const sellerName    =
     seller.name ||
     seller.fullName ||
@@ -63,25 +96,7 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
   const sellerInitial = seller.avatarInitial || (sellerName ? sellerName.charAt(0).toUpperCase() : "");
   const sellerLogoUrl = seller.logoUrl       || null;
 
-  const toggleRemindersDropdown = () => {
-    const nextState = !remindersDropdownOpen;
-    setRemindersDropdownOpen(nextState);
-    setDropdownOpen(false);
-  };
-
-  const RemindersDropdownMenu = () => {
-    return React.createElement(
-      "div", { className: "navbar-dropdown-panel reminders-dropdown" },
-      React.createElement("div", { className: "dropdown-panel-header" },
-        React.createElement("h3", null, "Reminders")
-      ),
-      React.createElement("div", { className: "dropdown-panel-body" },
-        React.createElement("div", { className: "panel-empty" }, "No reminders available.")
-      )
-    );
-  };
-
-  useEffect(() => {
+ useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
@@ -105,9 +120,7 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
       ) {
         setMobileSearchOpen(false);
       }
-      if (!e.target.closest(".reminders-dropdown-container")) {
-        setRemindersDropdownOpen(false);
-      }
+      
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -126,11 +139,11 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
   };
 
   const dropdownItems = [
-    {
+   {
       icon: React.createElement(User, { size: 16 }),
       label: "My Profile",
       danger: false,
-      onClick: () => { setDropdownOpen(false); navigate("/dashboard/settings"); }
+      onClick: () => { setDropdownOpen(false); navigate("/profile"); }
     },
     {
       icon: React.createElement(Settings, { size: 16 }),
@@ -262,24 +275,48 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
           ),
 
           /* Desktop / Tablet search bar (hidden on ≤639px via CSS) */
+          /* Desktop / Tablet search bar (hidden on ≤639px via CSS) — now a module navigator */
           React.createElement(
             "div",
-            { className: `search-wrap desktop-search ${searchFocused ? "focused" : ""}` },
-            React.createElement(Search, { className: "search-icon", size: 16 }),
-            React.createElement("input", {
-              type: "text",
-              className: "search-input",
-              placeholder: "Search products, orders…",
-              value: searchValue,
-              onChange: (e) => setSearchValue(e.target.value),
-              onFocus: () => setSearchFocused(true),
-              onBlur:  () => setSearchFocused(false),
-            }),
-            searchValue &&
+            { className: "search-wrap-outer" },
+            React.createElement(
+              "div",
+              { className: `search-wrap desktop-search ${searchFocused ? "focused" : ""}` },
+              React.createElement(Search, { className: "search-icon", size: 16 }),
+              React.createElement("input", {
+                type: "text",
+                className: "search-input",
+                placeholder: "Search modules (e.g. Orders, Listing)…",
+                value: searchValue,
+                onChange: (e) => setSearchValue(e.target.value),
+                onFocus: () => setSearchFocused(true),
+                onBlur:  () => setTimeout(() => setSearchFocused(false), 150),
+              }),
+              searchValue &&
+                React.createElement(
+                  "button",
+                  { className: "search-clear", onClick: () => setSearchValue("") },
+                  React.createElement(X, { size: 14 })
+                )
+            ),
+            searchFocused && searchValue.trim() &&
               React.createElement(
-                "button",
-                { className: "search-clear", onClick: () => setSearchValue("") },
-                React.createElement(X, { size: 14 })
+                "div", { className: "search-suggestions" },
+                filteredModules.length > 0
+                  ? filteredModules.map((m, i) =>
+                      React.createElement(
+                        "button",
+                        {
+                          key: i,
+                          type: "button",
+                          className: "search-suggestion-item",
+                          onMouseDown: (e) => e.preventDefault(),
+                          onClick: () => handleModuleSelect(m.route),
+                        },
+                        m.label
+                      )
+                    )
+                  : React.createElement("div", { className: "search-suggestion-empty" }, "No modules found")
               )
           )
         ),
@@ -333,20 +370,7 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
               )
             ),
 
-            /* Messages Icon + Reminders Panel */
-            React.createElement(
-              "div", { className: "reminders-dropdown-container" },
-              React.createElement(
-                "button",
-                {
-                  className: `icon-btn ${remindersDropdownOpen ? "active" : ""}`,
-                  title: "Messages",
-                  onClick: toggleRemindersDropdown,
-                },
-                React.createElement(MessageSquare, { size: 20 })
-              ),
-              remindersDropdownOpen && RemindersDropdownMenu()
-            )
+           
           ),
 
           /* ── Profile — AVATAR ONLY button, dropdown has all details ── */
@@ -428,29 +452,50 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
     /* ══════════════════════════════════════════════
        MOBILE SEARCH BAR (slides below navbar on tap)
     ══════════════════════════════════════════════ */
-    mobileSearchOpen &&
+   mobileSearchOpen &&
       React.createElement(
         "div", { className: "mobile-search-bar" },
-        React.createElement(Search, { className: "search-icon", size: 16 }),
-        React.createElement("input", {
-          type: "text",
-          className: "search-input",
-          placeholder: "Search products, orders…",
-          value: searchValue,
-          autoFocus: true,
-          onChange: (e) => setSearchValue(e.target.value),
-        }),
         React.createElement(
-          "button",
-          {
-            className: "search-clear",
-            onClick: () => {
-              if (searchValue) setSearchValue("");
-              else setMobileSearchOpen(false);
+          "div", { className: "mobile-search-bar-row" },
+          React.createElement(Search, { className: "search-icon", size: 16 }),
+          React.createElement("input", {
+            type: "text",
+            className: "search-input",
+            placeholder: "Search modules (e.g. Orders, Listing)…",
+            value: searchValue,
+            autoFocus: true,
+            onChange: (e) => setSearchValue(e.target.value),
+          }),
+          React.createElement(
+            "button",
+            {
+              className: "search-clear",
+              onClick: () => {
+                if (searchValue) setSearchValue("");
+                else setMobileSearchOpen(false);
+              },
             },
-          },
-          React.createElement(X, { size: 14 })
-        )
+            React.createElement(X, { size: 14 })
+          )
+        ),
+        searchValue.trim() &&
+          React.createElement(
+            "div", { className: "search-suggestions search-suggestions--mobile" },
+            filteredModules.length > 0
+              ? filteredModules.map((m, i) =>
+                  React.createElement(
+                    "button",
+                    {
+                      key: i,
+                      type: "button",
+                      className: "search-suggestion-item",
+                      onClick: () => handleModuleSelect(m.route),
+                    },
+                    m.label
+                  )
+                )
+              : React.createElement("div", { className: "search-suggestion-empty" }, "No modules found")
+          )
       ),
 
     /* ══════════════════════════════════════════════
@@ -492,22 +537,9 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
           ),
           React.createElement("span", { className: "icon-label" }, "Wallet")
         ),
-
-        React.createElement(
-          "button",
-          {
-            className: "mobile-drawer-icon-btn",
-            title: "Messages",
-            onClick: () => { setMobileIconsOpen(false); navigate("/notifications"); },
-          },
-          React.createElement(
-            "div", { className: "mobile-drawer-icon" },
-            React.createElement(MessageSquare, { size: 22 })
-          ),
-          React.createElement("span", { className: "icon-label" }, "Messages")
-        )
-      )
+     )
     ),
+        
 
     /* Overlay to close mobile/tablet drawer */
     mobileIconsOpen &&

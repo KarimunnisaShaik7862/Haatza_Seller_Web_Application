@@ -683,7 +683,7 @@
   background: #fff;
   border-radius: 16px;
   width: 100%;
-  max-width: 440px;
+  max-width: 680px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   overflow: hidden;
   box-sizing: border-box;
@@ -885,5 +885,151 @@
   }
   to {
     transform: translateY(0);
+  }
+}
+
+/* Settlement Breakup Details Grid Layout */
+.settlement-breakup-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.settlement-breakup-list.single-item {
+  grid-template-columns: 1fr;
+}
+
+.settlement-breakup-card {
+  width: 100%;
+  padding: 14px;
+  background: #f9fafb;
+  border-radius: 10px;
+  border: 1px solid #f1f3f6;
+  box-sizing: border-box;
+}
+
+.payment-detail-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.payment-detail-row .value {
+  text-align: right;
+}
+
+@media (max-width: 768px) {
+  .settlements-modal-card {
+    max-width: 440px;
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+  }
+  .settlement-breakup-list {
+    grid-template-columns: 1fr !important;
+  }
+  .payment-detail-row {
+    grid-template-columns: 1fr;
+  }
+  .payment-detail-row .value {
+    text-align: left;
+  }
+
+  /* Table layout conversion to stack cards on mobile */
+  .settlements-table-wrap {
+    overflow-x: visible;
+  }
+  
+  .settlements-table {
+    display: block;
+    width: 100%;
+  }
+  
+  .settlements-table thead {
+    display: none; /* Hide column headers */
+  }
+  
+  .settlements-table tbody {
+    display: block;
+    width: 100%;
+  }
+  
+  .settlements-table tbody tr {
+    display: block;
+    background: #ffffff;
+    border: 1.5px solid #f1f3f6;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    position: relative;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+    box-sizing: border-box;
+    width: 100%;
+  }
+  
+  .settlements-table tbody tr:hover {
+    background-color: #ffffff;
+  }
+  
+  .settlements-table td {
+    display: block;
+    padding: 6px 0 !important;
+    border-bottom: none !important;
+    font-size: 14px;
+    color: #4b5563;
+    text-align: left;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  
+  /* Status column positioned at top right */
+  .settlements-table td:nth-child(4) {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: auto;
+    padding: 0 !important;
+  }
+  
+  /* Actions column positioned at bottom right */
+  .settlements-table td:nth-child(5) {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
+    padding-top: 10px !important;
+    border-top: 1px solid #f3f4f6 !important;
+  }
+  
+  /* Add labels via pseudo-elements */
+  .settlements-table td:nth-child(1):before {
+    content: "Order ID: ";
+    font-weight: 600;
+    color: #4b5563;
+  }
+  
+  .settlements-table td:nth-child(2):before {
+    content: "Amount: ";
+    font-weight: 500;
+    color: #6b7280;
+  }
+  
+  .settlements-table td:nth-child(3):before {
+    content: "Payment Date: ";
+    font-weight: 500;
+    color: #6b7280;
+  }
+  
+  /* Adjust inner text alignments and styles */
+  .settlements-table td:nth-child(1) {
+    font-weight: 700;
+    color: #1f2937;
+    padding-right: 80px !important; /* Avoid overlapping status badge */
+    font-size: 14.5px;
+  }
+  
+  .settlements-table td:nth-child(2) {
+    font-weight: 600;
+    color: #059669;
   }
 }

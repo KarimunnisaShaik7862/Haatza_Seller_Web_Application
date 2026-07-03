@@ -18,6 +18,7 @@ const InventoryPage      = lazy(() => import("../pages/Inventory/InventoryPage")
 const WalletPage         = lazy(() => import("../pages/Wallet/WalletPage"));
 const NotificationsPage  = lazy(() => import("../pages/Notifications/NotificationsPage"));
 const SettingsPage       = lazy(() => import("../pages/Settings/SettingsPage"));
+const ProfilePage        = lazy(() => import("../components/Layout/Navbar/Profile"));
 const TermsPage = lazy(() => import("../pages/Settings/TermsPage.js"));
 const PrivacyPolicyPage = lazy(() => import("../components/common/PrivacyPolicyPage"));
 const TermsOfUsePage = lazy(() => import("../components/common/TermsOfUsePage"));
@@ -149,6 +150,7 @@ function AppRoutes() {
           <Route path="/dashboard/inventory"    element={<InventoryPage />} />
           <Route path="/dashboard/settlements"  element={<SettlementsPage />} />
           <Route path="/dashboard/settings"     element={<SettingsPage />} />
+          <Route path="/dashboard/profile"      element={<ProfilePage />} />
           <Route path="/dashboard/settings/terms" element={<TermsPage />} />
           <Route path="/dashboard/settings/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/dashboard/settings/pricing" element={<PricingPage />} />
@@ -164,6 +166,7 @@ function AppRoutes() {
           <Route path="/inventory"              element={<InventoryPage />} />
           <Route path="/settlements"            element={<SettlementsPage />} />
           <Route path="/settings"               element={<SettingsPage />} />
+          <Route path="/profile"                element={<ProfilePage />} />
           <Route path="/settings/terms"         element={<TermsPage />} />
           <Route path="/settings/privacy"       element={<PrivacyPolicyPage />} />
           <Route path="/settings/pricing"       element={<PricingPage />} />

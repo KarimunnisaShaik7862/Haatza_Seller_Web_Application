@@ -351,10 +351,80 @@
   color: var(--primary);
 }
 
-.calendar-month-label {
+.calendar-period-label {
   font-size: 14px;
   font-weight: 700;
   color: #1E293B;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-family: inherit;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.calendar-period-label:hover {
+  background-color: rgba(41, 98, 255, 0.08);
+  color: var(--primary);
+}
+
+.calendar-period-label.static {
+  cursor: default;
+}
+
+.calendar-period-label.static:hover {
+  background-color: transparent;
+  color: #1E293B;
+}
+
+.orders-calendar-picker-view {
+  animation: dropdownFadeInDesktop 0.15s ease;
+}
+
+.orders-calendar-years-grid,
+.orders-calendar-months-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+
+.orders-calendar-year-cell,
+.orders-calendar-month-cell {
+  background: transparent;
+  border: none;
+  padding: 10px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.orders-calendar-year-cell:hover:not(:disabled),
+.orders-calendar-month-cell:hover:not(:disabled) {
+  background-color: #E2E8F0;
+  color: #1E293B;
+}
+
+.orders-calendar-year-cell:disabled,
+.orders-calendar-month-cell:disabled {
+  cursor: default;
+  color: #CBD5E1;
+}
+
+.orders-calendar-year-cell.is-outside {
+  color: #CBD5E1;
+}
+
+.orders-calendar-year-cell.is-selected,
+.orders-calendar-month-cell.is-selected {
+  background-color: var(--primary) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(41, 98, 255, 0.3);
 }
 
 .orders-calendar-weekdays {

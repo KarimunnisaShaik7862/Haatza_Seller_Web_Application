@@ -16,7 +16,6 @@ const KEY_TO_ROUTE = {
   settlements:     "/dashboard/settlements",
   help:            "/dashboard/help",
   advertisement:   "/dashboard/advertisement",
-  haatzup:         "/dashboard/haatzaup",
   growplan:        "/dashboard/growplan",
   productinsight:  "/dashboard/productinsight",
   warehouse:       "/dashboard/warehouse",
@@ -103,15 +102,8 @@ const NAV_SECTIONS = [
           React.createElement("path", { d: "M15.54 8.46a5 5 0 010 7.07" })
         ),
       },
-      {
-        key: "haatzup", label: "HaatzUp",
-        icon: React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
-          React.createElement("polyline", { points: "23 6 13.5 15.5 8.5 10.5 1 18" }),
-          React.createElement("polyline", { points: "17 6 23 6 23 12" })
-        ),
-      },
-      {
-        key: "growplan", label: "Grow Plan", badge: "Pro", badgeType: "pro",
+     {
+        key: "growplan", label: "Grow Plan",
         icon: React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
           React.createElement("circle", { cx: "12", cy: "12", r: "10" }),
           React.createElement("path", { d: "M12 8l4 4-4 4-4-4 4-4z" })
@@ -414,7 +406,6 @@ function Sidebar({
     if (path.includes("/settings"))    return "settings";
     if (path.includes("/help"))        return "help";
     if (path.includes("/advertisement")) return "advertisement";
-    if (path.includes("/haatzaup") || path.includes("/haatzup")) return "haatzup";
     if (path.includes("/growplan"))    return "growplan";
     if (path.includes("/product-insight") || path.includes("/productinsight")) return "productinsight";
     if (path.includes("/warehouse"))   return "warehouse";

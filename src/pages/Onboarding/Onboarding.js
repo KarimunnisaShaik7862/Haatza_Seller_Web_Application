@@ -1246,17 +1246,24 @@ export default function OnboardingPage() {
         return;
       }
 
+      // Backend can return `message` as an array of records rather than a
+      // single object — unwrap it first so field lookups below don't
+      // silently fail against an array.
+      let messageRoot = data?.message;
+      if (Array.isArray(messageRoot)) messageRoot = messageRoot[0] || {};
+      if (typeof messageRoot !== 'object' || messageRoot === null) messageRoot = {};
+
       const isSuccess =
         data?.status === 'success' ||
-        data?.message?.message?.toLowerCase().includes('success');
+        (typeof data?.message?.message === 'string' && data.message.message.toLowerCase().includes('success'));
 
       if (isSuccess) {
         // Extract sellerId from onboarding response
         const sellerId =
-          data?.message?.sellerId ||
-          data?.message?.body?.sellerId ||
-          data?.message?.SellerID ||
-          data?.message?.body?.SellerID ||
+          messageRoot.sellerId ||
+          messageRoot.body?.sellerId ||
+          messageRoot.SellerID ||
+          messageRoot.body?.SellerID ||
           data?.data?.sellerId ||
           data?.data?.SellerID ||
           data?.seller?.sellerId ||
@@ -1279,10 +1286,11 @@ export default function OnboardingPage() {
 
         // ── Capture sellerPinCode from onboarding response ──────────────────
         const sellerPinCodeFromApi =
-          data?.message?.sellerPinCode ||
-          data?.message?.body?.sellerPinCode ||
-          data?.message?.pinCode ||
-          data?.message?.body?.pinCode ||
+          messageRoot.sellerPinCode ||
+          messageRoot.body?.sellerPinCode ||
+          messageRoot.pinCode ||
+          messageRoot.body?.pinCode ||
+          messageRoot.pincode ||
           data?.sellerPinCode ||
           data?.pinCode ||
           "";

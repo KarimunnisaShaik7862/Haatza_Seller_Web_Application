@@ -1,6 +1,6 @@
 .inv-filters-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
@@ -9,14 +9,18 @@
 
 .inv-search-container {
   position: relative;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
   flex: 1 1 280px;
   max-width: 380px;
   min-width: 200px;
+  display: block;
 }
 
 .inv-search-icon {
   position: absolute;
-  left: 12px;
+  left: 14px;
   top: 50%;
   transform: translateY(-50%);
   color: #9ca3af;
@@ -25,6 +29,8 @@
 
 .inv-search-input {
   width: 100%;
+  height: 44px;
+  min-height: 44px;
   padding: 10px 12px 10px 38px;
   border: 1.5px solid #e5e7eb;
   border-radius: 8px;
@@ -113,27 +119,44 @@
 
 @media (max-width: 768px) {
   .inv-filters-row {
+    display: flex;
     flex-direction: column;
     align-items: stretch;
+    gap: 12px;
   }
-  
+
   .inv-search-container {
+    width: 100%;
     max-width: 100%;
+    flex: 0 0 auto !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .inv-search-input {
+    width: 100%;
+    height: 44px !important;
+    min-height: 44px !important;
+  }
+
+  .inv-search-icon {
+    top: 50% !important;
+    transform: translateY(-50%) !important;
   }
 
   .inv-selects-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
     width: 100%;
+    margin-top: 0 !important;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
 
-  .inv-filter-select {
-    min-width: unset;
-    width: 100%;
-  }
-
+  .inv-selects-container select,
+  .inv-selects-container button,
   .inv-btn-refresh {
-    grid-column: span 2;
-    width: 100%;
+    width: 100% !important;
   }
 }

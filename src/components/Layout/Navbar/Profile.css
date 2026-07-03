@@ -1,0 +1,424 @@
+/* ═══════════════════════════════════════════════
+   PROFILE PAGE — unique layout, distinct from Settings
+   ═══════════════════════════════════════════════ */
+.profile-page .profile-edit-panel.page,
+.profile-page .profile-edit-panel,
+.profile-page .popup-view,
+.profile-page .profile-card-body {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    
+}
+.profile-page {
+  position: relative;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px; /* was 20px — tighter vertical rhythm between cards */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Close button ── */
+.profile-close-btn {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid #eef1f8;
+  background: #ffffff;
+  color: #1a1d23;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(41, 98, 255, 0.12);
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  z-index: 10;
+}
+
+.profile-close-btn:hover {
+  background: #f8faff;
+  box-shadow: 0 6px 18px rgba(41, 98, 255, 0.18);
+  transform: scale(1.05);
+}
+
+.profile-close-btn:active {
+  transform: scale(0.96);
+}
+
+/* ── Hero ── */
+.profile-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  padding: 32px 28px 26px;
+  background: linear-gradient(135deg, #2962ff 0%, #1a237e 100%);
+  color: #fff;
+  box-shadow: 0 12px 32px rgba(41, 98, 255, 0.28);
+}
+
+.profile-hero-glow {
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.profile-hero-content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  z-index: 1;
+}
+
+.profile-hero-avatar-ring {
+  padding: 4px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.25));
+  flex-shrink: 0;
+}
+
+.profile-hero-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 26px;
+  font-weight: 800;
+  color: #fff;
+  border: 2px solid rgba(255,255,255,0.5);
+  flex-shrink: 0;
+}
+
+.profile-hero-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-hero-text { min-width: 0; }
+
+.profile-hero-name {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  word-break: break-word;
+}
+
+.profile-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.22);
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #eef2ff;
+  max-width: 100%;
+}
+
+.verified-icon {
+  color: #4ade80;
+  flex-shrink: 0;
+}
+
+.profile-hero-subtitle {
+  position: relative;
+  z-index: 1;
+  margin: 18px 0 0;
+  font-size: 13px;
+  color: rgba(255,255,255,0.75);
+}
+
+/* ── Card shell ── */
+.profile-card {
+  background: #ffffff;
+  border-radius: 20px;
+  border: 1px solid #eef1f8;
+  box-shadow: 0 4px 20px rgba(41, 98, 255, 0.06);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.profile-card:hover {
+  box-shadow: 0 8px 28px rgba(41, 98, 255, 0.10);
+}
+
+.profile-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 22px; /* was 18px — trims header height slightly */
+  border-bottom: 1px solid #f1f3f6;
+  background: linear-gradient(135deg, #f8faff 0%, #ffffff 100%);
+}
+
+.profile-card-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a1d23;
+}
+
+.profile-card-header p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #8a8fa8;
+}
+
+.profile-card-header-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.info-icon {
+  background: #e8eeff;
+  color: #2962ff;
+}
+
+.danger-icon {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.profile-card-body {
+  padding: 16px 22px 16px; /* was 18px top */
+}
+.danger-card {
+  border-color: #fde3e3;
+}
+
+.danger-card .profile-card-header {
+  background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
+}
+
+/* Make the Delete Account button (and any button in the danger card body)
+   span the full width of the card */
+.danger-card .profile-card-body {
+  display: flex;
+}
+
+.danger-card .profile-card-body > * {
+  width: 100%;
+}
+
+.danger-card .profile-card-body button {
+  width: 100%;
+  justify-content: center;
+  padding: 12px 16px;
+  font-size: 14.5px;
+}
+
+/* ═══════════════════════════════════════════════
+   Scoped overrides for the reused ProfileEditPanel
+   (only visual — no logic touched)
+   ═══════════════════════════════════════════════ */
+.profile-page .profile-edit-panel.page .popup-view {
+  gap: 12px;
+  min-height: 200px;   /* Reduced from 260px */
+}
+
+.profile-page .profile-edit-panel.page .popup-detail-row {
+  padding: 12px 14px;
+  background: #f8faff;
+  border-radius: 12px;
+  border: 1px solid #eef1f8;
+}
+
+.profile-page .profile-edit-panel.page .popup-label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #8a96b8;
+  font-weight: 700;
+}
+
+.profile-page .profile-edit-panel.page .popup-value {
+  font-size: 14.5px;
+  color: #1a237e;
+  word-break: break-word;
+}
+
+.profile-page .profile-edit-panel.page .popup-actions-footer {
+  border-top: none !important;
+  padding-top: 4px !important;
+  margin-top: 4px !important;
+  display: flex !important;
+  flex-wrap: wrap;
+}
+
+.profile-page .profile-edit-panel.page .popup-edit-trigger.secondary {
+  margin-left: 4px !important;
+}
+
+
+.profile-page .profile-edit-panel.page .popup-edit-trigger {
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(41, 98, 255, 0.12);
+}
+
+.profile-page .profile-edit-panel.page .popup-edit-trigger.secondary {
+  box-shadow: none;
+}
+
+.profile-page .profile-edit-panel.page .popup-form {
+  gap: 14px;
+}
+
+.profile-page .profile-edit-panel.page .popup-field input {
+  border-radius: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ═══════════════════════════════════════════════
+   Responsive
+   ═══════════════════════════════════════════════ */
+
+/* Large desktop — let the page breathe a bit more */
+@media (min-width: 1200px) {
+  .profile-page {
+    max-width: 820px;
+    padding: 32px 16px 56px;
+  }
+}
+
+/* Laptop / small desktop (default 760px max-width already fits) */
+@media (max-width: 1024px) {
+  .profile-page {
+    max-width: 700px;
+  }
+}
+
+/* Tablet */
+@media (max-width: 900px) {
+  .profile-page {
+    max-width: 100%;
+    padding: 20px 20px 40px;
+    gap: 14px;
+  }
+
+  .profile-hero {
+    padding: 28px 24px 22px;
+  }
+
+  .profile-hero-content {
+    gap: 16px;
+  }
+}
+
+/* Small tablet / large phone */
+@media (max-width: 768px) {
+  .profile-hero-content {
+    flex-wrap: wrap;
+  }
+
+  .profile-hero-meta {
+    gap: 6px;
+  }
+
+  .profile-card-header {
+    padding: 14px 18px;
+  }
+
+  .profile-card-body {
+    padding: 14px 18px 16px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+  .profile-page {
+    padding: 16px 12px 40px;
+    gap: 12px; /* was 16px — matches the tighter desktop spacing */
+  }
+
+  .profile-hero {
+    padding: 24px 18px 20px;
+    border-radius: 20px;
+  }
+
+  .profile-hero-content {
+    gap: 14px;
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .profile-hero-avatar {
+    width: 60px;
+    height: 60px;
+    font-size: 22px;
+  }
+
+  .profile-hero-name {
+    font-size: 19px;
+  }
+
+  .profile-meta-chip {
+    font-size: 11.5px;
+    padding: 4px 8px;
+  }
+
+  .profile-card-header {
+    padding: 16px 18px;
+  }
+
+  .profile-card-body {
+    padding: 16px 18px 20px;
+  }
+
+  .danger-card .profile-card-body button {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+}
+
+/* Very small phones */
+@media (max-width: 380px) {
+  .profile-hero-avatar {
+    width: 52px;
+    height: 52px;
+    font-size: 19px;
+  }
+
+  .profile-hero-name {
+    font-size: 17px;
+  }
+
+  .profile-meta-chip span {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

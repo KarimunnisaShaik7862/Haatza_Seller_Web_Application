@@ -25,16 +25,18 @@ const ReturnExchange = () => {
   
   const today = new Date();
   const [calendarMonth, setCalendarMonth] = useState(today.getMonth());
-  const [calendarYear, setCalendarYear] = useState(today.getFullYear());
-
+const [calendarYear, setCalendarYear] = useState(today.getFullYear());
+const [pickerView, setPickerView] = useState("days"); // "days" | "months" | "years"
+const [decadeStart, setDecadeStart] = useState(Math.floor(today.getFullYear() / 10) * 10);
   const datePickerRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (datePickerRef.current && !datePickerRef.current.contains(event.target)) {
-        setShowDatePicker(false);
-      }
-    };
+  if (datePickerRef.current && !datePickerRef.current.contains(event.target)) {
+    setShowDatePicker(false);
+    setPickerView("days");
+  }
+};
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -100,14 +102,7 @@ const ReturnExchange = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sellerId]);
 
-  const selectYears = useMemo(() => {
-    const yrs = [];
-    const currentYear = new Date().getFullYear();
-    for (let y = 2024; y <= currentYear; y++) {
-      yrs.push(y);
-    }
-    return yrs;
-  }, []);
+  
 
   const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
 
@@ -145,6 +140,7 @@ const ReturnExchange = () => {
       setCalendarYear(new Date().getFullYear());
     }
     setShowDatePicker(false);
+    setPickerView("days");
   };
 
   const handlePrevMonth = () => {
@@ -157,16 +153,51 @@ const ReturnExchange = () => {
   };
 
   const handleNextMonth = () => {
-    if (calendarYear >= today.getFullYear() && calendarMonth >= today.getMonth()) {
-      return;
-    }
-    if (calendarMonth === 11) {
-      setCalendarMonth(0);
-      setCalendarYear((y) => y + 1);
-    } else {
-      setCalendarMonth((m) => m + 1);
-    }
-  };
+  if (calendarYear >= today.getFullYear() && calendarMonth >= today.getMonth()) {
+    return;
+  }
+  if (calendarMonth === 11) {
+    setCalendarMonth(0);
+    setCalendarYear((y) => y + 1);
+  } else {
+    setCalendarMonth((m) => m + 1);
+  }
+};
+
+const currentDecadeStart = Math.floor(today.getFullYear() / 10) * 10;
+
+const handlePrevDecade = () => setDecadeStart((d) => d - 10);
+
+const handleNextDecade = () => {
+  if (decadeStart >= currentDecadeStart) return;
+  setDecadeStart((d) => d + 10);
+};
+
+const getDecadeYears = () => {
+  const years = [];
+  for (let i = -1; i <= 10; i++) years.push(decadeStart + i);
+  return years;
+};
+
+const openYearPicker = () => {
+  setDecadeStart(Math.floor(calendarYear / 10) * 10);
+  setPickerView("years");
+};
+
+const handleYearSelect = (year) => {
+  if (year > today.getFullYear()) return;
+  setCalendarYear(year);
+  if (year === today.getFullYear() && calendarMonth > today.getMonth()) {
+    setCalendarMonth(today.getMonth());
+  }
+  setPickerView("months");
+};
+
+const handleMonthSelect = (monthIndex) => {
+  if (calendarYear === today.getFullYear() && monthIndex > today.getMonth()) return;
+  setCalendarMonth(monthIndex);
+  setPickerView("days");
+};
 
   const getCalendarDays = () => {
     const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay();
@@ -375,90 +406,117 @@ const ReturnExchange = () => {
                       <button className="calendar-preset-btn clear-btn" onClick={() => handleQuickPreset("clear")}>Clear Filter</button>
                     </div>
                     <div className="orders-calendar-main">
-                      <button className="orders-calendar-close-btn" onClick={() => setShowDatePicker(false)}>&times;</button>
-                      <div className="orders-calendar-header">
-                        <button 
-                          className="calendar-nav-btn" 
-                          onClick={handlePrevMonth}
-                        >
-                          &larr;
-                        </button>
-                        <div className="orders-calendar-selects-container" style={{ display: "flex", gap: "6px" }}>
-                          <select 
-                            value={calendarMonth} 
-                            onChange={(e) => {
-                              const newMonth = parseInt(e.target.value);
-                              const currentYear = new Date().getFullYear();
-                              const currentMonth = new Date().getMonth();
-                              if (calendarYear === currentYear && newMonth > currentMonth) {
-                                return;
-                              }
-                              setCalendarMonth(newMonth);
-                            }}
-                            className="orders-calendar-month-select"
-                            style={{ border: "1px solid rgba(0,0,0,0.1)", borderRadius: "4px", padding: "2px 4px", fontSize: "12px", background: "white", color: "black", cursor: "pointer" }}
-                          >
-                            {monthNames.map((name, i) => {
-                              const currentYear = new Date().getFullYear();
-                              const currentMonth = new Date().getMonth();
-                              const isFuture = calendarYear === currentYear && i > currentMonth;
+                      <button
+                        className="orders-calendar-close-btn"
+                        onClick={() => {
+                          setShowDatePicker(false);
+                          setPickerView("days");
+                        }}
+                      >
+                        &times;
+                      </button>
+
+                      {pickerView === "days" && (
+                        <>
+                          <div className="orders-calendar-header">
+                            <button className="calendar-nav-btn" onClick={handlePrevMonth}>&larr;</button>
+                            <button className="calendar-period-label" onClick={openYearPicker}>
+                              {monthNames[calendarMonth]} {calendarYear}
+                            </button>
+                            <button
+                              className="calendar-nav-btn"
+                              onClick={handleNextMonth}
+                              disabled={calendarYear >= today.getFullYear() && calendarMonth >= today.getMonth()}
+                            >
+                              &rarr;
+                            </button>
+                          </div>
+                          <div className="orders-calendar-weekdays">
+                            <span>Su</span>
+                            <span>Mo</span>
+                            <span>Tu</span>
+                            <span>We</span>
+                            <span>Th</span>
+                            <span>Fr</span>
+                            <span>Sa</span>
+                          </div>
+                          <div className="orders-calendar-days-grid">
+                            {calendarDays.map((d, index) => {
+                              const isCellFuture = d.date && d.date.getTime() > todayMidnight;
                               return (
-                                <option key={name} value={i} disabled={isFuture}>{name}</option>
+                                <button
+                                  key={index}
+                                  className={getDayClassNames(d.date)}
+                                  disabled={!d.day || isCellFuture}
+                                  onClick={() => handleDayClick(d.date)}
+                                  onMouseEnter={() => d.date && setHoverDate(d.date)}
+                                >
+                                  {d.day}
+                                </button>
                               );
                             })}
-                          </select>
-                          <select 
-                            value={calendarYear} 
-                            onChange={(e) => {
-                              const newYear = parseInt(e.target.value);
-                              const currentYear = new Date().getFullYear();
-                              const currentMonth = new Date().getMonth();
-                              setCalendarYear(newYear);
-                              if (newYear === currentYear && calendarMonth > currentMonth) {
-                                setCalendarMonth(currentMonth);
-                              }
-                            }}
-                            className="orders-calendar-year-select"
-                            style={{ border: "1px solid rgba(0,0,0,0.1)", borderRadius: "4px", padding: "2px 4px", fontSize: "12px", background: "white", color: "black", cursor: "pointer" }}
-                          >
-                            {selectYears.map(year => (
-                              <option key={year} value={year}>{year}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <button 
-                          className="calendar-nav-btn" 
-                          onClick={handleNextMonth}
-                          disabled={calendarYear >= today.getFullYear() && calendarMonth >= today.getMonth()}
-                        >
-                          &rarr;
-                        </button>
-                      </div>
-                      <div className="orders-calendar-weekdays">
-                        <span>Su</span>
-                        <span>Mo</span>
-                        <span>Tu</span>
-                        <span>We</span>
-                        <span>Th</span>
-                        <span>Fr</span>
-                        <span>Sa</span>
-                      </div>
-                      <div className="orders-calendar-days-grid">
-                        {calendarDays.map((d, index) => {
-                          const isCellFuture = d.date && d.date.getTime() > todayMidnight;
-                          return (
+                          </div>
+                        </>
+                      )}
+
+                      {pickerView === "years" && (
+                        <div className="orders-calendar-picker-view">
+                          <div className="orders-calendar-header">
+                            <button className="calendar-nav-btn" onClick={handlePrevDecade}>&larr;</button>
+                            <span className="calendar-period-label static">
+                              {decadeStart} - {decadeStart + 9}
+                            </span>
                             <button
-                              key={index}
-                              className={getDayClassNames(d.date)}
-                              disabled={!d.day || isCellFuture}
-                              onClick={() => handleDayClick(d.date)}
-                              onMouseEnter={() => d.date && setHoverDate(d.date)}
+                              className="calendar-nav-btn"
+                              onClick={handleNextDecade}
+                              disabled={decadeStart >= currentDecadeStart}
                             >
-                              {d.day}
+                              &rarr;
                             </button>
-                          );
-                        })}
-                      </div>
+                          </div>
+                          <div className="orders-calendar-years-grid">
+                            {getDecadeYears().map((year) => {
+                              const isFuture = year > today.getFullYear();
+                              const isOutsideDecade = year < decadeStart || year > decadeStart + 9;
+                              return (
+                                <button
+                                  key={year}
+                                  className={`orders-calendar-year-cell ${year === calendarYear ? "is-selected" : ""} ${isOutsideDecade ? "is-outside" : ""}`}
+                                  disabled={isFuture}
+                                  onClick={() => handleYearSelect(year)}
+                                >
+                                  {year}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {pickerView === "months" && (
+                        <div className="orders-calendar-picker-view">
+                          <div className="orders-calendar-header">
+                            <button className="calendar-nav-btn" onClick={() => setPickerView("years")}>&larr;</button>
+                            <span className="calendar-period-label static">{calendarYear}</span>
+                            <span className="calendar-nav-btn" style={{ visibility: "hidden" }}>&rarr;</span>
+                          </div>
+                          <div className="orders-calendar-months-grid">
+                            {monthNames.map((name, i) => {
+                              const isFuture = calendarYear === today.getFullYear() && i > today.getMonth();
+                              return (
+                                <button
+                                  key={name}
+                                  className={`orders-calendar-month-cell ${i === calendarMonth ? "is-selected" : ""}`}
+                                  disabled={isFuture}
+                                  onClick={() => handleMonthSelect(i)}
+                                >
+                                  {name.slice(0, 3)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

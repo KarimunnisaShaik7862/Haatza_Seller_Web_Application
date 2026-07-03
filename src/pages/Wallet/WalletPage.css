@@ -55,6 +55,7 @@
 .transaction-header-bar .back-btn {
   margin-right: -10px;
 }
+
 .transaction-header-bar .bell-btn {
   margin-left: -10px;
 }
@@ -275,6 +276,20 @@
   font-size: 14px;
 }
 
+/* Campaign Spends tab - history section only (Total Campaign Spend block removed) */
+.campaign-spend-history-section {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.campaign-spend-history-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px;
+  color: #333;
+}
+
 /* Modal Overlay & Bottom Sheet styles */
 .wallet-modal-overlay {
   position: fixed;
@@ -302,6 +317,7 @@
   from {
     transform: translateY(100%);
   }
+
   to {
     transform: translateY(0);
   }
@@ -492,6 +508,7 @@
     opacity: 0;
     transform: translate(-50%, -10px);
   }
+
   to {
     opacity: 1;
     transform: translate(-50%, 0);
@@ -500,30 +517,35 @@
 
 /* Desktop layout adaptations if inside dashboard grid */
 @media (min-width: 769px) {
+  .transaction-page-root {
+    padding: 20px 24px;
+  }
+
   .transaction-header-bar {
     display: none !important;
   }
-  
+
   .wallet-desktop-header {
     display: flex !important;
     flex-direction: column;
     margin-bottom: 24px;
   }
-  
+
   .wallet-modal-overlay {
     align-items: center;
   }
-  
+
   .wallet-bottom-sheet {
     border-radius: 16px;
     animation: zoom-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  
+
   @keyframes zoom-in {
     from {
       opacity: 0;
       transform: scale(0.95);
     }
+
     to {
       opacity: 1;
       transform: scale(1);
@@ -531,12 +553,19 @@
   }
 }
 
+@media (min-width: 1025px) {
+  .transaction-page-root {
+    padding: 28px 32px;
+  }
+}
+
+
 /* Mobile responsive modifications */
 @media (max-width: 768px) {
   .transaction-header-bar {
     display: flex !important;
   }
-  
+
   .wallet-desktop-header {
     display: none !important;
   }
@@ -574,4 +603,31 @@
   font-weight: 700;
   color: #0f172a;
   margin: 0;
+}
+
+@media (max-width: 480px) {
+  .wallet-balance-card-v2 {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+  }
+
+  .balance-info-left {
+    align-items: center;
+  }
+
+  .btn-add-funds-v2 {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .quick-amount-selectors {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .quick-amt-button {
+    flex: 1 1 calc(50% - 8px);
+  }
 }

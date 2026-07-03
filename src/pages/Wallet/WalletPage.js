@@ -177,7 +177,7 @@ const WalletPage = () => {
 
         try {
             const { response, balance: fetchedBalance } = await fetchCurrentBalance();
-            devLog("[WalletPage] balance response", response);
+            console.log("[WalletPage] Refreshed Balance Response:", response);
             setBalance(fetchedBalance);
 
             if (response?.status === "error") {
@@ -203,6 +203,7 @@ const WalletPage = () => {
 
         try {
             const transactionsRes = await walletService.transactionHistory(sellerId);
+            console.log("[WalletPage] Refreshed Transaction History Response:", transactionsRes);
 
             const rawTx =
                 transactionsRes?.message?.transactions ||
@@ -317,13 +318,13 @@ const WalletPage = () => {
         if (hasFetchedBalanceRef.current) return;
         hasFetchedBalanceRef.current = true;
         loadWalletBalance();
-    }, [loadWalletBalance]);
+        loadTransactionHistory();
+    }, [loadWalletBalance, loadTransactionHistory]);
 
     const handleTabChange = (tab) => {
         setActiveTab(tab);
 
-        if (tab === "history" && !hasFetchedHistoryRef.current) {
-            hasFetchedHistoryRef.current = true;
+        if (tab === "history") {
             loadTransactionHistory();
         }
 
@@ -383,8 +384,9 @@ const WalletPage = () => {
             return;
         }
 
-        if (!Number.isFinite(amountVal) || amountVal <= 0) {
-            setError("Please enter a valid amount greater than 0");
+        // Allow minimum ₹1 for testing
+        if (!Number.isFinite(amountVal) || amountVal < 1) {
+            setError("Please enter at least ₹1");
             return;
         }
 
@@ -397,9 +399,12 @@ const WalletPage = () => {
 
             console.log("[WalletPage] Balance Before Payment", beforeBalanceData.response);
 
+            // Order creation payload
             const createOrderPayload = {
                 sellerId,
-                amount: Number(amountVal)
+                amount: Number(amountVal),
+                currency: "INR",
+                receipt: `wallet_${sellerId}_${Date.now()}`
             };
 
             console.log("[WalletPage] Create Razorpay Order Payload", createOrderPayload);
@@ -408,15 +413,12 @@ const WalletPage = () => {
 
             console.log("[WalletPage] Create Razorpay Order Response", createOrderRes);
 
+            // Requirement 6: safe extraction
             const rzpOrderId =
+                createOrderRes?.message?.order?.id ||
                 createOrderRes?.orderId ||
                 createOrderRes?.order_id ||
                 createOrderRes?.id ||
-                createOrderRes?.razorpayOrderId ||
-                createOrderRes?.data?.orderId ||
-                createOrderRes?.data?.order_id ||
-                createOrderRes?.data?.id ||
-                createOrderRes?.message?.order?.id ||
                 createOrderRes?.message?.order?.orderId ||
                 createOrderRes?.message?.order?.order_id ||
                 createOrderRes?.message?.orderId ||
@@ -428,21 +430,21 @@ const WalletPage = () => {
             }
 
             const rzpAmount =
+                createOrderRes?.message?.order?.amount ||
                 createOrderRes?.amount ||
                 createOrderRes?.amount_due ||
-                createOrderRes?.message?.order?.amount ||
                 createOrderRes?.message?.amount ||
                 amountVal * 100;
 
             const rzpCurrency =
-                createOrderRes?.currency ||
                 createOrderRes?.message?.order?.currency ||
+                createOrderRes?.currency ||
                 "INR";
 
             const rzpKey =
+                createOrderRes?.message?.keyId ||
                 createOrderRes?.key ||
                 createOrderRes?.razorpayKey ||
-                createOrderRes?.message?.keyId ||
                 createOrderRes?.message?.key ||
                 createOrderRes?.message?.razorpayKey;
 
@@ -470,22 +472,19 @@ const WalletPage = () => {
 
             setRazorpayLoading(false);
 
+            // Requirement 7: Razorpay options
             const options = {
                 key: rzpKey,
                 amount: rzpAmount,
                 currency: rzpCurrency,
                 name: "Haatza India Private Limited",
-                description: "Add Funds to Wallet",
+                description: "Wallet Add Funds",
                 order_id: rzpOrderId,
                 ...(rzpImage ? { image: rzpImage } : {}),
                 prefill: {
-                    name: sellerProfile?.sellerName || sellerProfile?.companyName || "",
-                    email:
-                        sellerProfile?.email ||
-                        localStorage.getItem("userEmail") ||
-                        sessionStorage.getItem("userEmail") ||
-                        "",
-                    contact: sellerProfile?.phone || sellerProfile?.contact || ""
+                    name: sellerProfile?.companyName || sellerProfile?.sellerName || localStorage.getItem("userName") || "NA",
+                    email: sellerProfile?.email || localStorage.getItem("userEmail") || sessionStorage.getItem("userEmail") || "NA",
+                    contact: sellerProfile?.phone || sellerProfile?.contact || localStorage.getItem("userPhone") || "NA"
                 },
                 theme: {
                     color: "#2962ff"
@@ -512,11 +511,10 @@ const WalletPage = () => {
                             throw new Error("razorpay_signature missing from Razorpay response.");
                         }
 
+                        // Requirement 8: verify payment payload
                         const verifyPayload = {
-                            sellerId,
-                            amount: Number(amountVal),
-                            paymentId: razorpayResponse.razorpay_payment_id,
                             orderId: razorpayResponse.razorpay_order_id || rzpOrderId,
+                            paymentId: razorpayResponse.razorpay_payment_id,
                             signature: razorpayResponse.razorpay_signature
                         };
 
@@ -527,21 +525,9 @@ const WalletPage = () => {
                             verifyRes = await walletService.verifyRazorpayPayment(verifyPayload);
                         } catch (verifyErr) {
                             console.error(
-                                "[WalletPage] verifyRazorpayPayment NETWORK/CORS ERROR: This is backend CORS / Wix function browser access issue for verifyRazorpayPayment. Frontend payload is correct.",
+                                "[WalletPage] verifyRazorpayPayment NETWORK/CORS ERROR: verifyRazorpayPayment step failed.",
                                 verifyErr
                             );
-
-                            const isNetworkOrCors =
-                                !verifyErr?.response ||
-                                verifyErr?.message?.toLowerCase().includes("network error") ||
-                                verifyErr?.code === "ERR_NETWORK";
-
-                            if (isNetworkOrCors) {
-                                throw new Error(
-                                    "Payment completed, but verification API is blocked or unreachable from browser. Please check backend CORS for verifyRazorpayPayment."
-                                );
-                            }
-
                             throw new Error(
                                 verifyErr?.response?.data?.message ||
                                 verifyErr?.response?.data?.error ||
@@ -554,24 +540,24 @@ const WalletPage = () => {
 
                         const isVerified =
                             verifyRes === true ||
-                            (verifyRes?.status === "success" &&
-                                verifyRes?.message?.verified === true);
+                            verifyRes?.status === "success" ||
+                            verifyRes?.verified === true ||
+                            verifyRes?.message?.verified === true ||
+                            verifyRes?.message?.status === "success";
 
                         if (!isVerified) {
                             throw new Error("Payment verification failed. Wallet was not credited.");
                         }
 
+                        // Requirement 9: addFunds payload
                         const addFundsPayload = {
-                            sellerId: sellerId,
-                            amountAdded: Number(amountVal),
-                            paymentId: razorpayResponse.razorpay_payment_id
+                            sellerId,
+                            amountAdded: String(amountVal),
+                            paymentId: razorpayResponse.razorpay_payment_id,
+                            razorpayOrderId: razorpayResponse.razorpay_order_id || rzpOrderId
                         };
 
-                        console.log("[WalletPage] Add Funds Payload", {
-                            sellerId,
-                            amountAdded: Number(amount),
-                            paymentId: razorpayResponse.razorpay_payment_id
-                        });
+                        console.log("[WalletPage] Add Funds Payload", addFundsPayload);
 
                         let addFundsRes;
                         try {
@@ -587,67 +573,56 @@ const WalletPage = () => {
 
                         console.log("[WalletPage] Add Funds Response", addFundsRes);
 
+                        // Success check
                         const isSuccess =
                             addFundsRes?.success === true ||
-                            addFundsRes?.message === "Funds added successfully!";
+                            addFundsRes?.status === "success" ||
+                            addFundsRes?.message === "Funds added successfully!" ||
+                            addFundsRes?.message?.message === "Funds added successfully!";
 
                         if (!isSuccess) {
                             throw new Error("Failed to add funds to wallet backend.");
                         }
 
-                        const balanceRes = await walletService.checkWalletBalance(sellerId);
-                        console.log("[WalletPage] Refreshed Balance Response", balanceRes);
+                        // Create seller invoice (non-blocking)
+                        try {
+                            const sellerName = sellerProfile?.companyName || sellerProfile?.sellerName || "NA";
+                            const addressStr = sellerProfile?.address || "NA";
+                            const gstin = sellerProfile?.gstin || sellerProfile?.GSTIN || "NA";
 
-                        setBalance(getBalanceFromResponse(balanceRes));
+                            const invoicePayload = {
+                                invoiceDate: new Date().toISOString(),
+                                sellerName,
+                                sellerId,
+                                address: addressStr,
+                                gstin,
+                                item: "Wallet Add",
+                                qty: 1,
+                                rate: Number(amountVal),
+                                amount: Number(amountVal),
+                                subtotal: Number(amountVal),
+                                cgst: 0,
+                                sgst: 0,
+                                totalPayable: Number(amountVal),
+                                payments: {
+                                    wallet: "0",
+                                    upi: String(amountVal)
+                                },
+                                transactionMethod: "UPI",
+                                paymentId: razorpayResponse.razorpay_payment_id,
+                                razorpayOrderId: razorpayResponse.razorpay_order_id || rzpOrderId
+                            };
 
-                        const historyRes = await walletService.transactionHistory(sellerId);
-                        console.log("[WalletPage] Refreshed Transaction History Response", historyRes);
+                            console.log("[WalletPage] Create Seller Invoice Payload:", invoicePayload);
+                            const invoiceRes = await walletService.createSellerInvoice(invoicePayload);
+                            console.log("[WalletPage] Create Seller Invoice Response:", invoiceRes);
+                        } catch (invoiceErr) {
+                            console.error("[WalletPage] Error creating seller invoice (non-blocking):", invoiceErr);
+                        }
 
-                        const rawTx =
-                            historyRes?.message?.transactions ||
-                            historyRes?.message?.data ||
-                            historyRes?.transactions ||
-                            historyRes?.data ||
-                            [];
-
-                        const walletTransactions = rawTx
-                            .filter(shouldShowInTransactionHistory)
-                            .map((tx) => {
-                                const type = String(tx.type || "").toLowerCase();
-                                const isCredit =
-                                    type === "credit" ||
-                                    type === "deposit" ||
-                                    type === "add_funds";
-
-                                const dateVal = tx.createdDate || tx.date || tx.createdAt;
-
-                                return {
-                                    id: tx._id || tx.id || `${dateVal}-${tx.type}-${getTransactionTotal(tx)}`,
-                                    date: formatDateToEnGB(dateVal),
-                                    type: tx.type || "Transaction",
-                                    amount: getTransactionTotal(tx),
-                                    isCredit,
-                                    status: tx.status || "Completed"
-                                };
-                            });
-
-                        const campaignSpendTransactions = rawTx
-                            .filter(shouldShowInCampaignSpends)
-                            .map((tx) => {
-                                const dateVal = tx.createdDate || tx.date || tx.createdAt;
-
-                                return {
-                                    id: tx._id || tx.id || `${dateVal}-${tx.type}-${getCampaignSpendAmount(tx)}`,
-                                    date: formatDateToEnGB(dateVal),
-                                    type: tx.type || "Campaign Spend",
-                                    amount: getCampaignSpendAmount(tx),
-                                    isCredit: false,
-                                    status: tx.status || "Completed"
-                                };
-                            });
-
-                        setTransactions(walletTransactions);
-                        setCampaignHistory(campaignSpendTransactions);
+                        // Requirement 12: Success flow UI updates
+                        await loadWalletBalance();
+                        await loadTransactionHistory();
 
                         window.dispatchEvent(new CustomEvent("walletUpdate"));
 
@@ -789,9 +764,9 @@ const WalletPage = () => {
                                                 <span className="tx-type-text">{t.type}</span>
                                             </div>
                                             <div className="tx-col-right">
-                        <span className={`tx-amount-text ${t.isCredit ? "credit" : "spend"}`}>
-                          ₹{t.amount.toFixed(2)}
-                        </span>
+                                                <span className={`tx-amount-text ${t.isCredit ? "credit" : "spend"}`}>
+                                                    ₹{t.amount.toFixed(2)}
+                                                </span>
                                             </div>
                                         </div>
                                     ))
@@ -808,19 +783,8 @@ const WalletPage = () => {
                                     </div>
                                 ) : (
                                     <div className="campaign-summary-container">
-                                        <div className="transaction-item-row" style={{ borderBottom: "1px solid #eee", paddingBottom: "12px", marginBottom: "12px" }}>
-                                            <div className="tx-col-left">
-                                                <span className="tx-type-text" style={{ fontSize: "16px", fontWeight: "600" }}>Total Campaign Spend</span>
-                                            </div>
-                                            <div className="tx-col-right">
-                        <span className="tx-amount-text spend" style={{ fontSize: "18px", fontWeight: "700", color: "#e53935" }}>
-                          ₹{Number(campaignSummary?.data?.totalSpend || 0).toFixed(2)}
-                        </span>
-                                            </div>
-                                        </div>
-
-                                        <div style={{ marginTop: "24px", borderTop: "1px solid #eee", paddingTop: "24px" }}>
-                                            <h3 style={{ fontSize: "16px", fontWeight: "600", marginBottom: "16px", color: "#333" }}>
+                                        <div className="campaign-spend-history-section">
+                                            <h3 className="campaign-spend-history-title">
                                                 Campaign Spend History
                                             </h3>
 
@@ -841,9 +805,9 @@ const WalletPage = () => {
                                                             <span className="tx-type-text">Campaign Spend</span>
                                                         </div>
                                                         <div className="tx-col-right">
-                              <span className="tx-amount-text spend">
-                                ₹{Number(c.amount || 0).toFixed(2)}
-                              </span>
+                                                            <span className="tx-amount-text spend">
+                                                                ₹{Number(c.amount || 0).toFixed(2)}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                 ))

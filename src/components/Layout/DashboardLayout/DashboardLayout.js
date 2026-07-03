@@ -208,6 +208,26 @@ const useSellerDisplayData = (resolvedEmail, updateUser, currentUser) => {
           onboardingData.contact ||
           onboardingData.mobile ||
           "";
+          const resolvedSellerIdFromApi =
+          onboardingData.sellerId ||
+          onboardingData.seller_id ||
+          onboardingData.SellerID ||
+          onboardingData.Seller_ID ||
+          onboardingData.uid ||
+          onboardingData._id ||
+          onboardingData.id ||
+          "";
+
+        // Persist it so getSellerId() (used for route-guard checks) can find
+        // it on the very next render — otherwise the merged React state has
+        // the id but storage doesn't, and the layout redirects to /signin.
+        if (resolvedSellerIdFromApi) {
+          const sid = String(resolvedSellerIdFromApi).trim();
+          localStorage.setItem("sellerId", sid);
+          sessionStorage.setItem("sellerId", sid);
+          localStorage.setItem("__haatza_sellerId", sid);
+          sessionStorage.setItem("__haatza_sellerId", sid);
+        }
 
         const rawLogo =
           onboardingData.logoUrl ||
@@ -220,6 +240,7 @@ const useSellerDisplayData = (resolvedEmail, updateUser, currentUser) => {
 
         const mergedSeller = {
           ...authenticatedSeller,
+          sellerId: resolvedSellerIdFromApi || authenticatedSeller.sellerId || "",
           name: (resolvedName && resolvedName !== "Seller") ? resolvedName : authenticatedSeller.name,
           companyName: (resolvedCompanyName && resolvedCompanyName !== "Seller") ? resolvedCompanyName : authenticatedSeller.companyName,
           phone: resolvedPhone || authenticatedSeller.phone,

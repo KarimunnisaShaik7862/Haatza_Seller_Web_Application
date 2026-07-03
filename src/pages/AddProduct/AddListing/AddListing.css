@@ -13,11 +13,13 @@
   --al-green:          #059669;
   --al-amber:          #f59e0b;
   --al-bg:             #f0f4ff;
-  --al-glass:          rgba(255,255,255,0.72);
-  --al-glass-hover:    rgba(255,255,255,0.92);
-  --al-border:         rgba(255,255,255,0.88);
-  --al-shadow:         0 8px 32px rgba(41,98,255,0.09), 0 1.5px 6px rgba(0,0,0,0.05);
-  --al-shadow-hover:   0 16px 48px rgba(41,98,255,0.17), 0 4px 16px rgba(0,0,0,0.08);
+ --al-glass:          #ffffff;
+--al-glass-hover:    #ffffff;
+--al-border:         #E5E7EB;
+--al-shadow:         0 1px 2px rgba(16,24,40,0.04), 0 4px 16px rgba(16,24,40,0.06);
+--al-shadow-hover:   0 4px 10px rgba(16,24,40,0.05), 0 14px 28px rgba(79,70,229,0.12);
+--al-indigo:         #4F46E5;
+--al-blue2:          #3B82F6;
   --al-text:           #0f172a;
   --al-text-2:         #475569;
   --al-text-3:         #94a3b8;
@@ -25,7 +27,7 @@
   --ff-body:           'DM Sans', sans-serif;
   --r-sm:  10px;
   --r-md:  16px;
-  --r-lg:  22px;
+  --r-lg:  20px;
   --r-xl:  28px;
 }
 
@@ -245,19 +247,18 @@
 
 /* Shared float card base */
 .al-fc {
-  position: relative;   /* grid children, not absolute */
-  background: var(--al-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1.5px solid var(--al-border);
+  position: relative;
+  background: #ffffff;
+  border: 1px solid var(--al-border);
   border-radius: var(--r-lg);
   box-shadow: var(--al-shadow);
-  padding: 18px 20px;
-  transition: box-shadow 0.25s ease, transform 0.25s ease;
+  padding: 22px;
+  transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
 }
 .al-fc:hover {
   box-shadow: var(--al-shadow-hover);
-  transform: translateY(-3px) scale(1.01);
+  transform: translateY(-3px);
+  border-color: rgba(79,70,229,0.25);
 }
 
 .al-fc-row {
@@ -422,9 +423,9 @@
 }
 .al-prod-price {
   font-family: var(--ff-display);
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 800;
-  color: var(--al-primary);
+  color: #4F46E5;
   margin: 0 0 8px;
 }
 .al-prod-tags {
@@ -450,7 +451,7 @@
   padding: 2px 7px;
   border-radius: 6px;
 }
-.al-tag-blue  { background: rgba(41,98,255,0.12); color: var(--al-primary); }
+.al-tag-blue  { background: rgba(79,70,229,0.1); color: #4F46E5; }
 .al-tag-green { background: rgba(5,150,105,0.12);  color: var(--al-green); }
 
 /* ══════════════════════════════════════════════════════
@@ -701,3 +702,409 @@
   color: #2962ff;
   border-color: #2962ff;
 }
+/* ================================================================
+   ADDITIONS — append to the end of AddListing.css
+   Supports: category list, trending chips, checklist, mini CTA button
+   ================================================================ */
+
+/* Mini CTA button used inside empty-state cards */
+.al-mini-cta {
+  margin-top: 10px;
+  font-family: var(--ff-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--al-primary);
+  background: rgba(41,98,255,0.1);
+  border: 1.5px solid rgba(41,98,255,0.25);
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease;
+  align-self: flex-start;
+}
+.al-mini-cta:hover {
+  background: var(--al-primary);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* Top categories list (existing seller card) */
+/* ── Category rows styled like the "Popular on Haatza" list ── */
+.al-cat-fallback-lbl {
+  font-family: var(--ff-display);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--al-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
+}
+
+
+.al-cat-chip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.al-cat-chip-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(41,98,255,0.05);
+  border: 1px solid rgba(41,98,255,0.14);
+  border-radius: 12px;
+  padding: 9px 12px;
+  overflow: hidden;
+}
+.al-cat-chip-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+.al-cat-chip-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.al-cat-chip-name {
+  font-family: var(--ff-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--al-text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  position: relative;
+  z-index: 1;
+}
+.al-cat-chip-count {
+  font-family: var(--ff-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--al-primary);
+  background: rgba(41,98,255,0.12);
+  padding: 2px 8px;
+  border-radius: 20px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+.al-cat-chip-bar-track {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: transparent;
+  z-index: 0;
+}
+.al-cat-chip-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4F46E5, #3B82F6);
+  transition: width 1s cubic-bezier(.22,.61,.36,1);
+}
+
+/* Trending category chips (new seller card) */
+.al-trend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.al-trend-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(41,98,255,0.06);
+  border: 1px solid rgba(41,98,255,0.15);
+  border-radius: 10px;
+  padding: 5px 9px;
+  font-family: var(--ff-display);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--al-text-2);
+}
+.al-trend-chip img {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+/* Onboarding checklist */
+.al-checklist {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.al-checklist li {
+  font-size: 12px;
+  color: var(--al-text-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.al-checklist li.al-check-done {
+  color: var(--al-text-3);
+  text-decoration: line-through;
+}
+/* ================================================================
+   ADDITIONS v2 — append to AddListing.css (after the v1 additions)
+   Richer card visuals + skeleton loaders to fix the loading flash
+   ================================================================ */
+
+/* ── Amber accent (for "In Progress" pending state) ── */
+.al-ico-amber { background: rgba(180,83,9,0.12); }
+.al-badge-amber {
+  font-family: var(--ff-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: #b45309;
+  background: rgba(180,83,9,0.12);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+/* ── Rich card base tweaks ── */
+.al-fc--rich .al-fc-row { margin-bottom: 10px; }
+.al-fc-val--big {
+  font-family: var(--ff-display);
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--al-text);
+  margin: 4px 0 8px;
+  letter-spacing: -0.03em;
+}
+
+/* ── Circular progress ring (Active Listings card) ── */
+.al-ring-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 2px 0 10px;
+}
+.al-ring circle {
+  transition: stroke-dasharray 1.2s cubic-bezier(.22,.61,.36,1);
+}
+
+/* ── Ranked category rows with proportion bars ── */
+.al-cat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+.al-cat-row-rich { display: flex; flex-direction: column; gap: 4px; }
+.al-cat-row-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.al-cat-medal { font-size: 13px; flex-shrink: 0; }
+.al-cat-name {
+  font-family: var(--ff-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--al-text-2);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.al-cat-count {
+  font-family: var(--ff-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--al-primary);
+  flex-shrink: 0;
+}
+.al-cat-bar-track {
+  height: 5px;
+  background: rgba(41,98,255,0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-left: 20px;
+}
+.al-cat-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4F46E5, #3B82F6);
+  border-radius: 10px;
+  transition: width 1s cubic-bezier(.22,.61,.36,1);
+}
+/* ── Spotlight product card ── */
+.al-fc--spotlight {
+  background: linear-gradient(160deg, rgba(79,70,229,0.04) 0%, #ffffff 50%);
+}
+.al-prod-spotlight-header { margin-bottom: 8px; }
+.al-prod-spotlight-lbl {
+  font-family: var(--ff-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--al-primary);
+  background: rgba(41,98,255,0.1);
+  padding: 3px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+}
+.al-prod-img--empty {
+  background: rgba(41,98,255,0.06);
+  border: 1.5px dashed rgba(41,98,255,0.25);
+}
+
+/* ── Skeleton loaders ── */
+@keyframes al-shimmer {
+  0%   { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+.al-skel-line {
+  background: linear-gradient(90deg, rgba(41,98,255,0.06) 25%, rgba(41,98,255,0.14) 37%, rgba(41,98,255,0.06) 63%);
+  background-size: 400px 100%;
+  animation: al-shimmer 1.4s ease-in-out infinite;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.al-skel-line--sm { width: 40%; height: 10px; }
+.al-skel-line--md { width: 60%; height: 12px; }
+.al-skel-line--lg { width: 55%; height: 26px; }
+.al-fc--skeleton { display: flex; flex-direction: column; justify-content: center; }
+.al-mobile-card--skeleton { display: flex; flex-direction: column; justify-content: center; min-height: 74px; }
+.al-mobile-card--skeleton .al-skel-line--lg { height: 20px; }
+.al-cat-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.al-cat-icon-0 { background: #DBEAFE; }
+.al-cat-icon-1 { background: #FCE7F3; }
+.al-cat-icon-2 { background: #FEF3C7; }
+.al-cat-icon-3 { background: #EDE9FE; }
+
+.al-ip-spark {
+  width: 100%;
+  height: 44px;
+  display: block;
+  margin: 8px 0 6px;
+}
+
+/* Latest Product — image beside text */
+.al-prod-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.al-prod-img--lg {
+  width: 100px;
+  height: 100px;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+.al-prod-info { flex: 1; min-width: 0; }
+.al-prod-info .al-prod-name { font-size: 13px; margin-bottom: 3px; }
+.al-prod-info .al-prod-price { font-size: 18px; margin-bottom: 6px; }
+.al-mini-cta--full {
+  width: 100%;
+  text-align: center;
+  margin-top: 6px;
+}
+
+/* Active Listings — percentage centered in the ring */
+.al-ring-wrap { position: relative; width: 84px; height: 84px; flex-shrink: 0; }
+.al-ring-pct {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--ff-display);
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--al-text);
+}
+
+/* In Progress — step tracker */
+.al-ip-prodname {
+  font-family: var(--ff-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--al-text-2);
+  margin: 0 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.al-step-track { display: flex; align-items: flex-start; gap: 0; }
+.al-step-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.al-step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #E5E7EB;
+  border: 2px solid #E5E7EB;
+  margin-bottom: 6px;
+  z-index: 1;
+}
+.al-step-node--done .al-step-dot { background: #4F46E5; border-color: #4F46E5; }
+.al-step-node--current .al-step-dot {
+  background: #fff;
+  border-color: #4F46E5;
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.15);
+}
+.al-step-label {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--al-text-3);
+  text-align: center;
+  line-height: 1.25;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 0 2px;
+}
+.al-step-node--done .al-step-label,
+.al-step-node--current .al-step-label { color: var(--al-text-2); }
+.al-step-connector {
+  position: absolute;
+  top: 4px;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: #E5E7EB;
+  z-index: 0;
+}
+.al-step-node:first-child .al-step-connector { display: none; }
+.al-step-connector--done { background: #4F46E5; }
+
+/* Top Categories — real category image icon */
+.al-cat-icon-img {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.al-cat-icon-img img { width: 100%; height: 100%; object-fit: cover; display: block; }

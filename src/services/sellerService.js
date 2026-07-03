@@ -27,8 +27,8 @@ const _svcLog = (...a) => { try { if (checkDev()) console.log(...a); } catch { }
 const _svcErr = (...a) => { try { if (checkDev()) console.error(...a); } catch { } };
 
 const HAATZA_BASE = "https://haatza.com/_functions";
-const HAATZA_SELLER_BASE = "https://haatzaseller.com/_functions";
-
+const HAATZA_SELLER_BASE = "https://www.haatzaseller.com/_functions";
+const SELLER_FUNCTIONS_BASE_URL = "https://haatzaseller.com/_functions";
 const proxyExists = false;
 const HAATZA_FUNCTIONS_BASE = checkDev() && proxyExists ? "/api/_functions" : "https://haatza.com/_functions";
 const API_BASE_URL = HAATZA_FUNCTIONS_BASE;
@@ -994,24 +994,40 @@ export const getSellerProductInventory = async ({ sellerId, page = 1, searchText
   return response.data;
 };
 
-export const incrementInventory = async (sellerId, productId, variantId, quantity) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    INCREMENT_INVENTORY_API,
-    { sellerId: resolvedSellerId, productId, variantId, quantity },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
+export const incrementInventory = async (payload) => {
+  try {
+    const response = await axios.post(
+      "https://haatza.com/_functions/incrementInventory",
+      payload,
+      { headers: { "Content-Type": "application/json" } }
+    );
+    return response.data;
+  } catch (error) {
+    console.error("[incrementInventory] failed:", {
+      status: error?.response?.status,
+      data: error?.response?.data,
+      payload
+    });
+    throw error;
+  }
 };
 
-export const decrementInventory = async (sellerId, productId, variantId, quantity) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    DECREMENT_INVENTORY_API,
-    { sellerId: resolvedSellerId, productId, variantId, quantity },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-  );
-  return response.data;
+export const decrementInventory = async (payload) => {
+  try {
+    const response = await axios.post(
+      "https://haatza.com/_functions/decrementInventory",
+      payload,
+      { headers: { "Content-Type": "application/json" } }
+    );
+    return response.data;
+  } catch (error) {
+    console.error("[decrementInventory] failed:", {
+      status: error?.response?.status,
+      data: error?.response?.data,
+      payload
+    });
+    throw error;
+  }
 };
 
 export const updateInventoryStock = async (sellerId, item, newQty) => {
@@ -2637,9 +2653,11 @@ export const verifyOtp = async (phone, otp) => {
   if (resolvedEmail) {
     try {
       const profile = await getUserProfile(resolvedEmail, verifiedSellerId);
-      const actualProfile = profile?.message || profile?.data || profile || {};
-      const profileSeller = actualProfile.seller || actualProfile.data || actualProfile || {};
-
+      let profileRoot = profile?.message ?? profile?.data ?? profile ?? {};
+      if (Array.isArray(profileRoot)) profileRoot = profileRoot[0] || {};
+      const actualProfile = profileRoot;
+      let profileSeller = actualProfile.seller || actualProfile.data || actualProfile || {};
+      if (Array.isArray(profileSeller)) profileSeller = profileSeller[0] || {};
       resolvedFirstName = profileSeller.firstName || actualProfile.firstName || "";
       const dbFullName = profileSeller.fullName || actualProfile.fullName || "";
       if (dbFullName) {
@@ -2665,6 +2683,13 @@ export const verifyOtp = async (phone, otp) => {
       resolvedAddress = profileSeller.address || actualProfile.address || "";
       resolvedPincode = profileSeller.pincode || actualProfile.pincode || "";
       resolvedLogoUrl = profileSeller.logoUrl || profileSeller.logo || actualProfile.logoUrl || "";
+
+      const profileSellerId =
+        profileSeller.sellerId || profileSeller.seller_id || profileSeller._id ||
+        profileSeller.id || actualProfile.sellerId || actualProfile.seller_id || "";
+      if (!verifiedSellerId && profileSellerId) {
+        verifiedSellerId = String(profileSellerId).trim();
+      }
     } catch (e) {
       console.warn("[verifyOtp] Failed to fetch user profile to populate name:", e);
     }
@@ -3129,28 +3154,27 @@ export const getSellerTickets = async ({ sellerId, emailId, fromDate, toDate }) 
   }
 };
 
-export const getTickets = async (sellerId) => {
-  const email = resolveSellerEmailForApi();
-  const now = new Date();
-  const fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .split("T")[0];
-  const toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    .toISOString()
-    .split("T")[0];
-  return getSellerTickets({ sellerId, emailId: email, fromDate, toDate });
+export const getTickets = async ({ email, fromDate, toDate, count = 50, lastFetched = 0 } = {}) => {
+  if (!email) throw new Error("Email is required to fetch tickets");
+  const params = new URLSearchParams({
+    email,
+    fromDate: fromDate || "",
+    toDate: toDate || "",
+    count: String(count),
+    lastFetched: String(lastFetched),
+  });
+  const res = await axios.get(`https://haatza.com/_functions/sellertickets?${params.toString()}`);
+  return res.data;
 };
 
-export const createTicket = async (sellerId, payload) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(
-    `${API_BASE_URL}/createTicket`,
-    { sellerId: resolvedSellerId, ...payload },
-    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
+export const createTicket = async (ticketData) => {
+  const res = await axios.post(
+    "https://haatza.com/_functions/createTicket",
+    ticketData,
+    { headers: { "Content-Type": "application/json" }, timeout: 15000 }
   );
-  return response.data;
+  return res.data;
 };
-
 export const getSellerNewOrders = async (sellerId) => {
   try {
     const resolvedSellerId = getOrResolveSellerId(sellerId);
@@ -3635,41 +3659,48 @@ export const deleteAdvertisement = async (id, sellerId = null) => {
 
 export const getSellerHaatzupProducts = async (sellerId, page = 1, limit = 15) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/sellerCampaignsproducts`, {
-    params: { sellerId: resolvedSellerId, page, limit },
-    timeout: 15000,
-  });
-  return response.data;
+  try {
+    const response = await axios.get(`${API_BASE_URL}/sellerhaatzupProducts`, {
+      params: { sellerId: resolvedSellerId, page, limit },
+      timeout: 15000,
+    });
+    return response.data;
+  } catch (err) {
+    console.warn("[sellerService] sellerhaatzupProducts error:", err?.message);
+    return { status: "success", message: { data: [] } };
+  }
 };
 
 export const getSellerwiseHaatzUp = async (sellerId, page = 1, limit = 12) => {
   const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/sellerwiseHaatzUp`, {
-    params: { sellerId: resolvedSellerId, page, limit },
-    timeout: 15000,
+  try {
+    const response = await axios.get(`${API_BASE_URL}/SellerwiseHaatzUp`, {
+      params: { sellerId: resolvedSellerId, page, limit },
+      timeout: 15000,
+    });
+    return response.data;
+  } catch (err) {
+    console.warn("[sellerService] SellerwiseHaatzUp error:", err?.message);
+    if (err?.response?.status === 404) {
+      return { status: "success", message: { data: [], pagination: { totalPages: 1, totalItems: 0, page: 1 } } };
+    }
+    throw err;
+  }
+};
+
+export const uploadHaatzupVideo = async (payload) => {
+  const response = await axios.post(`${API_BASE_URL}/uploadhaatzupVideo`, payload, {
+    headers: { "Content-Type": "application/json" },
+    timeout: 30000,
   });
   return response.data;
 };
 
-export const uploadHaatzupVideo = async (formData, onUploadProgress = null) => {
-  const response = await axios.post(`${API_BASE_URL}/uploadHaatzupVideo`, formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-    timeout: 60000,
-    onUploadProgress: onUploadProgress
-      ? (event) => {
-        const total = event.total || 1;
-        onUploadProgress(Math.round((event.loaded * 100) / total));
-      }
-      : undefined,
-  });
-  return response.data;
-};
+const haatzUpDetailCache = {};
 
-export const deleteHaatzupVideo = async (sellerId, videoId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.post(`${API_BASE_URL}/deleteHaatzupVideo`, {
-    sellerId: resolvedSellerId,
-    videoId,
+export const deleteHaatzupVideo = async (tableId) => {
+  const response = await axios.post(`${API_BASE_URL}/deletehaatzupVideo`, {
+    tableId,
   }, {
     headers: { "Content-Type": "application/json" },
     timeout: 15000,
@@ -3677,23 +3708,31 @@ export const deleteHaatzupVideo = async (sellerId, videoId) => {
   return response.data;
 };
 
-export const getSellerHaatzUpDetails = async (sellerId, videoId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/sellerHaatzUpDetails`, {
-    params: { sellerId: resolvedSellerId, videoId },
+export const getSellerHaatzUpDetails = async (tableId) => {
+  if (tableId && haatzUpDetailCache[tableId]) {
+    return haatzUpDetailCache[tableId];
+  }
+  const response = await axios.get(`${API_BASE_URL}/sellerHaatzUpdetails`, {
+    params: { tableId },
     timeout: 15000,
+  });
+  if (tableId && response.data) {
+    haatzUpDetailCache[tableId] = response.data;
+  }
+  return response.data;
+};
+
+export const generateHashtags = async (payload) => {
+  const resolvedSellerId = getOrResolveSellerId(payload?.sellerId);
+  const products = payload?.products || [];
+  const body = { sellerId: resolvedSellerId, products };
+  const response = await axios.post(`${API_BASE_URL}/generateHashtags`, body, {
+    headers: { "Content-Type": "application/json" },
+    timeout: 15000
   });
   return response.data;
 };
 
-export const generateHashtags = async (sellerId, query) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
-  const response = await axios.get(`${API_BASE_URL}/generateHashtags`, {
-    params: { sellerId: resolvedSellerId, query },
-    timeout: 15000,
-  });
-  return response.data;
-};
 
 export const getHaatzUpGuidelines = async () => ({
   status: "success",
@@ -3730,7 +3769,11 @@ export const getHaatzUpSummary = async (sellerId) => {
 export const getPromotionalVideos = getSellerwiseHaatzUp;
 export const getProductsForPromotion = getSellerHaatzupProducts;
 export const uploadHaatzUpReel = uploadHaatzupVideo;
-
+export const getPromoProducts = getSellerHaatzupProducts;
+export const sellerhaatzupProducts = getSellerHaatzupProducts;
+export const uploadHaatzUpVideo = uploadHaatzupVideo;
+export const getHaatzUpDetails = getSellerHaatzUpDetails;
+export const deleteHaatzUpVideo = deleteHaatzupVideo;
 export const CAMPAIGN_TYPE_OPTIONS = [
   {
     id: "smart",
@@ -3945,9 +3988,11 @@ export const loginUser = async (email, password) => {
   if (data?.status === true && data?.userData) {
     try {
       const profile = await getUserProfile(email, data.userData.sellerId || data.userData.seller_id);
-      const actualProfile = profile?.message || profile?.data || profile || {};
-      const sellerObj = actualProfile.seller || actualProfile.data || actualProfile || {};
-
+      let profileRoot = profile?.message ?? profile?.data ?? profile ?? {};
+      if (Array.isArray(profileRoot)) profileRoot = profileRoot[0] || {};
+      const actualProfile = profileRoot;
+      let sellerObj = actualProfile.seller || actualProfile.data || actualProfile || {};
+      if (Array.isArray(sellerObj)) sellerObj = sellerObj[0] || {};
       const dbFirstName = sellerObj.firstName || actualProfile.firstName || "";
       const dbFullName = sellerObj.fullName || actualProfile.fullName || "";
 
@@ -3977,6 +4022,11 @@ export const loginUser = async (email, password) => {
       data.userData.address = sellerObj.address || actualProfile.address || data.userData.address || "";
       data.userData.pincode = sellerObj.pincode || actualProfile.pincode || data.userData.pincode || "";
       data.userData.logoUrl = sellerObj.logoUrl || sellerObj.logo || actualProfile.logoUrl || data.userData.logoUrl || "";
+
+      const dbSellerId =
+        sellerObj.sellerId || sellerObj.seller_id || sellerObj._id || sellerObj.id ||
+        sellerObj.SellerID || actualProfile.sellerId || actualProfile.seller_id || "";
+      data.userData.sellerId = data.userData.sellerId || dbSellerId || "";
     } catch (e) {
       console.warn("Failed to dynamically fetch nickname for login response:", e);
     }
@@ -4006,6 +4056,13 @@ export const getCampaignProducts = async (campaignIdOrParams) => {
 export const fetchSubscriptionPlan = async (email) => {
   const response = await axios.get(`${PROFILE_BASE_URL}/sellersubscription`, {
     params: { email },
+    timeout: 15000,
+  });
+  return response.data;
+};
+export const fetchSubscriptionPlanBySellerId = async (sellerId) => {
+  const response = await axios.get(`${SELLER_FUNCTIONS_BASE_URL}/sellersubscription`, {
+    params: { sellerId },
     timeout: 15000,
   });
   return response.data;
@@ -4124,6 +4181,9 @@ export const fetchReferralCheck = async (enteredCouponCode) => {
   });
   return response.data;
 };
+export const getPlans = fetchPricingplans;
+export const getSellerSubscription = fetchSubscriptionPlan;
+export const referralCheck = fetchReferralCheck;
 
 export const createRazorPayOrder = async (params) => {
   const response = await axios.post(`${API_BASE_URL}/createRazorpayOrder`, params, {
@@ -4150,12 +4210,67 @@ export const createSubscription = async (params) => {
   });
   return response.data;
 };
-
+export const processSubscriptionOrder = async (payload) => {
+  const url = `${SELLER_FUNCTIONS_BASE_URL}/processSubscriptionOrder`;
+  try {
+    const response = await axios.post(url, payload, {
+      headers: { "Content-Type": "application/json" }
+    });
+    return response.data;
+  } catch (error) {
+    console.error("[processSubscriptionOrder] failed:", {
+      status: error?.response?.status,
+      data: error?.response?.data,
+      payload,
+      message: error?.message
+    });
+    throw error;
+  }
+};
 export const getVideoResponse = async (guid) => {
   const response = await axios.get(`https://video.bunnycdn.com/library/583918/videos/${guid}`, {
     timeout: 15000,
   });
   return response.data;
+};
+
+export const uploadMediaFile = async (file) => {
+  const reader = new FileReader();
+  const base64 = await new Promise((resolve, reject) => {
+    reader.onload = () => {
+      const resStr = String(reader.result || "");
+      const parts = resStr.split(",");
+      resolve(parts[1] || parts[0]);
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+
+  const response = await fetch(`${API_BASE_URL}/uploadMedia`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fileName: file.name,
+      fileData: base64,
+      mediaType: file.type || "video/mp4"
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Media upload failed with status ${response.status}`);
+  }
+  const data = await response.json();
+  const url =
+    data?.url ||
+    data?.mediaUrl ||
+    data?.videoUrl ||
+    data?.imageUrl ||
+    data?.link ||
+    data?.data?.url ||
+    data?.data?.mediaUrl ||
+    null;
+  if (!url) throw new Error("Media upload succeeded but returned no public URL");
+  return url;
 };
 
 export const fetchSellerCampaignProduct = async (sellerId, page = 1, query = "") => {
@@ -4492,10 +4607,16 @@ export const sellerService = {
   createExchangeShipment,
   handleTrackShipment,
   handleDownloadPackingSlip,
-  submitWarehouseRequest,
+ submitWarehouseRequest,
   updateSellerOnboarding,
   forgotPassword,
   loginUser,
+  getPlans,
+  getSellerSubscription,
+  referralCheck,
+  fetchSubscriptionPlanBySellerId,
+  processSubscriptionOrder,
+  uploadMediaFile,
 };
 
 export const advertisementService = {
@@ -4616,6 +4737,19 @@ export const walletService = {
     });
     return res.data;
   },
+
+  createSellerInvoice: async (payload) => {
+    try {
+      const res = await axios.post("https://haatzaseller.com/_functions/createSellerInvoice", payload, {
+        headers: { "Content-Type": "application/json" },
+        timeout: 15000,
+      });
+      return res.data;
+    } catch (err) {
+      console.error("[sellerService] createSellerInvoice failed:", err?.message, err?.response?.status, err?.response?.data);
+      throw err;
+    }
+  }
 };
 
 export const haatzupService = {
@@ -4623,7 +4757,12 @@ export const haatzupService = {
   getPromotionalVideos,
   getHaatzUpGuidelines,
   getProductsForPromotion,
-  uploadHaatzUpReel
+  uploadHaatzUpReel,
+  getPromoProducts,
+  sellerhaatzupProducts,
+  uploadHaatzUpVideo,
+  getHaatzUpDetails,
+  deleteHaatzUpVideo
 };
 
 export {

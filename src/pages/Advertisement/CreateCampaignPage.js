@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   ChevronLeft,
-  Wallet,
-  Bell,
+  ChevronRight,
   Check,
   AlertCircle,
   Plus,
@@ -26,21 +25,209 @@ import {
 } from "../../services/sellerService";
 import "./CreateCampaignPage.css";
 
+const formatDisplayDate = (ymdStr) => {
+  if (!ymdStr || typeof ymdStr !== "string") return "";
+  const parts = ymdStr.split("-");
+  if (parts.length !== 3) return ymdStr;
+  const [yyyy, mm, dd] = parts;
+  return `${dd} - ${mm} - ${yyyy}`;
+};
+
+const AdvancedDatePicker = ({ value, onChange, minDate, hasError, placeholder = "DD - MM - YYYY" }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  const selectedDateObj = useMemo(() => {
+    if (!value) return null;
+    const parts = value.split("-").map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }, [value]);
+
+  const [viewYear, setViewYear] = useState(() => (selectedDateObj ? selectedDateObj.getFullYear() : new Date().getFullYear()));
+  const [viewMonth, setViewMonth] = useState(() => (selectedDateObj ? selectedDateObj.getMonth() : new Date().getMonth()));
+
+  useEffect(() => {
+    if (selectedDateObj && !isOpen) {
+      setViewYear(selectedDateObj.getFullYear());
+      setViewMonth(selectedDateObj.getMonth());
+    }
+  }, [value, isOpen, selectedDateObj]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
+  const handlePrevMonth = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear((y) => y - 1);
+    } else {
+      setViewMonth((m) => m - 1);
+    }
+  };
+
+  const handleNextMonth = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear((y) => y + 1);
+    } else {
+      setViewMonth((m) => m + 1);
+    }
+  };
+
+  const calendarDays = useMemo(() => {
+    const firstDayIndex = new Date(viewYear, viewMonth, 1).getDay();
+    const totalDays = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const prevMonthTotalDays = new Date(viewYear, viewMonth, 0).getDate();
+
+    const days = [];
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      days.push({ day: prevMonthTotalDays - i, isCurrentMonth: false });
+    }
+    for (let d = 1; d <= totalDays; d++) {
+      const yStr = String(viewYear);
+      const mStr = String(viewMonth + 1).padStart(2, "0");
+      const dStr = String(d).padStart(2, "0");
+      const ymd = `${yStr}-${mStr}-${dStr}`;
+
+      let isDisabled = false;
+      if (minDate && ymd < minDate) {
+        isDisabled = true;
+      }
+
+      const isSelected = value === ymd;
+      days.push({ day: d, isCurrentMonth: true, ymd, isDisabled, isSelected });
+    }
+    return days;
+  }, [viewYear, viewMonth, minDate, value]);
+
+  const displayVal = formatDisplayDate(value) || placeholder;
+
+  return (
+    <div className="custom-datepicker-root" ref={containerRef}>
+      <div
+        tabIndex={0}
+        role="button"
+        className={`custom-datepicker-trigger ${hasError ? "error" : ""} ${isOpen ? "open" : ""}`}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <Calendar size={16} className="input-icon" />
+        <span className={`datepicker-text ${!value ? "placeholder" : ""}`}>
+          {displayVal}
+        </span>
+        <span className="datepicker-arrow">{isOpen ? "▲" : "▼"}</span>
+      </div>
+
+      {isOpen && (
+        <div className="custom-datepicker-popover">
+          <div className="datepicker-header">
+            <button type="button" className="dp-nav-btn" onClick={handlePrevMonth}>
+              <ChevronLeft size={16} />
+            </button>
+            <span className="dp-month-title">
+              {monthNames[viewMonth]} {viewYear}
+            </span>
+            <button type="button" className="dp-nav-btn" onClick={handleNextMonth}>
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          <div className="datepicker-weekdays">
+            <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+          </div>
+
+          <div className="datepicker-days-grid">
+            {calendarDays.map((item, index) => {
+              if (!item.isCurrentMonth) {
+                return <div key={index} className="dp-day-cell pad-day" />;
+              }
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  disabled={item.isDisabled}
+                  className={`dp-day-cell ${item.isSelected ? "selected" : ""} ${item.isDisabled ? "disabled" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onChange(item.ymd);
+                    setIsOpen(false);
+                  }}
+                >
+                  {item.day}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const extractSellerCampaignProducts = (response) => {
-  if (typeof apiExtractProducts === "function") {
-    return apiExtractProducts(response);
-  }
-  const apiData = response?.data ?? response;
-  if (Array.isArray(apiData)) return apiData;
   const products =
-    apiData?.message?.Products ??
-    apiData?.message?.products ??
-    apiData?.Products ??
-    apiData?.products ??
-    apiData?.data?.Products ??
-    apiData?.data?.products ??
+    response?.message?.Products ||
+    response?.message?.products ||
+    response?.data?.message?.Products ||
+    response?.Products ||
+    response?.data?.products ||
+    response?.message ||
+    response?.data ||
+    response ||
     [];
-  return Array.isArray(products) ? products : (products && typeof products === "object" ? [products] : []);
+
+  const arr = Array.isArray(products) ? products : (products && typeof products === "object" ? [products] : []);
+
+  const seenIds = new Set();
+  const deduped = [];
+  arr.forEach((item) => {
+    if (!item) return;
+    const pid = item.productId || item.ProductID || item.id || item._id;
+    if (pid && !seenIds.has(pid)) {
+      seenIds.add(pid);
+      deduped.push(item);
+    }
+  });
+
+  return deduped;
+};
+
+const extractProductsResponse = (response) => {
+  const apiData = response?.data ?? response ?? {};
+  const message = apiData?.message ?? apiData?.data?.message ?? apiData;
+
+  const products =
+    message?.Products ||
+    message?.products ||
+    apiData?.Products ||
+    apiData?.products ||
+    [];
+
+  return {
+    products: Array.isArray(products) ? products : [],
+    totalPages: Number(message?.totalPages || apiData?.totalPages || 1),
+    totalCount: Number(message?.totalCount || apiData?.totalCount || products.length),
+    limit: Number(message?.limit || apiData?.limit || 30)
+  };
 };
 
 // Date-Time formatting helper matching Flutter style (D/M/YYYY h:mm A)
@@ -123,6 +310,37 @@ const getProductId = (product) =>
   product?.tableId ??
   "";
 
+
+const parseProductIds = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const normalizeProductList = (value) => {
+  if (!value) return [];
+  const arr = Array.isArray(value) ? value : (typeof value === "object" ? [value] : []);
+  const seen = new Set();
+
+  return arr
+    .map(normalizeProduct)
+    .filter((item) => {
+      const id = getProductId(item);
+      if (!id || seen.has(String(id))) return false;
+      seen.add(String(id));
+      return true;
+    });
+};
+
 const isOutOfStock = (product) => {
   const status = String(
     product?.status ??
@@ -160,6 +378,17 @@ const isCampaignProduct = (product) => {
   );
 };
 
+const normalizeProduct = (p) => ({
+  ...p,
+  productId: p.productId || p.ProductID || p.id || p._id || p.tableId || "",
+  name: p.name || p.productName || p.title || "Unnamed Product",
+  price: p.price || p.sellingPrice || p.finalPrice || p.mrp || 0,
+  image: p.mainMedia || p.mainmedia || p.image || p.imageUrl || p.productImage || p.thumbnail || "",
+  campaignId: p.campaignId || p.CampaignID || p.campaignID || p.currentCampaignId || "",
+  activeAd: p.activeAd ?? p.activeAdStatus ?? p.isInCampaign ?? false,
+  stock: p.stock ?? p.quantity ?? p.availableStock ?? p.inventory
+});
+
 const getProductName = (p) => p?.productName ?? p?.name ?? p?.title ?? p?.ProductName ?? "Unnamed Product";
 const getProductPrice = (p) => p?.price ?? p?.sellingPrice ?? p?.mrp ?? p?.finalPrice ?? 0;
 const getProductImage = (p) => p?.image ?? p?.imageUrl ?? p?.productImage ?? p?.media?.[0]?.url ?? p?.mainmedia ?? p?.thumbnail ?? "";
@@ -195,11 +424,30 @@ const getVisibilityInfo = (count) => {
 
 const CreateCampaignPage = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const editCampaign = location.state?.editCampaign;
   const isEditMode = Boolean(editCampaign);
-
   const sellerId = resolveSellerId();
-  const navigate = useNavigate();
+
+  useEffect(() => {
+    console.log("[CampaignEdit] location.state:", location.state);
+    console.log("[CampaignEdit] isEditMode:", isEditMode);
+    console.log("[CampaignEdit] editCampaign:", editCampaign);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const isProductInAnotherCampaign = (product) => {
+    const cid = product.campaignId || product.CampaignID || product.campaignID || product.currentCampaignId || "";
+    if (!cid) return false;
+    if (isEditMode && String(cid) === String(editCampaign?.campaignId)) return false;
+    return true;
+  };
+
+  const isProductSelectable = (product) => {
+    if (isOutOfStock(product)) return false;
+    if (isProductInAnotherCampaign(product)) return false;
+    return true;
+  };
 
   // Wizard Step State
   const [step, setStep] = useState(1); // 1: Details, 2: Choose Products
@@ -233,28 +481,27 @@ const CreateCampaignPage = () => {
     if (isEditMode) {
       return Boolean(editCampaign?.endDateTime);
     }
-    return true;
+    return false;
   });
   const [endDate, setEndDate] = useState(() => {
     if (editCampaign?.endDateTime) {
       return parseDateTime(editCampaign.endDateTime).date;
     }
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    return d.toISOString().split("T")[0];
+    return "";
   });
   const [endTime, setEndTime] = useState(() => {
     if (editCampaign?.endDateTime) {
       return parseDateTime(editCampaign.endDateTime).time;
     }
-    return "22:00";
+    return "23:59";
   });
 
   const [cpcGoal, setCpcGoal] = useState(() => {
     if (isEditMode) {
-      return editCampaign?.cpcGoal !== undefined && editCampaign?.cpcGoal !== null ? String(editCampaign.cpcGoal) : "";
+      const editCpc = editCampaign?.cpcGoal ?? editCampaign?.averageCPC ?? "";
+      return editCpc !== undefined && editCpc !== null ? String(editCpc) : "";
     }
-    return "5";
+    return "";
   });
 
   const [selectedBudgetMode, setSelectedBudgetMode] = useState(() => {
@@ -296,6 +543,11 @@ const CreateCampaignPage = () => {
 
   // --- Step 2 Products Selection ---
   const [products, setProducts] = useState([]);
+  const [productsPage, setProductsPage] = useState(1);
+  const [productsTotalPages, setProductsTotalPages] = useState(1);
+  const [productsTotalCount, setProductsTotalCount] = useState(0);
+  const [hasMoreProducts, setHasMoreProducts] = useState(true);
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
   const [currentCampaignProducts, setCurrentCampaignProducts] = useState([]); // Products belonging to current campaign being edited
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState(null);
@@ -324,6 +576,22 @@ const CreateCampaignPage = () => {
       setToast(null);
     }, 4500);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || "");
+    const editIntent = params.get("mode") === "edit" || params.get("edit") === "true";
+
+    if (editIntent && !editCampaign) {
+      console.error("[CampaignEdit] Edit route opened without editCampaign state. Aborting to avoid accidental create.", {
+        pathname: location.pathname,
+        search: location.search,
+        state: location.state
+      });
+      showToast("Could not load campaign to edit. Please try again.", "error");
+      navigate("/advertisement");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Form state logger for Part F debug logs
   const formState = useMemo(() => ({
@@ -386,26 +654,44 @@ const CreateCampaignPage = () => {
       // Wallet balance fetch
       const balanceResponse = await checkWalletBalance(sellerId);
       console.log("[CampaignEdit] wallet balance response:", balanceResponse);
-      
+
       const balance = balanceResponse?.data?.RemainingBalance || balanceResponse?.message?.RemainingBalance || balanceResponse?.RemainingBalance || 0;
       setWalletBalance(Number(balance));
 
       if (isEditMode) {
         console.log("[CampaignEdit] initial campaign:", editCampaign);
         console.log("[Advertisement] Selected Campaign", editCampaign);
-        
-        // Fetch current campaign products
-        const campaignId = editCampaign.campaignId;
-        const campaignProductsResponse = await advertisementService.getCampaignProducts({ campaignId });
-        console.log("[CampaignProductsEdit] campaign products response:", campaignProductsResponse);
-        
-        const prods = (typeof extractCampaignProducts === "function" ? extractCampaignProducts(campaignProductsResponse) : null) || campaignProductsResponse?.products || campaignProductsResponse?.message?.products || [];
+
+        // Fetch current campaign products. If the API does not return data,
+        // fall back to products/productIds passed from Advertisement details.
+        const campaignId = editCampaign.campaignId || editCampaign.CampaignID || editCampaign.campaignID || "";
+        let prods = normalizeProductList(editCampaign.currentCampaignProducts || editCampaign.products || []);
+
+        if (campaignId) {
+          try {
+            const campaignProductsResponse = await advertisementService.getCampaignProducts({ campaignId });
+            console.log("[CampaignProductsEdit] campaign products response:", campaignProductsResponse);
+
+            const apiProducts = (typeof extractCampaignProducts === "function" ? extractCampaignProducts(campaignProductsResponse) : null) ||
+              campaignProductsResponse?.products ||
+              campaignProductsResponse?.message?.products ||
+              campaignProductsResponse?.message ||
+              [];
+            prods = normalizeProductList(apiProducts).length ? normalizeProductList(apiProducts) : prods;
+          } catch (productErr) {
+            console.warn("[CampaignProductsEdit] Failed to fetch current products, using passed edit state:", productErr);
+          }
+        }
+
         setCurrentCampaignProducts(prods);
 
-        // Pre-select all current campaign products
-        const prodIds = Array.isArray(prods) ? prods.map(getProductId).filter(Boolean) : [];
+        // Pre-select all current campaign products. If the product API did not return products,
+        // still preserve productIds passed with the campaign so update does not lose products.
+        const prodIds = prods.length
+          ? prods.map(getProductId).filter(Boolean)
+          : parseProductIds(editCampaign.productIds || editCampaign.productId);
         setSelectedProductIds(prodIds);
-        setSelectedProducts(Array.isArray(prods) ? prods : []);
+        setSelectedProducts(prods);
       } else {
         // Generate default campaign name
         const defaultName = `New Smart Campaign ${getFormattedDateTime()}`;
@@ -427,67 +713,170 @@ const CreateCampaignPage = () => {
   }, [loadInitialData]);
 
   // Load Products for Step 2
-  const loadProducts = useCallback(async () => {
+  const loadProducts = useCallback(async ({ page = 1, reset = false, search = searchText } = {}) => {
     if (!sellerId || step !== 2) return;
-    setProductsLoading(true);
+
+    if (page === 1) {
+      setProductsLoading(true);
+    } else {
+      setLoadingMoreProducts(true);
+    }
+
     setProductsError(null);
 
-    const page = 1;
-    const limit = 30;
-    const search = searchText;
+    console.log("[CampaignProducts] request:", { sellerId, page, limit: 30, search });
 
     try {
-      const sellerProductsResponse = advertisementService.getSellerCampaignProducts
-        ? await advertisementService.getSellerCampaignProducts({ sellerId, page, limit, search })
+      const res = advertisementService.getSellerCampaignProducts
+        ? await advertisementService.getSellerCampaignProducts({ sellerId, page, limit: 30, search })
         : await advertisementService.fetchSellerCampaignProduct(sellerId, page, search);
 
-      console.log("[CampaignProductsEdit] seller products response:", sellerProductsResponse);
+      console.log("[CampaignProducts] raw response page:", page, res);
 
-      const parsedProducts = extractSellerCampaignProducts(sellerProductsResponse);
-      setProducts(parsedProducts);
+      const parsed = extractProductsResponse(res);
+
+      setProductsTotalPages(parsed.totalPages);
+      setProductsTotalCount(parsed.totalCount);
+      setProductsPage(page);
+      setHasMoreProducts(page < parsed.totalPages);
+
+      setProducts((prev) => {
+        const merged = reset || page === 1
+          ? parsed.products
+          : [...prev, ...parsed.products];
+
+        const map = new Map();
+        merged.forEach((p) => {
+          const id =
+            p.productId ||
+            p.ProductID ||
+            p.id ||
+            p._id ||
+            p.tableId;
+
+          if (id && !map.has(String(id))) {
+            map.set(String(id), p);
+          }
+        });
+
+        return Array.from(map.values());
+      });
+
     } catch (err) {
-      console.error("[CreateCampaignPage] Products fetch failed:", err);
-      setProductsError("Unable to load products. Please check connection.");
-      showToast("Error loading products", "error");
+      console.error("[CampaignProducts] fetch failed:", err);
+      setProductsError("Unable to load products.");
     } finally {
       setProductsLoading(false);
+      setLoadingMoreProducts(false);
     }
   }, [sellerId, step, searchText]);
 
+  const loadMoreProducts = () => {
+    if (loadingMoreProducts || productsLoading || !hasMoreProducts) return;
+    loadProducts({
+      page: productsPage + 1,
+      reset: false,
+      search: searchText
+    });
+  };
+
+  // Reset pagination & debounced search logic
   useEffect(() => {
-    loadProducts();
-  }, [loadProducts]);
+    if (step !== 2) return;
 
-  // Group products into Campaign Groups and Available Products
-  const { campaignGroups, availableProducts } = useMemo(() => {
+    const isFirstLoad = products.length === 0 && searchText === "";
+    const delay = isFirstLoad ? 0 : 400;
+
+    const timer = setTimeout(() => {
+      setProducts([]);
+      setProductsPage(1);
+      setProductsTotalPages(1);
+      setProductsTotalCount(0);
+      setHasMoreProducts(true);
+      loadProducts({ page: 1, reset: true, search: searchText });
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [searchText, step]);
+
+  // Window scroll listener for infinite scrolling
+  useEffect(() => {
+    if (step !== 2) return;
+
+    const handleScroll = () => {
+      const threshold = 200;
+      const totalHeight = document.documentElement.scrollHeight;
+      const scrolled = window.innerHeight + window.scrollY;
+
+      if (totalHeight - scrolled <= threshold) {
+        loadMoreProducts();
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [step, productsPage, loadingMoreProducts, productsLoading, hasMoreProducts, searchText]);
+
+  // Campaign Grouping Logic
+  const groupedProducts = useMemo(() => {
     const groups = {};
-    const avail = [];
+    const noCampaign = [];
 
-    products.forEach((p) => {
-      if (isCampaignProduct(p)) {
-        const cid = p.campaignId || p.campaignID || p.currentCampaignId || "Active Campaign";
-        if (isEditMode && String(cid) === String(editCampaign?.campaignId)) {
-          return;
-        }
-        if (!groups[cid]) {
-          groups[cid] = [];
-        }
-        groups[cid].push(p);
+    products.map(normalizeProduct).forEach((product) => {
+      const isAlreadyInCampaign =
+        product.campaignId && String(product.campaignId).trim() !== "";
+
+      if (isAlreadyInCampaign) {
+        const cid = product.campaignId;
+        if (!groups[cid]) groups[cid] = [];
+        groups[cid].push(product);
       } else {
-        if (!isOutOfStock(p)) {
-          avail.push(p);
-        }
+        noCampaign.push(product);
       }
     });
 
-    return { campaignGroups: groups, availableProducts: avail };
-  }, [products, isEditMode, editCampaign]);
+    return {
+      noCampaign,
+      campaignGroups: groups
+    };
+  }, [products]);
 
-  // Filter available products to exclude current campaign products
-  const filteredAvailableProducts = useMemo(() => {
+  const filteredNoCampaignProducts = useMemo(() => {
     const currentCampaignIds = new Set((currentCampaignProducts || []).map(getProductId).filter(Boolean));
-    return (availableProducts || []).filter(p => !currentCampaignIds.has(getProductId(p)));
-  }, [availableProducts, currentCampaignProducts]);
+    return (groupedProducts.noCampaign || [])
+      .filter(p => !currentCampaignIds.has(getProductId(p)))
+      .filter(p => isProductSelectable(p));
+  }, [groupedProducts.noCampaign, currentCampaignProducts]);
+
+  const filteredCampaignGroups = useMemo(() => {
+    const currentCampaignIds = new Set((currentCampaignProducts || []).map(getProductId).filter(Boolean));
+    const filteredGroups = {};
+    Object.entries(groupedProducts.campaignGroups).forEach(([cid, groupProducts]) => {
+      if (isEditMode && String(cid) === String(editCampaign?.campaignId)) {
+        return;
+      }
+      const filteredList = groupProducts.filter(p => !currentCampaignIds.has(getProductId(p)));
+      if (filteredList.length > 0) {
+        filteredGroups[cid] = filteredList;
+      }
+    });
+    return filteredGroups;
+  }, [groupedProducts.campaignGroups, currentCampaignProducts, isEditMode, editCampaign]);
+
+  // Debug logging
+  useEffect(() => {
+    if (step === 2) {
+      console.log("[CampaignProducts] response meta:", { totalPages: productsTotalPages, totalCount: productsTotalCount, received: products.length });
+      console.log("[CampaignProducts] merged products count:", products.length);
+      console.log("[CampaignProducts] grouped:", {
+        available: groupedProducts.noCampaign.length,
+        campaignGroups: Object.keys(groupedProducts.campaignGroups).map(k => ({
+          campaignId: k,
+          count: groupedProducts.campaignGroups[k].length
+        }))
+      });
+    }
+  }, [products, productsTotalPages, productsTotalCount, groupedProducts, step]);
 
   const visibilityInfo = useMemo(() => {
     const info = getVisibilityInfo(selectedProductIds.length);
@@ -760,7 +1149,7 @@ const CreateCampaignPage = () => {
             const isVerified =
               verifyRes === true ||
               (verifyRes?.status === "success" &&
-               verifyRes?.message?.verified === true);
+                verifyRes?.message?.verified === true);
 
             if (!isVerified) {
               throw new Error("Payment verification failed. Wallet was not credited.");
@@ -832,62 +1221,108 @@ const CreateCampaignPage = () => {
 
   // Final Submit Handler (Create or Update Campaign)
   const handleFinalSubmit = async () => {
-    // 1. Enforce validation checklist before calling the API
+    const averageCPCValue = cpcGoal ? Number(cpcGoal) : null;
+    const fallbackCpcForPriority = averageCPCValue || 5;
+    const selectedProductIdString = selectedProductIds.map(String).join(",");
+
+    const startDateTime = combineDateAndTime(startDate, startTime || "00:00");
+
+    const getDefaultEndDateTime = (startIso) => {
+      const d = new Date(startIso);
+      d.setFullYear(d.getFullYear() + 1);
+      d.setHours(23, 59, 0, 0);
+      return d.toISOString();
+    };
+
+    const endDateTime = hasEndDate && endDate
+      ? combineDateAndTime(endDate, endTime || "23:59")
+      : getDefaultEndDateTime(startDateTime);
+
+    // 10. Validation before API call
     try {
-      if (!sellerId) throw new Error("sellerId must exist");
-      if (!campaignName.trim()) throw new Error("campaignName must exist");
-      if (!campaignType) throw new Error("campaignType must exist");
-      if (!startDate) throw new Error("startDate must exist");
-      if (hasEndDate && !endDate) throw new Error("endDate must exist");
-      if (!dailyBudget || Number(dailyBudget) <= 0) throw new Error("dailyBudget must be > 0");
-      if (cpcGoal) {
-        const cpcNum = Number(cpcGoal);
-        if (isNaN(cpcNum) || cpcNum <= 0) {
-          throw new Error("cpcGoal must be > 0 if entered");
-        }
-      }
-      if (!selectedProductIds || selectedProductIds.length === 0) {
-        throw new Error("at least one selected product exists");
-      }
+      if (!sellerId) throw new Error("Missing sellerId");
+      if (!campaignType) throw new Error("Missing campaignType");
+      if (!selectedProductIds || !selectedProductIds.length) throw new Error("Please select at least one product");
+      if (!Number(dailyBudget)) throw new Error("Missing daily budget");
+      if (!startDateTime) throw new Error("Missing start date");
+      if (!endDateTime) throw new Error("Missing end date");
+      if (!campaignName.trim()) throw new Error("Missing campaign title");
     } catch (validationErr) {
       showToast(validationErr.message, "error");
       return;
     }
 
     setSubmitting(true);
-    
-    const startDateTime = combineDateAndTime(startDate, startTime);
-    const endDateTime = hasEndDate ? combineDateAndTime(endDate, endTime) : null;
 
     if (isEditMode) {
+      const resolvedTableId =
+        editCampaign.tableId ||
+        editCampaign.TableID ||
+        editCampaign._id ||
+        editCampaign.id ||
+        "";
+
+      const resolvedCampaignId =
+        editCampaign.campaignId ||
+        editCampaign.CampaignID ||
+        editCampaign.campaignID ||
+        "";
+
+      if (!resolvedTableId || !resolvedCampaignId) {
+        showToast("Cannot update campaign: missing campaign ID.", "error");
+        console.error("[CampaignUpdate] Missing IDs:", {
+          editCampaign,
+          resolvedTableId,
+          resolvedCampaignId
+        });
+        setSubmitting(false);
+        return;
+      }
+
       const payload = {
+        _id: resolvedTableId,
+        tableId: resolvedTableId,
+        campaignId: resolvedCampaignId,
         sellerId,
-        tableId: editCampaign.tableId,
-        campaignId: editCampaign.campaignId,
-        campaignType: "Smart",
+        campaignType: campaignType || "Smart",
         title: campaignName.trim(),
         startDateTime,
         endDateTime,
         dailyBudget: Number(dailyBudget),
-        cpcGoal: cpcGoal ? Number(cpcGoal) : null,
-        productId: selectedProductIds
+        cpcGoal: averageCPCValue,
+        averageCPC: averageCPCValue ?? undefined,
+        productId: selectedProductIdString,
+        campaignstatus: editCampaign.campaignstatus || editCampaign.status || "Inactive",
+        status: editCampaign.status || editCampaign.campaignstatus || "Inactive",
+        active: editCampaign.active ?? editCampaign.adstatus ?? editCampaign.adStatus ?? false
       };
 
-      console.log("[Advertisement] Update Payload", payload);
-      console.log("[CampaignReview] update payload:", payload);
+      console.log("[CampaignUpdate] final payload:", payload);
 
       try {
         const response = await sellerService.updateSellerCampaign(payload);
         console.log("[Advertisement] Update Response", response);
         console.log("[CampaignReview] update response:", response);
 
-        const isNotFoundError = response?.status === "error" && String(response?.message || response?.data?.message || "").includes("Campaign not found for given ID");
+        const responseMessageText =
+          typeof response?.message === "string"
+            ? response.message
+            : response?.message?.message || response?.message?.error || response?.data?.message || "";
+
+        const isNotFoundError =
+          response?.status === "error" &&
+          String(responseMessageText).includes("Campaign not found for given ID");
 
         if (isNotFoundError || response?.status === "error") {
           if (isNotFoundError) {
-            console.log("[Advertisement] Campaign not found for given ID. sellerId:", sellerId, "tableId:", editCampaign.tableId, "campaignId:", editCampaign.campaignId);
+            console.log("[Advertisement] Campaign not found for given ID. Info:", {
+              sellerId,
+              tableId: resolvedTableId,
+              campaignId: resolvedCampaignId,
+              payload
+            });
           }
-          throw new Error(response.message || "Failed to update campaign.");
+          throw new Error(responseMessageText || "Failed to update campaign.");
         }
 
         showToast("Campaign updated successfully!");
@@ -898,41 +1333,64 @@ const CreateCampaignPage = () => {
         console.error("[CreateCampaignPage] Update failed:", err);
         const msg = err.response?.data?.message || err.message || "Failed to update campaign.";
         if (String(msg).includes("Campaign not found for given ID")) {
-          console.log("[Advertisement] Campaign not found for given ID. sellerId:", sellerId, "tableId:", editCampaign.tableId, "campaignId:", editCampaign.campaignId);
+          console.log("[Advertisement] Campaign not found for given ID. Info:", {
+            sellerId,
+            tableId: resolvedTableId,
+            campaignId: resolvedCampaignId,
+            payload
+          });
         }
         showToast(msg, "error");
       } finally {
         setSubmitting(false);
       }
     } else {
-      const payload = {
-        sellerId,
-        campaignName: campaignName.trim(),
-        campaignType: "Smart",
-        startDate,
-        startTime,
-        endDate,
-        endTime,
-        cpcGoal: cpcGoal ? Number(cpcGoal) : null,
-        dailyBudget: Number(dailyBudget),
-        selectedProducts: selectedProductIds,
-        products: selectedProductIds.map(id => ({ productId: id })),
-        status: "Active"
+      const calculatePriorityScore = (dailyBudgetValue, averageCPCValue) => {
+        const budget = Number(dailyBudgetValue || 0);
+        const cpc = Number(averageCPCValue || 0);
+        return Math.round((budget * 50) + (cpc * 2));
       };
 
-      console.log("[Advertisement] New Campaign Payload:", payload);
+      const payload = {
+        sellerId,
+        campaignType: campaignType || "Smart",
+        productId: selectedProductIdString,
+        dailyBudget: Number(dailyBudget),
+        startDateTime,
+        endDateTime,
+        title: campaignName.trim(),
+        priorityScore: calculatePriorityScore(dailyBudget, fallbackCpcForPriority),
+        cpcGoal: averageCPCValue,
+        averageCPC: averageCPCValue ?? undefined,
+        campaignstatus: "Active"
+      };
+
+      console.log("[CampaignCreate] selectedProductIds:", selectedProductIds);
+      console.log("[CampaignCreate] final newSellerCampaign payload:", payload);
 
       try {
         const response = advertisementService.createSellerCampaign
           ? await advertisementService.createSellerCampaign(payload)
           : await advertisementService.createCampaign(payload);
 
-        console.log("[Advertisement] New Campaign Response:", response);
+        console.log("[CampaignCreate] response:", response);
 
-        showToast("Campaign created successfully!");
-        setTimeout(() => {
-          navigate("/advertisement");
-        }, 1500);
+        const isSuccess = response?.status === "success";
+
+        if (isSuccess) {
+          showToast(response?.message?.message || response?.message || "Campaign created successfully");
+          setTimeout(() => {
+            navigate("/advertisement");
+          }, 1500);
+        } else if (response?.status === "error") {
+          const errMsg = response?.message?.message || response?.message?.error || response?.message || "Failed to create campaign";
+          showToast(errMsg, "error");
+        } else {
+          showToast("Campaign created successfully!");
+          setTimeout(() => {
+            navigate("/advertisement");
+          }, 1500);
+        }
       } catch (err) {
         console.error("[CreateCampaignPage] Submission failed:", err);
         const msg = err.response?.data?.message || err.message || "Failed to create campaign.";
@@ -946,9 +1404,9 @@ const CreateCampaignPage = () => {
   // Handle Select All Checkbox
   const handleSelectAllChange = (e) => {
     if (e.target.checked) {
-      const allIds = availableProducts.map(getProductId).filter(Boolean);
+      const allIds = filteredNoCampaignProducts.map(getProductId).filter(Boolean);
       setSelectedProductIds(allIds);
-      setSelectedProducts([...availableProducts]);
+      setSelectedProducts([...filteredNoCampaignProducts]);
     } else {
       setSelectedProductIds([]);
       setSelectedProducts([]);
@@ -1027,14 +1485,6 @@ const CreateCampaignPage = () => {
               {step === 1 ? (isEditMode ? "Edit Campaign" : "Create New Campaign") : step === 2 ? "Choose the Products" : "Review Campaign"}
             </h1>
           </div>
-        </div>
-        <div className="cc-header-right">
-          <button className="nav-icon-btn" onClick={() => navigate("/wallet")} aria-label="Wallet">
-            <Wallet size={20} />
-          </button>
-          <button className="nav-icon-btn" onClick={() => navigate("/notifications")} aria-label="Notifications">
-            <Bell size={20} />
-          </button>
         </div>
       </div>
 
@@ -1166,20 +1616,24 @@ const CreateCampaignPage = () => {
                   <div className="duration-inputs-row">
                     <div className="date-time-box">
                       <span className="sub-label">Start Date</span>
-                      <div className="icon-input-wrap">
-                        <Calendar size={16} className="input-icon" />
-                        <input
-                          type="date"
-                          value={startDate}
-                          onChange={(e) => {
-                            setStartDate(e.target.value);
-                            if (validationErrors.startDate) {
-                              setValidationErrors(prev => ({ ...prev, startDate: null }));
+                      <AdvancedDatePicker
+                        value={startDate}
+                        minDate={new Date().toISOString().split("T")[0]}
+                        hasError={Boolean(validationErrors.startDate)}
+                        onChange={(newDate) => {
+                          setStartDate(newDate);
+                          if (validationErrors.startDate) {
+                            setValidationErrors(prev => ({ ...prev, startDate: null }));
+                          }
+                          // Sync rule: If Start Date is after End Date, auto-adjust End Date to match Start Date
+                          if (hasEndDate && endDate && endDate < newDate) {
+                            setEndDate(newDate);
+                            if (validationErrors.endDate) {
+                              setValidationErrors(prev => ({ ...prev, endDate: null }));
                             }
-                          }}
-                          className={`date-input ${validationErrors.startDate ? "error" : ""}`}
-                        />
-                      </div>
+                          }
+                        }}
+                      />
                     </div>
                     <div className="date-time-box">
                       <span className="sub-label">Start Time</span>
@@ -1220,18 +1674,17 @@ const CreateCampaignPage = () => {
                     <div className="duration-inputs-row ending-row">
                       <div className="date-time-box">
                         <span className="sub-label">End Date</span>
-                        <div className="icon-input-wrap">
-                          <Calendar size={16} className="input-icon" />
-                          <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => {
-                              setEndDate(e.target.value);
+                        <AdvancedDatePicker
+                          value={endDate}
+                          minDate={startDate || new Date().toISOString().split("T")[0]}
+                          hasError={Boolean(validationErrors.endDate)}
+                          onChange={(newDate) => {
+                            setEndDate(newDate);
+                            if (validationErrors.endDate) {
                               setValidationErrors(prev => ({ ...prev, endDate: null }));
-                            }}
-                            className={`date-input ${validationErrors.endDate ? "error" : ""}`}
-                          />
-                        </div>
+                            }
+                          }}
+                        />
                       </div>
                       <div className="date-time-box">
                         <span className="sub-label">End Time</span>
@@ -1261,7 +1714,7 @@ const CreateCampaignPage = () => {
                     <input
                       type="number"
                       step="0.01"
-                      placeholder="Set your target cost per click."
+                      placeholder="Set your target CPC."
                       value={cpcGoal}
                       onChange={(e) => setCpcGoal(e.target.value)}
                       className="cpc-input"
@@ -1275,7 +1728,14 @@ const CreateCampaignPage = () => {
 
                 {/* 5. Daily Budget selector */}
                 <div className="form-group-section">
-                  <label className="section-label-main">Daily Budget</label>
+                  <label className="section-label-main">
+                    Daily Budget
+                    {isEditMode && editCampaign?.dailyBudget !== undefined && (
+                      <span style={{ marginLeft: "10px", color: "#ef4444", fontWeight: 700 }}>
+                        Current Daily Budget ₹{Number(editCampaign.dailyBudget || 0)}
+                      </span>
+                    )}
+                  </label>
                   <div className="budget-modes-selectors">
                     {/* Mode A: Preset option selection */}
                     <div
@@ -1347,7 +1807,7 @@ const CreateCampaignPage = () => {
                             onChange={(e) => {
                               setManualBudget(e.target.value);
                               if (validationErrors.budget) {
-                                  setValidationErrors(prev => ({ ...prev, budget: null }));
+                                setValidationErrors(prev => ({ ...prev, budget: null }));
                               }
                             }}
                             className="manual-input"
@@ -1367,7 +1827,7 @@ const CreateCampaignPage = () => {
               {/* Right Summary Sidebar Panel */}
               <div className="cc-summary-card">
                 <h3>Campaign Launch Control</h3>
-                
+
                 <div className="summary-details-list">
                   <div className="summary-item">
                     <span className="sum-label">Campaign Type:</span>
@@ -1542,80 +2002,12 @@ const CreateCampaignPage = () => {
                         </div>
                       </div>
                     )}
-
-                    {/* Group 1: Products already in other campaigns (Disabled) */}
-                    {Object.entries(campaignGroups).map(([cid, groupProducts]) => (
-                      <div key={cid} className="campaign-group-section" style={{ marginBottom: "28px" }}>
-                        <h3 className="section-label-main" style={{ fontSize: "15px", fontWeight: "700", color: "#475569", marginBottom: "12px", borderBottom: "1px solid #e2e8f0", paddingBottom: "6px" }}>
-                          Campaign ID: {cid}
-                        </h3>
-                        <div className="table-wrapper-horizontal">
-                          <table className="campaigns-desktop-table products-selection-table">
-                            <thead>
-                              <tr>
-                                <th style={{ width: "40px" }}></th>
-                                <th style={{ width: "60px" }}>Image</th>
-                                <th>Product Name</th>
-                                <th>Price</th>
-                                <th>Status / Availability</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {groupProducts.map((p) => {
-                                const id = getProductId(p);
-                                const name = getProductName(p);
-                                const price = getProductPrice(p);
-                                const imageUrl = resolveWixImage(getProductImage(p));
-                                const sku = getProductSku(p);
-
-                                return (
-                                  <tr key={id} className="product-row-disabled" style={{ opacity: 0.7 }}>
-                                    <td>
-                                      <input
-                                        type="checkbox"
-                                        checked={false}
-                                        disabled={true}
-                                        style={{ width: "16px", height: "16px", cursor: "default" }}
-                                      />
-                                    </td>
-                                    <td>
-                                      <div className="product-img-holder" style={{ width: "40px", height: "40px" }}>
-                                        {imageUrl ? (
-                                          <img src={imageUrl} alt={name} />
-                                        ) : (
-                                          <Package size={20} className="img-placeholder" />
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td>
-                                      <div style={{ display: "flex", flexDirection: "column" }}>
-                                        <span className="campaign-name-bold">{name}</span>
-                                        <span style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>SKU: {sku}</span>
-                                      </div>
-                                    </td>
-                                    <td>
-                                      <span className="campaign-budget-value">₹{price}</span>
-                                    </td>
-                                    <td>
-                                      <span className="status-capsule inactive" style={{ background: "#f1f5f9", color: "#64748b" }}>
-                                        In Campaign
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    ))}
-
                     {/* Group 2: Available Products */}
                     <div className="available-products-section" style={{ marginBottom: "28px" }}>
                       <h3 className="section-label-main" style={{ fontSize: "15px", fontWeight: "700", color: "#475569", marginBottom: "12px", borderBottom: "1px solid #e2e8f0", paddingBottom: "6px" }}>
                         Available Products
                       </h3>
-                      {filteredAvailableProducts.length === 0 ? (
+                      {filteredNoCampaignProducts.length === 0 ? (
                         <div style={{ padding: "20px", textAlign: "center", color: "#64748b", background: "#f8fafc", borderRadius: "8px" }}>
                           No available in-stock products for campaign selection.
                         </div>
@@ -1627,14 +2019,14 @@ const CreateCampaignPage = () => {
                                 <th style={{ width: "40px" }}>
                                   <input
                                     type="checkbox"
-                                    checked={filteredAvailableProducts.length > 0 && filteredAvailableProducts.every(p => selectedProductIds.includes(getProductId(p)))}
+                                    checked={filteredNoCampaignProducts.length > 0 && filteredNoCampaignProducts.every(p => selectedProductIds.includes(getProductId(p)))}
                                     onChange={(e) => {
                                       if (e.target.checked) {
-                                        const availIds = filteredAvailableProducts.map(getProductId).filter(Boolean);
+                                        const availIds = filteredNoCampaignProducts.map(getProductId).filter(Boolean);
                                         setSelectedProductIds(prev => Array.from(new Set([...prev, ...availIds])));
                                         setSelectedProducts(prev => {
                                           const next = [...prev];
-                                          filteredAvailableProducts.forEach(p => {
+                                          filteredNoCampaignProducts.forEach(p => {
                                             if (!next.some(x => getProductId(x) === getProductId(p))) {
                                               next.push(p);
                                             }
@@ -1642,7 +2034,7 @@ const CreateCampaignPage = () => {
                                           return next;
                                         });
                                       } else {
-                                        const availIds = filteredAvailableProducts.map(getProductId).filter(Boolean);
+                                        const availIds = filteredNoCampaignProducts.map(getProductId).filter(Boolean);
                                         setSelectedProductIds(prev => prev.filter(id => !availIds.includes(id)));
                                         setSelectedProducts(prev => prev.filter(p => !availIds.includes(getProductId(p))));
                                       }
@@ -1657,22 +2049,24 @@ const CreateCampaignPage = () => {
                               </tr>
                             </thead>
                             <tbody>
-                              {filteredAvailableProducts.map((p) => {
+                              {filteredNoCampaignProducts.map((p) => {
                                 const id = getProductId(p);
                                 const name = getProductName(p);
                                 const price = getProductPrice(p);
                                 const imageUrl = resolveWixImage(getProductImage(p));
                                 const sku = getProductSku(p);
                                 const isChecked = selectedProductIds.includes(id);
+                                const isSelectable = isProductSelectable(p);
 
                                 return (
-                                  <tr key={id} className={isChecked ? "product-row-selected" : ""}>
+                                  <tr key={id} className={!isSelectable ? "product-row-disabled" : (isChecked ? "product-row-selected" : "")} style={!isSelectable ? { opacity: 0.7 } : {}}>
                                     <td>
                                       <input
                                         type="checkbox"
                                         checked={isChecked}
+                                        disabled={!isSelectable}
                                         onChange={(e) => handleProductSelectChange(p, e.target.checked)}
-                                        style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                                        style={{ width: "16px", height: "16px", cursor: isSelectable ? "pointer" : "default" }}
                                       />
                                     </td>
                                     <td>
@@ -1695,7 +2089,7 @@ const CreateCampaignPage = () => {
                                     </td>
                                     <td>
                                       <span className="status-capsule active">
-                                        In Stock
+                                        {isOutOfStock(p) ? "Out of Stock" : "In Stock"}
                                       </span>
                                     </td>
                                   </tr>
@@ -1706,6 +2100,100 @@ const CreateCampaignPage = () => {
                         </div>
                       )}
                     </div>
+
+                    {/* Group 1: Products already in other campaigns (Disabled / Selectable) */}
+                    {Object.entries(filteredCampaignGroups).map(([cid, groupProducts]) => (
+                      <div key={cid} className="campaign-group-section" style={{ marginBottom: "28px" }}>
+                        <h3 className="section-label-main" style={{ fontSize: "15px", fontWeight: "700", color: "#475569", marginBottom: "12px", borderBottom: "1px solid #e2e8f0", paddingBottom: "6px" }}>
+                          Campaign ID: {cid}
+                        </h3>
+                        <div className="table-wrapper-horizontal">
+                          <table className="campaigns-desktop-table products-selection-table">
+                            <thead>
+                              <tr>
+                                <th style={{ width: "40px" }}></th>
+                                <th style={{ width: "60px" }}>Image</th>
+                                <th>Product Name</th>
+                                <th>Price</th>
+                                <th>Status / Availability</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {groupProducts.map((p) => {
+                                const id = getProductId(p);
+                                const name = getProductName(p);
+                                const price = getProductPrice(p);
+                                const imageUrl = resolveWixImage(getProductImage(p));
+                                const sku = getProductSku(p);
+                                const isChecked = selectedProductIds.includes(id);
+                                const isSelectable = isProductSelectable(p);
+
+                                return (
+                                  <tr key={id} className={!isSelectable ? "product-row-disabled" : (isChecked ? "product-row-selected" : "")} style={!isSelectable ? { opacity: 0.7 } : {}}>
+                                    <td>
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        disabled={!isSelectable}
+                                        onChange={(e) => handleProductSelectChange(p, e.target.checked)}
+                                        style={{ width: "16px", height: "16px", cursor: isSelectable ? "pointer" : "default" }}
+                                      />
+                                    </td>
+                                    <td>
+                                      <div className="product-img-holder" style={{ width: "40px", height: "40px" }}>
+                                        {imageUrl ? (
+                                          <img src={imageUrl} alt={name} />
+                                        ) : (
+                                          <Package size={20} className="img-placeholder" />
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td>
+                                      <div style={{ display: "flex", flexDirection: "column" }}>
+                                        <span className="campaign-name-bold">{name}</span>
+                                        <span style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>SKU: {sku}</span>
+                                      </div>
+                                    </td>
+                                    <td>
+                                      <span className="campaign-budget-value">₹{price}</span>
+                                    </td>
+                                    <td>
+                                      <span className="status-capsule inactive" style={{ background: "#f1f5f9", color: "#64748b" }}>
+                                        {!isSelectable ? "Already in another campaign" : "In Campaign"}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Infinite Load More button fallback */}
+                    {hasMoreProducts && (
+                      <div style={{ textAlign: "center", marginTop: "24px", marginBottom: "16px" }}>
+                        <button
+                          type="button"
+                          className="preset-btn"
+                          disabled={loadingMoreProducts || productsLoading}
+                          onClick={loadMoreProducts}
+                          style={{
+                            padding: "8px 16px",
+                            background: "var(--primary-color)",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: "8px",
+                            fontWeight: "600",
+                            cursor: "pointer",
+                            fontSize: "13.5px"
+                          }}
+                        >
+                          {loadingMoreProducts ? "Loading more..." : "Load More Products"}
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -1736,7 +2224,7 @@ const CreateCampaignPage = () => {
               {/* Right sticky launch sidebar panel */}
               <div className="cc-summary-card">
                 <h3>Launch Campaign</h3>
-                
+
                 <div className="summary-details-list">
                   <div className="summary-item">
                     <span className="sum-label">Campaign Name:</span>

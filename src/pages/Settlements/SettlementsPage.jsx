@@ -29,6 +29,7 @@ const safeArray = (value) => {
 
 const normalizeStatus = (status) => safeString(status).trim();
 const isPaidStatus = (status) => normalizeStatus(status).toLowerCase() === "paid";
+const isUpcomingStatus = (status) => normalizeStatus(status).toLowerCase() === "upcoming payment";
 
 const getPayoutDetails = (payment) => {
   if (payment?.rawPayout) return payment.rawPayout;
@@ -39,12 +40,14 @@ const getPayoutDetails = (payment) => {
 };
 
 const extractPaymentsFromResponse = (response) => {
-  const apiData = response?.data ?? response;
+  if (!response) return [];
   const possiblePayments =
-    apiData?.message?.payments ??
-    apiData?.payments ??
-    apiData?.data?.payments ??
-    apiData?.data?.message?.payments ??
+    response.payments ??
+    response.message?.payments ??
+    response.data?.payments ??
+    response.data?.message?.payments ??
+    response.message?.data?.payments ??
+    (response.data ? (response.data.payments ?? response.data.message?.payments) : null) ??
     [];
   return safeArray(possiblePayments);
 };
@@ -59,59 +62,54 @@ const normalizeSettlementPayments = (apiResponse) => {
         ? apiResponse
         : [];
 
-  const rows = [];
-
-  payments.forEach((item, index) => {
+  const rows = payments.map((item, index) => {
     const payout = item?.payoutDetails || item || {};
-    const breakupList = Array.isArray(payout?.settlementBreakup) ? payout.settlementBreakup : [];
 
-    if (breakupList.length > 0) {
-      breakupList.forEach((breakup, breakupIndex) => {
-        rows.push({
-          id: `${payout.sellerId || "seller"}_${breakup.orderId || payout.ordersPaid || index}_${payout.paymentDate || index}_${breakupIndex}`,
-          sellerId: payout.sellerId || "-",
-          ordersPaid: payout.ordersPaid || "-",
-          orderId: breakup.orderId || payout.ordersPaid || "-",
-          totalAmount: Number(payout.totalAmount || 0),
-          orderAmount: Number(breakup.orderAmount || payout.totalAmount || 0),
-          settlementAmount: Number(breakup.settlementAmount || payout.totalAmount || 0),
-          productGST: Number(breakup.productGST || 0),
-          shippingFee: Number(breakup.shippingFee || 0),
-          shippingGST: Number(breakup.shippingGST || 0),
-          totalDebit: Number(breakup.totalDebit || 0),
-          rtopenalty: Number(breakup.rtopenalty || breakup.rtoPenalty || 0),
-          status: payout.status || "-",
-          paymentDate: payout.paymentDate || null,
-          rawPayout: payout,
-          payoutDetails: payout,
-        });
-      });
-    } else {
-      rows.push({
-        id: `${payout.sellerId || "seller"}_${payout.ordersPaid || index}_${payout.paymentDate || index}`,
-        sellerId: payout.sellerId || "-",
-        ordersPaid: payout.ordersPaid || "-",
-        orderId: payout.ordersPaid || "-",
-        totalAmount: Number(payout.totalAmount || 0),
-        orderAmount: Number(payout.totalAmount || 0),
-        settlementAmount: Number(payout.totalAmount || 0),
-        productGST: 0,
-        shippingFee: 0,
-        shippingGST: 0,
-        totalDebit: 0,
-        rtopenalty: 0,
-        status: payout.status || "-",
-        paymentDate: payout.paymentDate || null,
-        rawPayout: payout,
-        payoutDetails: payout,
-      });
-    }
+    const breakupKey = Array.isArray(payout.settlementBreakup)
+      ? payout.settlementBreakup
+          .map((b) => b.orderId || b.order_id || "")
+          .filter(Boolean)
+          .join("_")
+      : "";
+
+    const uniqueId = [
+      payout._id,
+      payout.id,
+      payout.paymentId,
+      payout.sellerId,
+      payout.ordersPaid,
+      payout.status,
+      payout.paymentDate,
+      payout.totalAmount,
+      breakupKey,
+      index,
+    ]
+      .filter((v) => v !== undefined && v !== null && String(v).trim() !== "")
+      .join("_");
+
+    return {
+      id: uniqueId || `settlement_${index}`,
+      sellerId: payout.sellerId || "-",
+      ordersPaid: payout.ordersPaid || "-",
+      orderId: payout.ordersPaid || "-",
+      totalAmount: Number(payout.totalAmount || 0),
+      status: payout.status || "-",
+      paymentDate: payout.paymentDate || null,
+      settlementBreakup: Array.isArray(payout.settlementBreakup) ? payout.settlementBreakup : [],
+      rawPayout: payout,
+      payoutDetails: payout,
+    };
   });
 
-  const totalSettlements = rows.reduce((sum, r) => sum + r.settlementAmount, 0);
-  const totalOrderAmount = rows.reduce((sum, r) => sum + r.orderAmount, 0);
-  const totalDebits = rows.reduce((sum, r) => sum + r.totalDebit, 0);
+  const totalSettlements = rows.reduce((sum, r) => sum + r.totalAmount, 0);
+  const totalOrderAmount = rows.reduce((sum, r) => sum + r.totalAmount, 0);
+  const totalDebits = 0;
   const paidCount = rows.filter((r) => isPaidStatus(r.status)).length;
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[Settlements] Raw payments:", payments);
+    console.log("[Settlements] Normalized settlement rows:", rows);
+  }
 
   return {
     fromDate: message.fromDate,
@@ -123,7 +121,11 @@ const normalizeSettlementPayments = (apiResponse) => {
   };
 };
 
-const formatDateForApi = (date) => {
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const WEEK_DAYS   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+const formatApiDate = (date) => {
   if (!date) return "";
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -131,9 +133,26 @@ const formatDateForApi = (date) => {
   return `${y}-${m}-${d}`;
 };
 
+const formatDateForApi = formatApiDate;
+
+const formatDisplayDate = (date) => {
+  if (!date) return "-";
+  try {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return date;
+    const day = String(d.getDate()).padStart(2, "0");
+    const mShort = MONTH_SHORT[d.getMonth()];
+    const y = d.getFullYear();
+    return `${day} ${mShort} ${y}`;
+  } catch (e) {
+    return date;
+  }
+};
+
 const getThisMonthRange = () => {
   const today = new Date();
-  const from = new Date(today.getFullYear(), today.getMonth(), 1);
+  const from = new Date(today);
+  from.setMonth(today.getMonth() - 1);
   from.setHours(0, 0, 0, 0);
   const to = new Date(today);
   to.setHours(23, 59, 59, 999);
@@ -144,10 +163,6 @@ const activeRequests = new Map();
 const lastFetchedParams = { key: null };
 
 // ─── Custom Date Range Picker ─────────────────────────────────────────────────
-
-const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const WEEK_DAYS   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
 
 const formatTriggerDate = (date) => {
   if (!date) return "";
@@ -263,7 +278,7 @@ const CalendarGrid = ({ year, month, from, to, hoverDate, today, onDayClick, onD
 };
 
 // ─── ModernDateRangePicker ────────────────────────────────────────────────────
-const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
+const ModernDateRangePicker = ({ fromDate, toDate, onChange, maxDate, label }) => {
   const [open, setOpen]           = useState(false);
   const [tempFrom, setTempFrom]   = useState(null);
   const [tempTo, setTempTo]       = useState(null);
@@ -362,10 +377,7 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
     return list;
   }, []);
 
-  const triggerLabel = useMemo(() => {
-    if (!fromDate || !toDate) return "Select date range";
-    return `${formatTriggerDate(fromDate)}  –  ${formatTriggerDate(toDate)}`;
-  }, [fromDate, toDate]);
+  const triggerLabel = label || "This Month";
 
   const selectionLabel = useMemo(() => {
     if (!tempFrom)           return "Select start date";
@@ -476,7 +488,7 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange }) => {
             to={tempTo}
             hoverDate={tempFrom && !tempTo ? hoverDate : null}
             today={today}
-            maxDate={today}
+            maxDate={maxDate || today}
             onDayClick={handleDayClick}
             onDayHover={setHoverDate}
             onDayLeave={() => setHoverDate(null)}
@@ -525,6 +537,21 @@ const SettlementsPage = () => {
   const thisMonth = useMemo(() => getThisMonthRange(), []);
   const [appliedFromDate, setAppliedFromDate] = useState(thisMonth.from);
   const [appliedToDate, setAppliedToDate] = useState(thisMonth.to);
+  const [dateFilterLabel, setDateFilterLabel] = useState("This Month");
+
+  const datePickerMaxDate = useMemo(() => {
+    const today = new Date();
+    if (activeTab === "upcoming") {
+      const upcomingMax = new Date(today);
+      upcomingMax.setDate(upcomingMax.getDate() + 7);
+      upcomingMax.setHours(23, 59, 59, 999);
+      return upcomingMax;
+    } else {
+      const todayMax = new Date(today);
+      todayMax.setHours(23, 59, 59, 999);
+      return todayMax;
+    }
+  }, [activeTab]);
 
   const handleDateChange = useCallback(({ from, to }) => {
     if (!from) {
@@ -532,15 +559,22 @@ const SettlementsPage = () => {
       lastFetchedParams.key = null;
       setAppliedFromDate(range.from);
       setAppliedToDate(range.to);
+      setDateFilterLabel("This Month");
       return;
     }
     lastFetchedParams.key = null;
     setAppliedFromDate(from);
     setAppliedToDate(to);
+    setDateFilterLabel("Custom Date");
   }, []);
 
   const loadSettlements = useCallback(async (force = false) => {
     const email   = (resolveSellerEmail() || "").trim();
+    if (!email) {
+      setError("Seller email not found. Please login again.");
+      setLoading(false);
+      return;
+    }
     const fromStr = formatDateForApi(appliedFromDate);
     const toStr   = formatDateForApi(appliedToDate);
     const paramKey = `${email}_${fromStr}_${toStr}_50_0`;
@@ -571,6 +605,10 @@ const SettlementsPage = () => {
     try {
       const response = await sellerService.getSellerPayments(fetchParams, { signal: controller.signal });
       lastFetchedParams.key = paramKey;
+      
+      console.log("Settlement API Params:", { email, fromDate: fromStr, toDate: toStr });
+      console.log("Settlement API Response:", response);
+      
       const payments = extractPaymentsFromResponse(response);
       setRawTransactions(payments);
     } catch (err) {
@@ -613,7 +651,7 @@ const SettlementsPage = () => {
     const { rows } = normalizeSettlementPayments(apiResponse);
 
     return rows.map((payment, idx) => {
-      const payoutDetails = getPayoutDetails(payment);
+      const payoutDetails = payment.payoutDetails || payment || {};
       if (!payoutDetails || typeof payoutDetails !== "object") return null;
 
       const ordersPaid = safeString(
@@ -631,24 +669,38 @@ const SettlementsPage = () => {
         payoutDetails.settlementBreakup ?? payoutDetails.breakup ?? []
       );
 
+      const breakupKey = settlementBreakup
+        .map((b) => b.orderId || b.order_id || "")
+        .filter(Boolean)
+        .join("_");
+
+      const uniqueId = [
+        payment.id,
+        payoutDetails._id,
+        payoutDetails.id,
+        payoutDetails.paymentId,
+        payoutDetails.sellerId,
+        ordersPaid,
+        status,
+        paymentDate,
+        totalAmount,
+        breakupKey,
+        idx,
+      ]
+        .filter((v) => v !== undefined && v !== null && String(v).trim() !== "")
+        .join("_");
+
       return {
-        id: `${ordersPaid || "order"}-${paymentDate || "date"}-${status || "status"}-${idx}`,
-        orderId: payment?.orderId || ordersPaid || "-",
+        id: uniqueId || `settlement_mapped_${idx}`,
+        orderId: ordersPaid || "-",
         amount: totalAmount,
         sellerId: payoutDetails.sellerId || "-",
         ordersPaid: ordersPaid || "-",
         totalAmount,
-        orderAmount: safeNumber(payment?.orderAmount ?? totalAmount),
-        settlementAmount: safeNumber(payment?.settlementAmount ?? totalAmount),
-        productGST: safeNumber(payment?.productGST ?? 0),
-        shippingFee: safeNumber(payment?.shippingFee ?? 0),
-        shippingGST: safeNumber(payment?.shippingGST ?? 0),
-        totalDebit: safeNumber(payment?.totalDebit ?? 0),
-        rtopenalty: safeNumber(payment?.rtopenalty ?? 0),
         status,
-        paymentDate: formatDate(paymentDate),
+        paymentDate: formatDisplayDate(paymentDate),
         rawPaymentDate: paymentDate,
-        isUpcoming: !isPaidStatus(status),
+        isUpcoming: isUpcomingStatus(status),
         settlementBreakup,
         rawPayout: payoutDetails,
       };
@@ -665,11 +717,24 @@ const SettlementsPage = () => {
     );
   }, [search]);
 
+  const uniqueMappedTransactions = useMemo(() => {
+    const seen = new Set();
+    return mappedTransactions.filter((tx) => {
+      if (!tx?.id) return false;
+      if (seen.has(tx.id)) return false;
+      seen.add(tx.id);
+      return true;
+    });
+  }, [mappedTransactions]);
+
   const filteredTransactions = useMemo(() => {
-    const prev     = mappedTransactions.filter((tx) => !tx.isUpcoming && matchesSearch(tx));
-    const upcoming = mappedTransactions.filter((tx) =>  tx.isUpcoming && matchesSearch(tx));
+    const prev     = uniqueMappedTransactions.filter((tx) => isPaidStatus(tx.status)    && matchesSearch(tx));
+    const upcoming = uniqueMappedTransactions.filter((tx) => isUpcomingStatus(tx.status) && matchesSearch(tx));
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[Settlements] Upcoming rows:", upcoming.length, "Previous rows:", prev.length);
+    }
     return activeTab === "upcoming" ? upcoming : prev;
-  }, [mappedTransactions, activeTab, matchesSearch]);
+  }, [uniqueMappedTransactions, activeTab, matchesSearch]);
 
   return (
     <div className="settlements-page-root">
@@ -709,6 +774,8 @@ const SettlementsPage = () => {
               fromDate={appliedFromDate}
               toDate={appliedToDate}
               onChange={handleDateChange}
+              maxDate={datePickerMaxDate}
+              label={dateFilterLabel}
             />
 
             <button
@@ -774,7 +841,12 @@ const SettlementsPage = () => {
                         <button
                           type="button"
                           className="btn-view-details"
-                          onClick={() => setSelectedTx(tx)}
+                          onClick={() => {
+                            if (process.env.NODE_ENV !== "production") {
+                              console.log("[Settlements] Modal settlementBreakup:", tx.settlementBreakup);
+                            }
+                            setSelectedTx(tx);
+                          }}
                         >
                           View Details
                         </button>
@@ -798,48 +870,45 @@ const SettlementsPage = () => {
               </button>
             </div>
             <div className="modal-body" style={{ maxHeight: "70vh", overflowY: "auto" }}>
-              <div className="modal-info-row">
+              <div className="modal-info-row payment-detail-row">
                 <span className="info-label font-bold">Orders Paid:</span>
-                <span className="info-value font-bold text-gray-800">{selectedTx.ordersPaid}</span>
+                <span className="info-value value font-bold text-gray-800">{selectedTx.ordersPaid}</span>
               </div>
-              <div className="modal-info-row">
+              <div className="modal-info-row payment-detail-row">
                 <span className="info-label font-bold">Payment Date:</span>
-                <span className="info-value text-gray-800">{selectedTx.paymentDate}</span>
+                <span className="info-value value text-gray-800">{selectedTx.paymentDate}</span>
               </div>
-              <div className="modal-info-row">
+              <div className="modal-info-row payment-detail-row">
                 <span className="info-label font-bold">Status:</span>
-                <span className="info-value text-gray-800">
+                <span className="info-value value text-gray-800">
                   <span className="settlement-status-badge">{selectedTx.status}</span>
                 </span>
               </div>
-              <div className="modal-info-row">
+              <div className="modal-info-row payment-detail-row">
                 <span className="info-label font-bold">Total Amount:</span>
-                <span className="info-value font-bold text-emerald-600">{formatCurrency(selectedTx.totalAmount)}</span>
+                <span className="info-value value font-bold text-emerald-600">{formatCurrency(selectedTx.totalAmount)}</span>
               </div>
               <div className="modal-divider" />
               <h3 style={{ fontSize: "15px", fontWeight: "700", color: "#111827", marginBottom: "12px" }}>
                 Settlement Breakup
               </h3>
               {selectedTx.settlementBreakup && selectedTx.settlementBreakup.length > 0 ? (
-                <div className="breakup-list" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div className={`settlement-breakup-list${selectedTx.settlementBreakup.length === 1 ? " single-item" : ""}`}>
                   {selectedTx.settlementBreakup.map((item, idx) => {
                     const breakupOrderId = item.orderId ?? item.orderID ?? item.id ?? "-";
                     const orderAmount    = safeNumber(item.orderAmount ?? item.amount ?? 0);
-                    const productGST     = safeNumber(item.productGST ?? item.productGst ?? 0);
+                    const productGST     = safeNumber(item.productGST ?? item.productGst ?? item.productGstAmount ?? 0);
                     const shippingFee    = safeNumber(item.shippingFee ?? 0);
-                    const shippingGST    = safeNumber(item.shippingGST ?? 0);
+                    const shippingGST    = safeNumber(item.shippingGST ?? item.shippingGst ?? 0);
                     const totalDebit     = safeNumber(item.totalDebit ?? 0);
-                    const settlementAmt  = safeNumber(item.settlementAmount ?? 0);
+                    const settlementAmt  = safeNumber(item.settlementAmount ?? item.settlementAmt ?? 0);
+                    const rtoPenaltyVal  = item.rtopenalty ?? item.rtoPenalty;
 
                     return (
-                      <div
-                        key={idx}
-                        className="breakup-item"
-                        style={{ padding: "14px", background: "#f9fafb", borderRadius: "10px", border: "1px solid #f1f3f6" }}
-                      >
-                        <div className="modal-info-row" style={{ marginBottom: "8px" }}>
+                      <div key={idx} className="settlement-breakup-card">
+                        <div className="payment-detail-row" style={{ marginBottom: "8px" }}>
                           <span className="info-label font-semibold">Order ID:</span>
-                          <span className="info-value font-semibold text-gray-800">#{breakupOrderId}</span>
+                          <span className="info-value value font-semibold text-gray-800">#{breakupOrderId}</span>
                         </div>
                         {[
                           ["Order Amount",  formatCurrency(orderAmount)],
@@ -848,21 +917,21 @@ const SettlementsPage = () => {
                           ["Shipping GST",  formatCurrency(shippingGST)],
                           ["Total Debit",   formatCurrency(totalDebit)],
                         ].map(([label, val]) => (
-                          <div key={label} className="modal-info-row" style={{ marginBottom: "6px", fontSize: "13.5px" }}>
+                          <div key={label} className="payment-detail-row" style={{ marginBottom: "6px", fontSize: "13.5px" }}>
                             <span className="info-label">{label}:</span>
-                            <span className="info-value">{val}</span>
+                            <span className="info-value value">{val}</span>
                           </div>
                         ))}
-                        {item.rtopenalty != null && (
-                          <div className="modal-info-row" style={{ marginBottom: "6px", fontSize: "13.5px" }}>
+                        {rtoPenaltyVal != null && (
+                          <div className="payment-detail-row" style={{ marginBottom: "6px", fontSize: "13.5px" }}>
                             <span className="info-label">RTO Penalty:</span>
-                            <span className="info-value">{formatCurrency(item.rtopenalty)}</span>
+                            <span className="info-value value">{formatCurrency(safeNumber(rtoPenaltyVal))}</span>
                           </div>
                         )}
                         <div className="modal-divider" style={{ margin: "10px 0" }} />
-                        <div className="modal-info-row" style={{ marginBottom: 0 }}>
+                        <div className="payment-detail-row" style={{ marginBottom: 0 }}>
                           <span className="info-label font-semibold text-emerald-600">Settlement Amount:</span>
-                          <span className="info-value font-bold text-emerald-600">{formatCurrency(settlementAmt)}</span>
+                          <span className="info-value value font-bold text-emerald-600">{formatCurrency(settlementAmt)}</span>
                         </div>
                       </div>
                     );

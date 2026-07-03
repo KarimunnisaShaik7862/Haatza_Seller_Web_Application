@@ -19,6 +19,11 @@
   box-sizing: border-box;
 }
 
+.grow-plan-container.has-sticky-action,
+.grow-plan-page-content.has-sticky-action {
+  padding-bottom: 140px !important;
+}
+
 .grow-plan-breadcrumb {
   font-size: 13px;
   color: var(--gp-muted);
@@ -111,7 +116,8 @@
 
 .plan-card {
   position: relative;
-  min-height: 190px;
+  min-height: 520px;
+  height: 520px;
   background: var(--gp-card);
   border: 1px solid var(--gp-border);
   border-radius: 14px;
@@ -119,6 +125,9 @@
   box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
   cursor: pointer;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .plan-card:hover {
@@ -235,9 +244,35 @@
   color: #c2410c;
 }
 
+.plan-status-banner {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.plan-status-banner.active {
+  background: #e8f8ef;
+  color: #087443;
+}
+
+.plan-status-banner.scheduled {
+  background: #eef4ff;
+  color: #1d4ed8;
+}
+
 .plan-expanded-details,
 .plan-review-card {
   animation: gp-fade-up 0.2s ease;
+}
+
+.plan-expanded-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .plan-divider,
@@ -260,6 +295,8 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  overflow: hidden;
 }
 
 .plan-feature-item {
@@ -278,14 +315,22 @@
 }
 
 .btn-see-more-toggle {
-  margin-top: 14px;
+  margin-top: auto;
   border: 0;
   background: transparent;
   color: var(--gp-primary);
   font-size: 13px;
   font-weight: 800;
   cursor: pointer;
-  padding: 0;
+  padding: 14px 0 0;
+  align-self: flex-start;
+}
+
+.scheduled-plan-action-note {
+  margin-top: 6px;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .grow-plan-footer-content {
@@ -315,23 +360,53 @@
   line-height: 1.6;
 }
 
-.plans-action-bar {
+.grow-plan-sticky-footer {
   position: fixed;
-  left: 0;
+  left: var(--sidebar-width, 320px);
   right: 0;
   bottom: 0;
-  z-index: 30;
-  background: rgba(255, 255, 255, 0.94);
-  border-top: 1px solid var(--gp-border);
-  backdrop-filter: blur(10px);
+  z-index: 9999;
+  background: #ffffff;
+  padding: 16px 32px;
+  border-top: 1px solid #e5e7eb;
+  box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.12);
+  box-sizing: border-box;
 }
 
-.plans-action-content {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 16px 24px;
+.grow-plan-sticky-action {
+  width: 100%;
+  min-height: 76px;
+  background: #ffffff;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  box-sizing: border-box;
+}
+
+.grow-plan-action-bar {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  padding: 20px 24px;
+}
+
+.grow-plan-action-btn {
+  width: 220px;
+  height: 48px;
+  min-width: 220px;
+  max-width: 220px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .btn-continue,
@@ -633,7 +708,9 @@
 }
 
 @keyframes gp-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes gp-fade-up {
@@ -641,6 +718,7 @@
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -648,9 +726,42 @@
 }
 
 @media (max-width: 1024px) {
-  .plans-list,
+  .plans-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .grow-plan-footer-content {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .grow-plan-sticky-footer {
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    padding: 12px !important;
+  }
+
+  .grow-plan-sticky-action {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  .grow-plan-sticky-action button {
+    width: 100% !important;
+  }
+
+  .grow-plan-sticky-action .grow-plan-action-btn {
+    width: 220px !important;
+    min-width: 220px;
+    max-width: 220px;
+  }
+
+  .grow-plan-container.has-sticky-action,
+  .grow-plan-page-content.has-sticky-action {
+    padding-bottom: 190px !important;
   }
 }
 
@@ -661,6 +772,11 @@
 
   .grow-plan-header h1 {
     font-size: 24px;
+  }
+
+  .plans-list,
+  .grow-plan-footer-content {
+    grid-template-columns: 1fr;
   }
 
   .plan-card,
@@ -683,11 +799,5 @@
     min-height: 42px;
   }
 
-  .plans-action-content {
-    padding: 14px 16px;
-  }
 
-  .btn-continue {
-    width: 100%;
-  }
 }

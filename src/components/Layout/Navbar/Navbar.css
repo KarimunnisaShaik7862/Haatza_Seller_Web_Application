@@ -585,13 +585,20 @@ body {
   right: 0;
   z-index: 999;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
   padding: 10px 16px;
   background: var(--white);
   border-bottom: 1.5px solid var(--primary-mid);
   box-shadow: 0 4px 20px rgba(41, 98, 255, 0.12);
   animation: slideDown 0.2s cubic-bezier(0.4, 0, 0.2, 1) both;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.mobile-search-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 @keyframes slideDown {
@@ -1062,3 +1069,60 @@ body {
 
 .tx-amount.credit { color: var(--success); }
 .tx-amount.debit  { color: var(--navy); }
+
+/* ── Module-navigator search suggestions ── */
+.search-wrap-outer {
+  position: relative;
+  flex: 1;
+  max-width: 320px;
+}
+
+.search-suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--white);
+  border: 1px solid var(--gray-100);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 1500;
+  padding: 6px;
+}
+
+.search-suggestion-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-family: var(--font-main);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--navy);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.search-suggestion-item:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.search-suggestion-empty {
+  padding: 14px 12px;
+  font-size: 13px;
+  color: var(--text-soft);
+  text-align: center;
+}
+
+.search-suggestions--mobile {
+  position: static;
+  margin-top: 8px;
+  box-shadow: none;
+  border: 1px solid var(--gray-100);
+}
