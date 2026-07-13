@@ -296,37 +296,119 @@ const StepIndicatorMobile = ({ currentStep }) => (
   </div>
 );
 
+/* ── PARSE RAW CHOICES HELPER ── */
+const parseRawChoices = (field) => {
+  const raw = field.choices || field.options || field.values || [];
+  let parsed = [];
+  if (Array.isArray(raw)) {
+    parsed = raw;
+  } else if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch (e) {
+        parsed = trimmed.split(",").map(c => c.trim()).filter(Boolean);
+      }
+    } else {
+      parsed = trimmed.split(",").map(c => c.trim()).filter(Boolean);
+    }
+  }
+
+  const mapped = parsed.map(c => {
+    if (typeof c === "object" && c !== null) {
+      const val = c.description || c.value || c.label || c.name || "";
+      return String(val).trim();
+    }
+    return c !== undefined && c !== null ? String(c).trim() : "";
+  }).filter(Boolean);
+
+  const seen = new Set();
+  return mapped.filter(item => {
+    const lower = item.toLowerCase();
+    if (seen.has(lower)) return false;
+    seen.add(lower);
+    return true;
+  });
+};
+
 /* ── SEARCHABLE DROPDOWN ── */
-const SearchableDropdown = ({ field, value, onChange, error, touched }) => {
+const SearchableDropdown = ({ field, value, onChange, error, touched, onOpenChange, forceUpward }) => {
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState("");
+  const [openUpward, setOpenUpward] = useState(false);
   const wrapRef = useRef(null);
-
-  const choices = Array.isArray(field.choices)
-    ? field.choices
-    : (field.choices ? field.choices.split(",").map(c => c.trim()).filter(Boolean) : []);
+  const inputRef = useRef(null);
+  const touchStartY = useRef(0);
+  const choices = parseRawChoices(field);
   const filtered = query.trim()
     ? choices.filter(c => c.toLowerCase().includes(query.toLowerCase()))
     : choices;
 
   useEffect(() => {
+    if (onOpenChange) onOpenChange(open);
+    return () => { if (onOpenChange) onOpenChange(false); };
+  }, [open, onOpenChange]);
+
+useEffect(() => {
+    if (!open) return;
     const handler = (e) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target)) { setOpen(false); setQuery(""); }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+    // Attach on next tick so the click that opened the dropdown doesn't
+    // immediately get seen as an "outside" click on the very first paint.
+    const raf = requestAnimationFrame(() => {
+      document.addEventListener("mousedown", handler, true);
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("mousedown", handler, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open && inputRef.current) {
+      // Focus without delay/scroll-jump so options are interactive immediately
+      inputRef.current.focus({ preventScroll: true });
+    }
+  }, [open]);
 
   const handleSelect = (choice) => { onChange(choice); setOpen(false); setQuery(""); };
   const hasError = error && touched;
+
+const handleTriggerClick = () => {
+    if (!open) {
+      if (forceUpward) {
+        setOpenUpward(true);
+      } else if (wrapRef.current) {
+        const rect = wrapRef.current.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const estimatedPanelHeight = 280;
+        setOpenUpward(spaceBelow < estimatedPanelHeight && rect.top > estimatedPanelHeight);
+      }
+    }
+    setOpen(p => !p);
+  };
+  const handleTouchStart = (e) => {
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e, choice) => {
+    const deltaY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
+    if (deltaY < 10) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleSelect(choice);
+    }
+  };
 
   return (
     <div
       className={`sp-dropdown-wrap ${open ? "sp-dropdown-wrap--open" : ""} ${hasError ? "sp-dropdown-wrap--error" : ""}`}
       ref={wrapRef}
-      style={{ position: "relative", zIndex: open ? 1000 : 1 }}
+      style={{ position: "relative", zIndex: open ? 1000 : "auto", pointerEvents: open ? "auto" : "auto" }}
     >
-      <button type="button" className="sp-dropdown-trigger" onClick={() => setOpen(p => !p)}>
+      <button type="button" className="sp-dropdown-trigger" style={{ position: "relative", zIndex: 2, pointerEvents: "auto" }} onClick={handleTriggerClick}>
         <span className={`sp-dropdown-value ${!value ? "sp-dropdown-placeholder" : ""}`}>
           {value || field.placeholderText || `Select ${field.title}`}
         </span>
@@ -335,11 +417,29 @@ const SearchableDropdown = ({ field, value, onChange, error, touched }) => {
         </span>
       </button>
       {open && (
-        <div className="sp-dropdown-panel" style={{ position: "absolute", zIndex: 9999, top: "100%", left: 0, right: 0 }}>
+        <div
+          className="sp-dropdown-panel"
+          style={{
+            position: "absolute",
+            zIndex: 9999,
+            left: 0,
+            right: 0,
+            pointerEvents: "auto",
+            ...(openUpward
+              ? { bottom: "100%", top: "auto", marginBottom: 4 }
+              : { top: "100%", bottom: "auto", marginTop: 4 }),
+          }}
+        >
           {choices.length > 6 && (
             <div className="sp-dropdown-search">
               <SearchIcon />
-              <input autoFocus className="sp-dropdown-search-input" placeholder="Search options..." value={query} onChange={e => setQuery(e.target.value)} />
+              <input
+                ref={inputRef}
+                className="sp-dropdown-search-input"
+                placeholder="Search options..."
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+              />
               {query && (
                 <button className="sp-dropdown-search-clear" onClick={() => setQuery("")}><CloseIcon /></button>
               )}
@@ -350,9 +450,12 @@ const SearchableDropdown = ({ field, value, onChange, error, touched }) => {
               <div className="sp-dropdown-empty">No results for "{query}"</div>
             ) : (
               filtered.map((choice, i) => (
-                <button key={i} type="button"
+                <button key={`${choice}__${i}`} type="button"
                   className={`sp-dropdown-option ${value === choice ? "sp-dropdown-option--selected" : ""}`}
-                  onClick={() => handleSelect(choice)}>
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSelect(choice);
+                  }}>
                   <span className="sp-dropdown-option-text">{choice}</span>
                   {value === choice && <CheckIcon size={11} color="#2962ff" />}
                 </button>
@@ -367,9 +470,7 @@ const SearchableDropdown = ({ field, value, onChange, error, touched }) => {
 
 /* ── MULTI-SELECT FIELD ── */
 const MultiSelectField = ({ field, value = [], onChange, error, touched }) => {
-  const choices = Array.isArray(field.choices)
-    ? field.choices
-    : (field.choices ? field.choices.split(",").map(c => c.trim()).filter(Boolean) : []);
+  const choices = parseRawChoices(field);
   const toggle = (choice) => {
     if (value.includes(choice)) onChange(value.filter(v => v !== choice));
     else onChange([...value, choice]);
@@ -391,9 +492,7 @@ const MultiSelectField = ({ field, value = [], onChange, error, touched }) => {
 
 /* ── RADIO FIELD ── */
 const RadioField = ({ field, value, onChange }) => {
-  const choices = Array.isArray(field.choices)
-    ? field.choices
-    : (field.choices ? field.choices.split(",").map(c => c.trim()).filter(Boolean) : []);
+  const choices = parseRawChoices(field);
   return (
     <div className="sp-radio-group">
       {choices.map((choice, i) => (
@@ -563,7 +662,7 @@ const SizeChartUploadField = ({ field, value, onChange, error, touched }) => {
 
 
 /* ── DYNAMIC FIELD ── */
-const DynamicField = ({ field, value, onChange, error, touched }) => {
+const DynamicField = ({ field, value, onChange, error, touched, onDropdownOpenChange, forceUpward }) => {
   const hasError = error && touched;
 
   const titleLower       = (field.title        || "").toLowerCase().trim();
@@ -601,7 +700,7 @@ const isSizeChart = !isOptionField && (
   const renderInput = () => {
     const et = (field.elementType || "").toLowerCase();
     if (et === "dropdown" || et === "dropdowns" || et === "select")
-      return <SearchableDropdown field={field} value={value} onChange={onChange} error={error} touched={touched}/>;
+      return <SearchableDropdown field={field} value={value} onChange={onChange} error={error} touched={touched} onOpenChange={onDropdownOpenChange} forceUpward={forceUpward}/>;
     if (et === "multiselect" || et === "multi_select" || et === "selection tag" || et === "selectiontag" || et === "selection_tag")
       return <MultiSelectField field={field} value={value || []} onChange={onChange} error={error} touched={touched}/>;
     if (et === "radio")
@@ -1386,6 +1485,12 @@ const VariantPricingModal = ({ open, variants, availableColors, variantPrices, o
   }, 0);
   const totalAmount = base + totalDiff;
 
+  const hasErrors = variants.some(v => {
+    const variantData = getVariantPriceData(v.key, variantPrices) || { op: "+", inputVal: "", appliedDiff: 0 };
+    const finalP = base + (parseFloat(variantData.appliedDiff) || 0);
+    return !isNaN(finalP) && finalP < 0;
+  });
+
   return (
     /* CHANGED: compact variant dialog — max-width 440px */
     <div className="sp-dialog-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -1419,15 +1524,49 @@ const VariantPricingModal = ({ open, variants, availableColors, variantPrices, o
             const variantData = getVariantPriceData(v.key, variantPrices) || { op: "+", inputVal: "", appliedDiff: 0 };
             const { op, inputVal, appliedDiff } = variantData;
             const variantFinalPrice = base + (parseFloat(appliedDiff) || 0);
+            const isInvalidPrice = variantFinalPrice < 0;
             const handleOpSelect = (selectedOp) => {
               const parsed = parseFloat(inputVal);
-              const newDiff = isNaN(parsed) ? 0 : (selectedOp === "-" ? -Math.abs(parsed) : Math.abs(parsed));
-              onPriceChange(v.key, { ...variantData, op: selectedOp, appliedDiff: newDiff });
+              let newDiff = isNaN(parsed) ? 0 : (selectedOp === "-" ? -Math.abs(parsed) : Math.abs(parsed));
+
+              // 99% max discount validation — min allowed price is 1% of base price
+              const minAllowedPrice = base * 0.01;
+              const proposedFinalPrice = base + newDiff;
+
+              if (selectedOp === "-" && proposedFinalPrice < minAllowedPrice) {
+                newDiff = -(base - minAllowedPrice);
+                onPriceChange(v.key, {
+                  ...variantData,
+                  op: selectedOp,
+                  inputVal: Math.abs(newDiff).toFixed(2),
+                  appliedDiff: newDiff,
+                  discountError: "Discount cannot exceed 99% of the On Sale Price.",
+                });
+                return;
+              }
+
+              onPriceChange(v.key, { ...variantData, op: selectedOp, appliedDiff: newDiff, discountError: "" });
             };
             const handleInputChange = (val) => {
               const parsed = parseFloat(val);
-              const newDiff = isNaN(parsed) ? 0 : (op === "-" ? -Math.abs(parsed) : Math.abs(parsed));
-              onPriceChange(v.key, { ...variantData, inputVal: val, appliedDiff: newDiff });
+              let newDiff = isNaN(parsed) ? 0 : (op === "-" ? -Math.abs(parsed) : Math.abs(parsed));
+
+              // 99% max discount validation — min allowed price is 1% of base price
+              const minAllowedPrice = base * 0.01;
+              const proposedFinalPrice = base + newDiff;
+
+              if (op === "-" && proposedFinalPrice < minAllowedPrice) {
+                newDiff = -(base - minAllowedPrice);
+                onPriceChange(v.key, {
+                  ...variantData,
+                  inputVal: Math.abs(newDiff).toFixed(2),
+                  appliedDiff: newDiff,
+                  discountError: "Discount cannot exceed 99% of the On Sale Price.",
+                });
+                return;
+              }
+
+              onPriceChange(v.key, { ...variantData, inputVal: val, appliedDiff: newDiff, discountError: "" });
             };
             let label = "";
             const isOptionColor = (v.optionField || "").toLowerCase() === "color" || (v.optionField || "").toLowerCase() === "colour";
@@ -1471,6 +1610,16 @@ const VariantPricingModal = ({ open, variants, availableColors, variantPrices, o
                       ? `${op === "-" ? "−" : "+"} ₹${Math.abs(parseFloat(inputVal)).toFixed(2)} applied`
                       : "Select + or − then enter amount"}
                   </div>
+                  {isInvalidPrice && (
+                    <div style={{ color: "var(--sp-red, #ef4444)", fontSize: 11, marginTop: 6, fontWeight: "600" }}>
+                      Variant price adjustment cannot reduce the product price below ₹0.
+                    </div>
+                  )}
+                  {variantData.discountError && (
+                    <div style={{ color: "var(--sp-red, #ef4444)", fontSize: 11, marginTop: 6, fontWeight: "600" }}>
+                      {variantData.discountError}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1479,7 +1628,7 @@ const VariantPricingModal = ({ open, variants, availableColors, variantPrices, o
 
         {/* Done button */}
         <div className="sp-dialog-footer-btn" style={{ padding: "10px 18px 14px" }}>
-          <button className="sp-vmodal-done-btn" onClick={onClose}>Done</button>
+          <button className="sp-vmodal-done-btn" onClick={onClose} disabled={hasErrors} style={{ opacity: hasErrors ? 0.5 : 1, cursor: hasErrors ? "not-allowed" : "pointer" }}>Done</button>
         </div>
       </div>
     </div>
@@ -1876,7 +2025,7 @@ const ConnectImageModal = ({ open, onClose, confirmedColors, uploadedProductImag
 const ColourAndEditSection = ({
   optionFields, values, basePrice, specFields,
   onColourImagesChange, confirmedColors, onConfirmedColorsChange,
-  colorError, variantPrices, onVariantPricesChange,
+  colorError, variantPricesError, variantPrices, onVariantPricesChange,
   uploadedProductImages = [],
   colourImages = {},
   onAddUploadedImage,
@@ -1892,13 +2041,14 @@ const ColourAndEditSection = ({
       return (f.elementType || "").toLowerCase() === "color picker";
     });
 
+    let baseColors = [];
     if (colorField) {
       const rawChoices = Array.isArray(colorField.choices)
         ? colorField.choices
         : (colorField.choices ? colorField.choices.split(",").map(c => c.trim()).filter(Boolean) : []);
 
       if (rawChoices.length > 0) {
-        const parsed = rawChoices.map(c => {
+        baseColors = rawChoices.map(c => {
           if (c && typeof c === "object") {
             return {
               name: c.description || c.name || c.value || "",
@@ -1910,14 +2060,27 @@ const ColourAndEditSection = ({
           const hex = COLOR_MAP[lower] || "#94a3b8";
           return { name, hex };
         }).filter(c => c.name);
-        setAvailableColors(parsed);
       } else {
-        setAvailableColors(DEFAULT_COLORS);
+        baseColors = [...DEFAULT_COLORS];
       }
     } else {
-      setAvailableColors(DEFAULT_COLORS);
+      baseColors = [...DEFAULT_COLORS];
     }
-  }, [optionFields]);
+
+    // Merge any confirmed colors (including custom ones) not already present in the base choices
+    const merged = [...baseColors];
+    if (Array.isArray(confirmedColors)) {
+      confirmedColors.forEach(cc => {
+        if (cc && cc.name) {
+          const exists = merged.some(c => c.name.toLowerCase().trim() === cc.name.toLowerCase().trim());
+          if (!exists) {
+            merged.push(cc);
+          }
+        }
+      });
+    }
+    setAvailableColors(merged);
+  }, [optionFields, confirmedColors, colorModalOpen]);
 
 
   const buildVariants = useCallback(() => {
@@ -2027,8 +2190,8 @@ const ColourAndEditSection = ({
       {hasColorPickerOption && (
         <div style={{ marginTop: 16 }}>
           {/* Header row: Colour label + Connect Image button */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div className="sp-color-section-header">
+            <div className="sp-color-section-left">
               <label className="sp-label" style={{ margin: 0 }}>Color</label>
               <button
                 type="button"
@@ -2044,17 +2207,11 @@ const ColourAndEditSection = ({
               </button>
             </div>
             {confirmedColors.length > 0 && (
-              <div style={{ position: "relative" }}>
+              <div className="sp-color-section-right">
                 <button
                   type="button"
                   onClick={() => setConnectImageOpen(true)}
-                  style={{
-                    background: "none", border: "1.5px solid var(--sp-primary, #2962ff)",
-                    borderRadius: 6, padding: "4px 10px", cursor: "pointer",
-                    fontFamily: "var(--ff-display)", fontSize: 12, fontWeight: 700,
-                    color: "var(--sp-primary, #2962ff)",
-                    display: "flex", alignItems: "center", gap: 5,
-                  }}
+                  className="sp-btn-connect-images"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
                     <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2"/>
@@ -2063,10 +2220,7 @@ const ColourAndEditSection = ({
                   </svg>
                   {mappedCount > 0 ? "Edit Connected Images" : "Connect Image"}
                   {mappedCount > 0 && (
-                    <span style={{
-                      background: "var(--sp-primary, #2962ff)", color: "white",
-                      borderRadius: 10, padding: "0 6px", fontSize: 10, fontWeight: 800,
-                    }}>
+                    <span className="sp-connect-badge">
                       {mappedCount}
                     </span>
                   )}
@@ -2202,6 +2356,9 @@ const ColourAndEditSection = ({
         }}
         onAddUploadedImage={onAddUploadedImage}
       />
+      {variantPricesError && (
+        <p className="sp-error-text sp-error-anim" style={{ marginTop: 6 }}>{variantPricesError}</p>
+      )}
 
       {/* Color Picker Modal */}
       <ColorPickerModal
@@ -2358,11 +2515,17 @@ const SpecificationPage = () => {
     if ((isEditMode || isDuplicateMode) && editData) {
       const merged = {};
 
+      if (editData.description) {
+        merged["Description"] = editData.description;
+        merged["description"] = editData.description;
+      }
+
       // Pull from additionalInfoSections (spec fields)
       if (Array.isArray(editData.additionalInfoSections)) {
         editData.additionalInfoSections.forEach(section => {
           Object.entries(section).forEach(([k, v]) => {
-            if (k !== "title" && k !== "description" && v != null && v !== "") {
+            const normK = k.toLowerCase().replace(/_/g, "").trim();
+            if (k !== "title" && k !== "description" && normK !== "promotionphotos" && normK !== "keywords" && normK !== "searchkeywords" && v != null && v !== "") {
               merged[k] = v;
             }
           });
@@ -2476,6 +2639,7 @@ const SpecificationPage = () => {
   const [touched,         setTouched]         = useState({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [mounted,         setMounted]         = useState(false);
+  const [anyDropdownOpen, setAnyDropdownOpen]  = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -2528,6 +2692,11 @@ if (!subcategoryId) {
     setValues(prev => {
       const next = { ...prev };
 
+      if (editData.description) {
+        next["Description"] = editData.description;
+        next["description"] = editData.description;
+      }
+
       // ── Inject size chart ──
       const sizeChartUrl = resolveSizeChartUrl(editData);
       if (sizeChartUrl) {
@@ -2550,7 +2719,6 @@ if (!subcategoryId) {
         }
       }
 
-      // ── Inject product options ──
       // ── Inject product options ──
 // Normalize to array regardless of whether API returned object or array
 const rawOpts = editData.productOptions;
@@ -2591,6 +2759,34 @@ optsArray.forEach(opt => {
     }
   }
 });
+
+      // ── Inject other specifications from additionalInfoSections ──
+      if (Array.isArray(editData.additionalInfoSections)) {
+        editData.additionalInfoSections.forEach(section => {
+          Object.entries(section).forEach(([k, v]) => {
+            if (!k || v == null || v === "") return;
+            const normK = k.toLowerCase().replace(/_/g, "").replace(/\s+/g, "").trim();
+            if (normK === "title" || normK === "description" || normK === "promotionphotos" || normK === "keywords" || normK === "searchkeywords") return;
+
+            // Find the matching field in fields
+            const matchedField = fields.find(f => {
+              const ftitle = (f.title || "").toLowerCase().replace(/_/g, "").replace(/\s+/g, "").trim();
+              const fid    = (f.fieldId || "").toLowerCase().replace(/_/g, "").replace(/\s+/g, "").trim();
+              return ftitle === normK || fid === normK;
+            });
+
+            if (matchedField) {
+              const key = matchedField.fieldId || matchedField.title;
+              if (!next[key] || next[key] === "") {
+                const et = (matchedField.elementType || "").toLowerCase();
+                const isMulti = et === "multiselect" || et === "multi_select" ||
+                                et === "selection tag" || et === "selectiontag";
+                next[key] = isMulti ? (Array.isArray(v) ? v : String(v).split(",").map(x => x.trim()).filter(Boolean)) : v;
+              }
+            }
+          });
+        });
+      }
 
       return next;
     });
@@ -2675,6 +2871,60 @@ optsArray.forEach(opt => {
         }
       }
     });
+
+    // Variant prices validation: final price must not be below 0
+    const base = parseFloat(basePrice) || 0;
+    const optionFields = fields.filter(f => f.type === "Product Options");
+    
+    // Generate variants
+    const optionSelections = optionFields.map(f => {
+      const key = f.fieldId || f.title;
+      const v   = values[key];
+      const selected = Array.isArray(v) ? v : (v ? [v] : []);
+      return { fieldTitle: f.title, selected };
+    }).filter(x => x.selected.length > 0);
+
+    const nonColorOptionSelections = optionSelections.filter(x => {
+      const titleLower = (x.fieldTitle || "").toLowerCase().trim();
+      return titleLower !== "color" && titleLower !== "colour";
+    });
+
+    const nonColorOptionCombos = nonColorOptionSelections.flatMap(({ fieldTitle, selected }) =>
+      selected.map(label => ({ optionField: fieldTitle, optionLabel: label }))
+    );
+
+    let activeVariants = [];
+    if (confirmedColors.length > 0) {
+      if (nonColorOptionCombos.length > 0) {
+        activeVariants = confirmedColors.flatMap(col =>
+          nonColorOptionCombos.map(opt => ({
+            key: `${col.name}__${opt.optionField}__${opt.optionLabel}`,
+          }))
+        );
+      } else {
+        activeVariants = confirmedColors.map(col => ({
+          key: col.name,
+        }));
+      }
+    } else {
+      activeVariants = nonColorOptionCombos.map(opt => ({
+        key: `${opt.optionField}__${opt.optionLabel}`,
+      }));
+    }
+
+    let hasVariantPriceError = false;
+    for (const v of activeVariants) {
+      const variantData = getVariantPriceData(v.key, variantPrices) || { op: "+", inputVal: "", appliedDiff: 0 };
+      const finalP = base + (parseFloat(variantData.appliedDiff) || 0);
+      if (!isNaN(finalP) && finalP < 0) {
+        hasVariantPriceError = true;
+        break;
+      }
+    }
+
+    if (hasVariantPriceError) {
+      errors["__variantPrices__"] = "Variant price adjustment cannot reduce the product price below ₹0.";
+    }
 
     return errors;
   };
@@ -2995,7 +3245,7 @@ console.groupEnd();
       </div>
 
       {/* Main layout */}
-      <div className="sp-layout">
+      <div className={`sp-layout ${anyDropdownOpen ? "sp-layout--dropdown-open" : ""}`}>
 
         {/* Form side */}
         <div className="sp-form-side">
@@ -3052,11 +3302,12 @@ console.groupEnd();
     })
     .map((field) => {
       const key = field.fieldId || field.title;
-      return (
+     return (
         <DynamicField key={key} field={field} value={values[key]}
           onChange={(val) => handleChange(key, val)}
           error={fieldErrors[key]}
           touched={touched[key] || submitAttempted}
+          onDropdownOpenChange={setAnyDropdownOpen}
         />
       );
     })}
@@ -3070,6 +3321,7 @@ console.groupEnd();
                         confirmedColors={confirmedColors}
                         onConfirmedColorsChange={setConfirmedColors}
                         colorError={fieldErrors["__colorSelection__"]}
+                        variantPricesError={fieldErrors["__variantPrices__"]}
                         variantPrices={variantPrices}
                         onVariantPricesChange={setVariantPrices}
                         colourImages={colourImages}
@@ -3106,13 +3358,16 @@ console.groupEnd();
                         </div>
                       )}
                       <div className="sp-form-grid">
-                        {specFields.map((field) => {
+                        {specFields.map((field, idx) => {
                           const key = field.fieldId || field.title;
+                          const forceUpward = idx >= specFields.length - 3;
                           return (
                             <DynamicField key={key} field={field} value={values[key]}
                               onChange={(val) => handleChange(key, val)}
                               error={fieldErrors[key]}
                               touched={touched[key] || submitAttempted}
+                              onDropdownOpenChange={setAnyDropdownOpen}
+                              forceUpward={forceUpward}
                             />
                           );
                         })}

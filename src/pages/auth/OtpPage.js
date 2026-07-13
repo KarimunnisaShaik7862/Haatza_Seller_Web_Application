@@ -31,6 +31,7 @@ function OtpPage() {
   const lastVerifiedCodeRef = useRef("");
 
   // ─── Timer ────────────────────────────────────────────────────────────────
+// ─── Timer (controls "Resend OTP" cooldown only — never disables input) ───
   const startTimer = useCallback(() => {
     clearInterval(timerRef.current);
     setTimeLeft(TIMER_SECONDS);
@@ -97,6 +98,34 @@ function OtpPage() {
         let response = verifyResponse;
         console.log("OTP Verification Success:", response);
 
+        // Defense-in-depth: never proceed unless the backend explicitly
+        // confirms success. This guarantees registration cannot complete
+        // on a wrong/expired OTP even if verifyOtp's rejection logic
+        // ever changes upstream.
+       // The backend's `message` field can be either a plain string
+        // ("Invalid OTP") or an object ({ message: "Invalid OTP", success: false }).
+        // Check both shapes — never trust the outer "status: success" envelope alone.
+        const nestedMsgObj = (response?.message && typeof response.message === "object") ? response.message : null;
+        const otpMessageText =
+          (typeof response?.message === "string" && response.message.toLowerCase()) ||
+          (nestedMsgObj && typeof nestedMsgObj.message === "string" && nestedMsgObj.message.toLowerCase()) ||
+          "";
+        const otpExplicitlyFailed = nestedMsgObj?.success === false;
+        const otpMessageLooksInvalid =
+          otpExplicitlyFailed ||
+          otpMessageText.includes("invalid") ||
+          otpMessageText.includes("incorrect") ||
+          otpMessageText.includes("wrong") ||
+          otpMessageText.includes("expire");
+
+        if (!response || response.status !== "success" || otpMessageLooksInvalid) {
+          setError("Incorrect OTP. Please try again.");
+          setSuccessMsg("");
+          setOtp(Array(OTP_LENGTH).fill(""));
+          setLoading(false);
+          return;
+        }
+
         // ── If this OTP verification is for a NEW SIGNUP, create the account
         //    now — only after the OTP has been successfully verified. ──────
         if (pendingRegistration) {
@@ -145,7 +174,7 @@ function OtpPage() {
           .toLowerCase();
 
         if (!emailToUse) {
-          setError("Incorrect OTP. Please enter the correct OTP.");
+          setError("Incorrect OTP. Please try again.");
           setSuccessMsg("");
           setLoading(false);
           return;
@@ -225,7 +254,12 @@ function OtpPage() {
         }
       })
       .catch((err) => {
-        setError("Incorrect OTP. Please enter the correct OTP.");
+        const msg = (err?.message || "").toLowerCase();
+        if (msg.includes("expire")) {
+          setError("This OTP has expired. Please request a new one.");
+        } else {
+          setError("Incorrect OTP. Please try again.");
+        }
         setSuccessMsg("");
         setOtp(Array(OTP_LENGTH).fill(""));
       })
@@ -253,7 +287,19 @@ function OtpPage() {
   // ─── Change Number ────────────────────────────────────────────────────────
   const handleChangeNumber = () => {
     clearInterval(timerRef.current);
-    navigate("/signin", { state: { prefillContact: phone } });
+    if (pendingRegistration) {
+      // Came from Sign-Up → go back to Sign-Up, not Sign-In
+      navigate("/signup", {
+        state: {
+          prefillContact: phone,
+          prefillFullName: pendingRegistration.fullName,
+          prefillEmail: pendingRegistration.email,
+        },
+      });
+    } else {
+      // Existing user → go back to Sign-In
+      navigate("/signin", { state: { prefillContact: phone } });
+    }
   };
 
   const handleOtpChange = (newOtpArray) => {

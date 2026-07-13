@@ -177,7 +177,12 @@ function OtpScreen({
                 inputMode: "numeric",
                 maxLength: 1,
                 value: digit,
-                disabled: loading || timeLeft === 0,
+                // Only the in-flight verify request should lock the boxes.
+                // The 60s value here only ever drove the Resend cooldown —
+                // OTPs stay valid in the DB for 5 minutes, so the digit
+                // boxes must never be disabled just because the on-screen
+                // countdown hit 0. Users can keep typing, or hit Resend.
+                disabled: loading,
                 onChange: (e) => handleChange(index, e),
                 onKeyDown: (e) => handleKeyDown(index, e),
                 onPaste: handlePaste,

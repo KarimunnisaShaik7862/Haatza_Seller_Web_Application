@@ -409,7 +409,7 @@ body {
   text-align: left;
 }
 
-.dropdown-item:hover        { background: var(--primary-light); color: var(--primary); }
+.dropdown-item:hover        { background: var(--gray-100); color: var(--text); }
 .dropdown-item.danger       { color: var(--danger); }
 .dropdown-item.danger:hover { background: #fff1f1; color: var(--danger); }
 

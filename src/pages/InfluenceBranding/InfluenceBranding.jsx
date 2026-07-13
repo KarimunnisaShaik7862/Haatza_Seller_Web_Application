@@ -96,9 +96,11 @@ const InfluenceBranding = () => {
   };
 
   // Fetch products
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchProducts = useCallback(async (isSilent = false) => {
+    if (!isSilent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const email = getSellerEmail();
       const response = await axios.get("https://haatza.com/_functions/seller_products", {
@@ -153,14 +155,25 @@ const InfluenceBranding = () => {
       setProducts(fetchedList);
     } catch (err) {
       console.error("Error loading products:", err);
-      setError(err.message || "Failed to load products list.");
+      if (!isSilent) {
+        setError(err.message || "Failed to load products list.");
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     fetchProducts();
+  }, [fetchProducts]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchProducts(true);
+    }, 30000);
+    return () => clearInterval(interval);
   }, [fetchProducts]);
 
   // Clear selections and reset page when activeTab changes

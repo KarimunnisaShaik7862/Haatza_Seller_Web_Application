@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { RefreshCw, Calendar } from "lucide-react";
 import { sellerService } from "../../services/sellerService";
 import { useAuth } from "../../context/AuthContext";
@@ -54,14 +54,15 @@ const [decadeStart, setDecadeStart] = useState(Math.floor(today.getFullYear() / 
     }
   }, [user]);
 
-  const loadReturns = async () => {
-    if (!sellerId) {
-      setReturnsList([]);
-      setLoading(false);
-      return;
+  const loadingRef = useRef(false);
+
+  const loadReturns = useCallback(async (isSilent = false) => {
+    if (!sellerId || loadingRef.current) return;
+    loadingRef.current = true;
+    if (!isSilent) {
+      setLoading(true);
+      setError("");
     }
-    setLoading(true);
-    setError("");
     try {
       const response = await sellerService.fetchReturns(sellerId);
       let list = [];
@@ -91,16 +92,29 @@ const [decadeStart, setDecadeStart] = useState(Math.floor(today.getFullYear() / 
       setReturnsList(enrichedReturns);
     } catch (err) {
       console.error("Error in loadReturns workflow:", err);
-      setError("Failed to load return requests. Please try again.");
+      if (!isSilent) {
+        setError("Failed to load return requests. Please try again.");
+      }
     } finally {
-      setLoading(false);
+      loadingRef.current = false;
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
-  };
+  }, [sellerId]);
 
   useEffect(() => {
     loadReturns();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sellerId]);
+  }, [sellerId, loadReturns]);
+
+  useEffect(() => {
+    if (!sellerId) return;
+    const interval = setInterval(() => {
+      loadReturns(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [sellerId, loadReturns]);
 
   
 
@@ -522,7 +536,7 @@ const handleMonthSelect = (monthIndex) => {
                 )}
             </div>
 
-            <button className="ret-btn ret-btn-secondary" onClick={loadReturns} disabled={loading} style={{ flexShrink: 0 }}>
+            <button className="ret-btn ret-btn-secondary" onClick={() => loadReturns(false)} disabled={loading} style={{ flexShrink: 0 }}>
               <RefreshCw size={16} className={loading ? "spin" : ""} />
               Refresh
             </button>

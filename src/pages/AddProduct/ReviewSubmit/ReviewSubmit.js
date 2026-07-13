@@ -10,6 +10,7 @@ import {
   resolveWixImage,
   getCachedSellerId,
   getCachedSellerPinCode,
+  fetchProductDetails,
 } from "../../../services/sellerService";
 
 const normalizeVariantKey = (key) => {
@@ -150,8 +151,9 @@ const resolveImageSrc = (img) => {
 };
 
 const ImageGallery = ({ images }) => {
-  const [active, setActive] = useState(0);
   const validImages = (images || []).filter(img => resolveImageSrc(img));
+  const frontViewIdx = validImages.findIndex(img => img.isFrontView === true);
+  const [active, setActive] = useState(frontViewIdx >= 0 ? frontViewIdx : 0);
 
   if (validImages.length === 0) {
     return (
@@ -375,6 +377,34 @@ const ReviewSubmitPage = () => {
     }
   };
 
+  // Upload any raw File image to Wix media and return its HTTPS URL
+  const uploadImageFile = async (file) => {
+    if (!file || !(file instanceof File)) return null;
+    try {
+      const formDataUpload = new FormData();
+      formDataUpload.append("file", file);
+      formDataUpload.append("mediaType", "image");
+      const res = await fetch("https://www.haatza.com/_functions/uploadMedia", {
+        method: "POST",
+        body: formDataUpload,
+      });
+      if (!res.ok) {
+        console.warn("[ReviewSubmitPage] ⚠️ uploadMedia returned", res.status);
+        return null;
+      }
+      const data = await res.json();
+      const url =
+        data?.url || data?.mediaUrl || data?.src ||
+        data?.message?.data?.url || data?.message?.body?.url ||
+        data?.message?.data?.mediaUrl || data?.message?.body?.mediaUrl || "";
+      console.log("[ReviewSubmitPage] ✅ Image file uploaded:", url);
+      return url;
+    } catch (err) {
+      console.error("[ReviewSubmitPage] Error uploading image:", err);
+      return null;
+    }
+  };
+
   /* ── Settlement Summary ── */
   useEffect(() => {
     if (!formData) return;
@@ -482,6 +512,89 @@ const ReviewSubmitPage = () => {
     const sizeChartUrl = extractSizeChartUrl(resolvedSpecifications);
     console.log("[ReviewSubmitPage:buildPayload] Extracted sizeChartUrl:", sizeChartUrl);
 
+    // ── Pre-Step: upload all raw File objects in colourImages, promotionImage, and images ──
+    const resolvedColourImages = { ...colourImages };
+    for (const [colorName, imgVal] of Object.entries(resolvedColourImages)) {
+      if (!imgVal) continue;
+      const items = Array.isArray(imgVal) ? imgVal : [imgVal];
+      const uploadedUrls = [];
+      for (const item of items) {
+        if (!item) continue;
+        if (item instanceof File) {
+          console.log(`[ReviewSubmitPage:buildPayload] Uploading color image for ${colorName}`);
+          const url = await uploadImageFile(item);
+          if (url) uploadedUrls.push(url);
+        } else if (item && typeof item === "object" && (item.url || item.mediaUrl || item.src)) {
+          const rawUrl = item.url || item.mediaUrl || item.src;
+          if (rawUrl instanceof File) {
+            console.log(`[ReviewSubmitPage:buildPayload] Uploading color image file for ${colorName}`);
+            const url = await uploadImageFile(rawUrl);
+            if (url) uploadedUrls.push(url);
+          } else {
+            uploadedUrls.push(rawUrl);
+          }
+        } else if (typeof item === "string") {
+          uploadedUrls.push(item);
+        }
+      }
+      resolvedColourImages[colorName] = uploadedUrls;
+    }
+
+    let resolvedPromotionImage = [];
+    if (promotionImage) {
+      const items = Array.isArray(promotionImage) ? promotionImage : [promotionImage];
+      for (const item of items) {
+        if (!item) continue;
+        if (item instanceof File) {
+          console.log("[ReviewSubmitPage:buildPayload] Uploading promotion image File");
+          const url = await uploadImageFile(item);
+          if (url) {
+            resolvedPromotionImage.push({ url, name: item.name || "promotion.jpg", size: item.size });
+          }
+        } else if (item.url instanceof File) {
+          console.log("[ReviewSubmitPage:buildPayload] Uploading promotion image File (nested)");
+          const url = await uploadImageFile(item.url);
+          if (url) {
+            resolvedPromotionImage.push({ ...item, url });
+          }
+        } else {
+          const url = typeof item === "string" ? item : (item.url || item.mediaUrl || item.src || "");
+          if (url) {
+            resolvedPromotionImage.push({
+              url,
+              name: typeof item === "object" ? (item.name || "promotion.jpg") : "promotion.jpg",
+              size: typeof item === "object" ? (item.size || 0) : 0,
+              wixResponse: typeof item === "object" ? (item.wixResponse || null) : null,
+              wixSrc: typeof item === "object" ? (item.wixSrc || null) : null,
+            });
+          }
+        }
+      }
+    }
+
+    let resolvedImages = [];
+    if (images) {
+      const items = Array.isArray(images) ? images : [images];
+      for (const item of items) {
+        if (!item) continue;
+        if (item instanceof File) {
+          console.log("[ReviewSubmitPage:buildPayload] Uploading product image File");
+          const url = await uploadImageFile(item);
+          if (url) {
+            resolvedImages.push({ url, mediaUrl: url, name: item.name || "product.jpg", size: item.size, isFrontView: item.isFrontView || false });
+          }
+        } else if (item.url instanceof File) {
+          console.log("[ReviewSubmitPage:buildPayload] Uploading product image File (nested)");
+          const url = await uploadImageFile(item.url);
+          if (url) {
+            resolvedImages.push({ ...item, url, mediaUrl: url, isFrontView: item.isFrontView || false });
+          }
+        } else {
+          resolvedImages.push(item);
+        }
+      }
+    }
+
     // ── Step 3: build the payload ──
     let payload;
     const shouldUseUpdatePayload = isUpdate;
@@ -489,37 +602,37 @@ const ReviewSubmitPage = () => {
       payload = buildUpdatePayload({
         tableId,
         formData,
-        images,
+        images: resolvedImages,
         category,
         subcategory,
         specifications: resolvedSpecifications,
         optionFields,
         variants,
         variantPrices,
-        promotionImage,
+        promotionImage: resolvedPromotionImage,
         keywords,
         discountType,
         editData: editData || {},
         statusOverride: resolvedStatus,
-        colourImages,
+        colourImages: resolvedColourImages,
         confirmedColors,
         specFieldsList,
       });
     } else {
       payload = buildCreatePayload({
         formData,
-        images,
+        images: resolvedImages,
         category,
         subcategory,
         specifications: resolvedSpecifications,
         optionFields,
         variants,
         variantPrices,
-        promotionImage,
+        promotionImage: resolvedPromotionImage,
         keywords,
         discountType,
         statusOverride: resolvedStatus,
-        colourImages,
+        colourImages: resolvedColourImages,
         confirmedColors,
         specFieldsList,
       });
@@ -571,22 +684,34 @@ const ReviewSubmitPage = () => {
     payload.sellAndEarnCommission = finalResellingProfit;
     payload.sellAndEarn = finalResellingProfit > 0;
 
-    // Force-sync Available Stock from current form state — same pattern as SKU —
+ // Force-sync Available Stock from current form state — same pattern as SKU —
     // this guarantees the value the seller just typed always wins over whatever
     // buildCreatePayload/buildUpdatePayload derived from stale editData.
-    // Force-sync Available Stock from current form state — same pattern as SKU —
-    // this guarantees the value the seller just typed always wins over whatever
-    // buildCreatePayload/buildUpdatePayload derived from stale editData.
-    // NOTE: only totalQuantity is a valid backend field; do not add inventory/stock
-    // to the payload sent to the server — that caused 400 Bad Request errors.
-    const finalTotalQuantity = parseInt(formData?.availableStock, 10) || 0;
-    payload.totalQuantity = finalTotalQuantity;
+    // Backend field is `inventory` (not totalQuantity).
+    // Guard: only overwrite with the form value when it actually parses to a
+    // valid positive number. Otherwise keep whatever buildCreatePayload/
+    // buildUpdatePayload already computed (which has its own editData fallback),
+    // instead of silently collapsing a valid stock value down to 0.
+   const parsedAvailableStock = parseInt(formData?.availableStock, 10);
+    const finalInventory = Number.isFinite(parsedAvailableStock) && parsedAvailableStock > 0
+      ? parsedAvailableStock
+      : payload.inventory;
+    payload.inventory = finalInventory;
+payload.totalQuantity = finalInventory;
+payload.TotalQuantity = finalInventory;
 
     // Force-sync Price from current form state — same pattern as SKU —
     // guarantees the seller's latest edited price always wins over any
     // stale value buildCreatePayload/buildUpdatePayload derived from editData.
     const finalPrice = parseFloat(formData?.price) || 0;
     payload.price = finalPrice;
+
+    // Force-sync promotionPhotos/promotionImages and keywords/search_keywords directly in buildPayload
+    // using the resolved values to guarantee they win over any stale payload values.
+    payload.promotionPhotos = payload.promotionPhotos || [];
+    payload.promotionImages = payload.promotionPhotos;
+    payload.keywords = keywords || [];
+    payload.search_keywords = keywords || [];
 
     console.log("[ReviewSubmitPage:buildPayload] ✅ SKU FORCE SET (final, post-buildPayload):", finalSku, "| formData.sku was:", formData?.sku);
     console.log("[ReviewSubmitPage:buildPayload] ✅ Price FORCE SET (final, post-buildPayload):", finalPrice, "| formData.price was:", formData?.price);
@@ -612,7 +737,7 @@ const ReviewSubmitPage = () => {
   }, [isUpdate, tableId, formData, images, specifications, optionFields, variants, variantPrices, promotionImage, keywords, discountType, category, subcategory, editData, colourImages, confirmedColors, origin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Shared post-save navigation ── */
-  const navigateToListings = useCallback((email, tabName = "inprogress") => {
+ const navigateToListings = useCallback((email, tabName = "inprogress", justCreated = null) => {
     const resolvedEmail =
       email                                     ||
       location.state?.email                     ||
@@ -627,10 +752,11 @@ const ReviewSubmitPage = () => {
     navigate("/dashboard/listing", {
       replace: true,
       state: {
-        refresh:   true,
-        timestamp: Date.now(),
-        email:     resolvedEmail,
-        tab:       tabName,
+        refresh:      true,
+        timestamp:    Date.now(),
+        email:        resolvedEmail,
+        tab:          tabName,
+        justCreated:  justCreated,
       },
     });
   }, [navigate, location.state?.email]);
@@ -645,17 +771,36 @@ const ReviewSubmitPage = () => {
       // never stay in My Listings.
       const resolvedStatus = origin === "my-listings" ? "Update Requested" : "Under Review";
       const payload = await buildPayload(resolvedStatus);
+      let response;
       if (isUpdate) {
-        await updateListing(payload);
+        response = await updateListing(payload);
       } else {
-        await createListing(payload);
+        response = await createListing(payload);
       }
+      
+      const savedId = tableId || response?.Table_ID || response?._id || response?.Id || "";
+      if (savedId) {
+        sessionStorage.removeItem(`__haatza_lastProduct_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastSku_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastResellingProfit_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastStock_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastPromotionPhotos_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastKeywords_${savedId}`);
+      }
+
+      // Fetch the latest product details from the backend using the existing product details API
+      let freshProduct = null;
+      if (savedId) {
+        try {
+          freshProduct = await fetchProductDetails(savedId);
+        } catch (fetchErr) {
+          console.warn("Failed to fetch fresh product details:", fetchErr);
+        }
+      }
+
       setSubmitSuccess(true);
-      const savedId = tableId || "";
-      sessionStorage.setItem(`__haatza_lastSku_${savedId}`, payload.sku || "");
-      sessionStorage.setItem(`__haatza_lastResellingProfit_${savedId}`, String(payload.resellingProfit ?? ""));
-      sessionStorage.setItem(`__haatza_lastStock_${savedId}`, String(payload.totalQuantity ?? ""));
-      setTimeout(() => navigateToListings(location.state?.email, "inprogress"), 2200);
+      const createdProduct = freshProduct || { ...payload, Table_ID: savedId, status: payload.status };
+      setTimeout(() => navigateToListings(location.state?.email, "inprogress", createdProduct), 2200);
     } catch (err) {
       setSubmitError(err.message || "Something went wrong. Please try again.");
     } finally {
@@ -686,11 +831,28 @@ const ReviewSubmitPage = () => {
 
       console.log("[ReviewSubmitPage:handleSaveAsDraft] ✅ Draft saved:", response?._id ?? response?.Table_ID);
       const savedId = tableId || response?.Table_ID || response?._id || response?.Id || "";
-      sessionStorage.setItem(`__haatza_lastSku_${savedId}`, payload.sku || "");
-      sessionStorage.setItem(`__haatza_lastResellingProfit_${savedId}`, String(payload.resellingProfit ?? ""));
-      sessionStorage.setItem(`__haatza_lastStock_${savedId}`, String(payload.totalQuantity ?? ""));
+      if (savedId) {
+        sessionStorage.removeItem(`__haatza_lastProduct_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastSku_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastResellingProfit_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastStock_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastPromotionPhotos_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastKeywords_${savedId}`);
+      }
+
+      // Fetch the latest product details from the backend using the existing product details API
+      let freshProduct = null;
+      if (savedId) {
+        try {
+          freshProduct = await fetchProductDetails(savedId);
+        } catch (fetchErr) {
+          console.warn("Failed to fetch fresh product details:", fetchErr);
+        }
+      }
+
       setDraftSuccess(true);
-      setTimeout(() => navigateToListings(location.state?.email, "my-listings"), 1500);
+      const createdProduct = freshProduct || { ...payload, Table_ID: savedId, status: "Draft" };
+      setTimeout(() => navigateToListings(location.state?.email, "my-listings", createdProduct), 1500);
     } catch (err) {
       console.error("[ReviewSubmitPage:handleSaveAsDraft] Error:", err);
       setDraftError(err.message || "Could not save draft. Please try again.");
@@ -720,13 +882,30 @@ const ReviewSubmitPage = () => {
         response = await createListing(payload);
       }
 
-       console.log("[ReviewSubmitPage:handleSendForQC] ✅ Saved:", response?._id ?? response?.Table_ID);
+      console.log("[ReviewSubmitPage:handleSendForQC] ✅ Saved:", response?._id ?? response?.Table_ID);
       const savedId = tableId || response?.Table_ID || response?._id || response?.Id || "";
-      sessionStorage.setItem(`__haatza_lastSku_${savedId}`, payload.sku || "");
-      sessionStorage.setItem(`__haatza_lastResellingProfit_${savedId}`, String(payload.resellingProfit ?? ""));
-      sessionStorage.setItem(`__haatza_lastStock_${savedId}`, String(payload.totalQuantity ?? ""));
+      if (savedId) {
+        sessionStorage.removeItem(`__haatza_lastProduct_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastSku_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastResellingProfit_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastStock_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastPromotionPhotos_${savedId}`);
+        sessionStorage.removeItem(`__haatza_lastKeywords_${savedId}`);
+      }
+
+      // Fetch the latest product details from the backend using the existing product details API
+      let freshProduct = null;
+      if (savedId) {
+        try {
+          freshProduct = await fetchProductDetails(savedId);
+        } catch (fetchErr) {
+          console.warn("Failed to fetch fresh product details:", fetchErr);
+        }
+      }
+
       setQcSuccess(true);
-      setTimeout(() => navigateToListings(location.state?.email, "inprogress"), 1500);
+      const createdProduct = freshProduct || { ...payload, Table_ID: savedId, status: "Under Review" };
+      setTimeout(() => navigateToListings(location.state?.email, "inprogress", createdProduct), 1500);
     } catch (err) {
       console.error("[ReviewSubmitPage:handleSendForQC] Error:", err);
       setQcError(err.message || "Could not send for QC. Please try again.");
@@ -1013,7 +1192,7 @@ const ReviewSubmitPage = () => {
             <div className="rsp-divider" />
             <DataRow
   label="Accept COD"
-  value={isCODEnabled(formData.acceptCOD) ? "Cash on Delivery Available" : "Prepaid Only"}
+  value={isCODEnabled(formData.acceptCOD) ? "Cash on Delivery Available" : "No Cash on Delivery Available"}
 />
             <DataRow label="Product Return" value={returnLabel} />
             <DataRow
@@ -1024,7 +1203,7 @@ const ReviewSubmitPage = () => {
             <DataRow label="Available Stock" value={formData.availableStock} />
             {formData.resellingProfit && (
               <DataRow
-                label="Reseller Profit (₹)"
+                label="Reseller Commission (₹)"
                 value={`₹ ${parseFloat(formData.resellingProfit).toFixed(2)}`}
               />
             )}
@@ -1266,12 +1445,12 @@ const ReviewSubmitPage = () => {
           )}
 
           {/* PROMOTION IMAGE */}
-          {((Array.isArray(promotionImage) && promotionImage.length > 0) || (promotionImage && !Array.isArray(promotionImage) && promotionImage.url)) && (
+          {((Array.isArray(promotionImage) && promotionImage.length > 0) || (promotionImage && !Array.isArray(promotionImage) && (promotionImage.url || typeof promotionImage === "string"))) && (
             <div className="rsp-card">
               <SectionHeader icon={<ImageIcon size={18} />} title="Promotion Images" />
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                 {(Array.isArray(promotionImage) ? promotionImage : [promotionImage]).map((img, idx) => {
-                  const url = img?.url || img?.mediaUrl || img?.src;
+                  const url = typeof img === "string" ? img : (img?.url || img?.mediaUrl || img?.src);
                   if (!url) return null;
                   return (
                     <div key={idx} className="rsp-promo-img-wrap" style={{ flexShrink: 0, width: 120, height: 120 }}>

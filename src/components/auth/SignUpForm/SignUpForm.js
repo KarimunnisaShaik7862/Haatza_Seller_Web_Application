@@ -245,9 +245,9 @@ function SignUpForm({
           "p",
           { className: "terms" },
           "By continuing, you agree to our ",
-          React.createElement("a", { href: "/terms", target: "_blank", rel: "noopener noreferrer", className: "link" }, "Terms of Use"),
+          React.createElement(Link, { to: "/terms", className: "link" }, "Terms of Use"),
           " and ",
-          React.createElement("a", { href: "/privacy", target: "_blank", rel: "noopener noreferrer", className: "link" }, "Privacy Policy"),
+          React.createElement(Link, { to: "/privacy", className: "link" }, "Privacy Policy"),
           "."
         ),
 

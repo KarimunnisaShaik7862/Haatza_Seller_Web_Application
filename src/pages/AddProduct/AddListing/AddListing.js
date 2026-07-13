@@ -1,5 +1,5 @@
 // AddListing.js
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "./AddListing.css";
 import MyListings from "../MyListings/MyListings";
@@ -12,6 +12,7 @@ import {
   fetchCategories,
   getCachedSellerEmail,
   getCachedSellerId,
+  fetchProductDetails,
 } from "../../../services/sellerService";
 
 const AddListing = () => {
@@ -31,7 +32,15 @@ const AddListing = () => {
   const [isNewSeller, setIsNewSeller] = useState(false);
 
   const [listingStats, setListingStats] = useState({ totalProducts: 0, activeListings: 0 });
+  const [listingSummary, setListingSummary] = useState({
+    total: 0,
+    approved: 0,
+    draft: 0,
+    inReview: 0,
+    updateRequested: 0,
+  });
   const [inProgressCount, setInProgressCount] = useState(0);
+  const [inProgressBreakdown, setInProgressBreakdown] = useState({ uploaded: 0, qc: 0, review: 0 });
   const [topCategories, setTopCategories] = useState([]); // [{name, count, imageUrl}]
   const [topProduct, setTopProduct] = useState(null);     // {name, price, rating, sold, imageUrl, isRecent}
   const [trendingCategories, setTrendingCategories] = useState([]); // for new sellers
@@ -79,136 +88,254 @@ const AddListing = () => {
         }
 
         // ── EXISTING SELLER: pull real stats in parallel ──
-        const [statsRes, inProgressRes, topProductRes, allListingsRes] = await Promise.allSettled([
+        const [statsRes, firstInProgressRes, topProductRes, firstAllListingsRes] = await Promise.allSettled([
           getProductStats(sellerId || email),
-          fetchInProgressListings({ email, page: 1, limit: 5 }), // limit raised so we can read the latest item's status
+          fetchInProgressListings({ email, page: 1, limit: 100 }),
           getTopSellingProducts(sellerId),
-          fetchSellerListings({ email, page: 1, limit: 200 }), // for category aggregation
+          fetchSellerListings({ email, page: 1, limit: 100 }),
         ]);
 
         if (cancelled) return;
 
-        // Listing stats (active vs total)
-        if (statsRes.status === "fulfilled") {
-          const s = statsRes.value || {};
+        // Fetch remaining in-progress listings if any
+        let inProgressProducts = [];
+        let inProgressTotalCount = 0;
+        if (firstInProgressRes.status === "fulfilled") {
+          inProgressTotalCount = firstInProgressRes.value?.total || 0;
+          inProgressProducts = [...(firstInProgressRes.value?.products || [])];
+          
+          if (firstInProgressRes.value?.totalPages > 1) {
+            try {
+              const rest = await Promise.all(
+                Array.from({ length: firstInProgressRes.value.totalPages - 1 }, (_, i) =>
+                  fetchInProgressListings({ email, page: i + 2, limit: 100 })
+                )
+              );
+              rest.forEach((r) => {
+                if (r?.products) {
+                  inProgressProducts = inProgressProducts.concat(r.products);
+                }
+              });
+            } catch (err) {
+              console.warn("[AddListing] Failed to fetch rest of in-progress listings:", err);
+            }
+          }
+        }
+
+        // Fetch remaining all listings if any
+        let allListingsProducts = [];
+        if (firstAllListingsRes.status === "fulfilled") {
+          allListingsProducts = [...(firstAllListingsRes.value?.products || [])];
+          
+          if (firstAllListingsRes.value?.totalPages > 1) {
+            try {
+              const rest = await Promise.all(
+                Array.from({ length: firstAllListingsRes.value.totalPages - 1 }, (_, i) =>
+                  fetchSellerListings({ email, page: i + 2, limit: 100 })
+                )
+              );
+              rest.forEach((r) => {
+                if (r?.products) {
+                  allListingsProducts = allListingsProducts.concat(r.products);
+                }
+              });
+            } catch (err) {
+              console.warn("[AddListing] Failed to fetch rest of all listings:", err);
+            }
+          }
+        }
+
+        if (cancelled) return;
+
+        // Build consolidated product array (drafts + active/submitted listings)
+        const seenIds = new Set();
+        const consolidated = [];
+        [...allListingsProducts, ...inProgressProducts].forEach((p) => {
+          if (!p) return;
+          const id = p.Table_ID || p._id || p.id || p.productId;
+          if (id && !seenIds.has(id)) {
+            seenIds.add(id);
+            consolidated.push(p);
+          }
+        });
+
+        // Update in-progress count & latest product
+        setInProgressCount(inProgressTotalCount);
+        if (inProgressProducts.length > 0) {
+          const latest = inProgressProducts[0];
+          setLatestInProgressProduct({
+            name: latest.name || "Unnamed draft",
+            status: latest.status || "Draft",
+          });
+
+          // Compute breakdown
+          let uploaded = 0, qc = 0, review = 0;
+          inProgressProducts.forEach((p) => {
+            const s = (p.status || "").toLowerCase();
+            if (s.includes("qc") || s.includes("qc check")) {
+              qc++;
+            } else if (s.includes("under review") || s.includes("review") || s.includes("pending")) {
+              review++;
+            } else {
+              uploaded++;
+            }
+          });
+          setInProgressBreakdown({ uploaded, qc, review });
+        } else {
+          setLatestInProgressProduct(null);
+          setInProgressBreakdown({ uploaded: 0, qc: 0, review: 0 });
+        }
+
+        // Aggregate real counts per stage for the breakdown + mini chart
+        let approved = 0, draft = 0, inReview = 0, updateRequested = 0;
+        consolidated.forEach((p) => {
+          const s = (p.status || "").toLowerCase();
+          if (s === "approved" || s === "live") {
+            approved++;
+          } else if (s === "draft") {
+            draft++;
+          } else if (s === "under review" || s === "pending" || s === "qc check") {
+            inReview++;
+          } else if (s === "update requested" || s === "update_requested" || s === "rejected") {
+            updateRequested++;
+          } else {
+            draft++;
+          }
+        });
+
+        if (!cancelled) {
+          setListingSummary({
+            total: consolidated.length,
+            approved,
+            draft,
+            inReview,
+            updateRequested
+          });
           setListingStats({
-            totalProducts: s.totalProducts ?? s.total ?? 0,
-            activeListings: s.activeListings ?? s.active ?? 0,
+            totalProducts: consolidated.length,
+            activeListings: approved,
           });
         }
 
-        // In-progress count
-        // In-progress count + latest in-progress product (drives the step tracker)
-        if (inProgressRes.status === "fulfilled") {
-          setInProgressCount(inProgressRes.value?.total || 0);
-          const ipProducts = inProgressRes.value?.products || [];
-          if (ipProducts.length > 0) {
-            const latest = ipProducts[0];
-            setLatestInProgressProduct({
-              name: latest.name || "Your product",
-              status: latest.status || "Draft",
-            });
-          } else {
-            setLatestInProgressProduct(null);
-          }
-        }
-        // Top selling product (fallback handled below once we have allListings)
+        // Top selling product (fallback handled below once we have allListings/consolidated)
         let resolvedTopProduct = null;
         if (topProductRes.status === "fulfilled") {
           const raw = topProductRes.value;
           const list = Array.isArray(raw?.data) ? raw.data
             : Array.isArray(raw?.message) ? raw.message
-            : Array.isArray(raw) ? raw
-            : [];
+              : Array.isArray(raw) ? raw
+                : [];
           const best = list[0];
           if (best) {
-            resolvedTopProduct = {
-              name: best.name || best.productName || "Your product",
-              price: best.price ?? best.finalPrice ?? 0,
-              rating: best.rating ?? best.avgRating ?? null,
-              sold: best.sold ?? best.unitsSold ?? best.totalSold ?? null,
-              imageUrl: best.mainmedia || best.imageUrl || null,
-              category: best.categoryName?.[0] || best.subCategory || "",
-              status: best.status || "Live",
-              isRecent: false,
-            };
+            const bestId = best.Table_ID || best._id || best.id || best.productId;
+            try {
+              const fullProduct = await fetchProductDetails(bestId);
+              resolvedTopProduct = {
+                ...best,
+                ...fullProduct,
+                name: best.name || fullProduct?.name || best.productName || "Your product",
+                price: best.price ?? fullProduct?.price ?? best.finalPrice ?? 0,
+                rating: best.rating ?? best.avgRating ?? null,
+                sold: best.sold ?? best.unitsSold ?? best.totalSold ?? null,
+                imageUrl: best.mainmedia || fullProduct?.mainmedia || best.imageUrl || null,
+                category: resolveCategoryName(fullProduct || best),
+                subCategory: resolveSubcategoryName(fullProduct || best),
+                status: best.status || fullProduct?.status || "Live",
+                isRecent: false,
+              };
+            } catch (e) {
+              console.warn("Failed to load details for top product:", e);
+              resolvedTopProduct = {
+                ...best,
+                name: best.name || best.productName || "Your product",
+                price: best.price ?? best.finalPrice ?? 0,
+                rating: best.rating ?? best.avgRating ?? null,
+                sold: best.sold ?? best.unitsSold ?? best.totalSold ?? null,
+                imageUrl: best.mainmedia || best.imageUrl || null,
+                category: resolveCategoryName(best),
+                subCategory: resolveSubcategoryName(best),
+                status: best.status || "Live",
+                isRecent: false,
+              };
+            }
           }
         }
 
-        // Category aggregation + fallback "recent listing" if no sales data yet
-       // Category aggregation + fallback "recent listing" if no sales data yet
+        // Category aggregation using the consolidated list
+        const counts = {};
+        consolidated.forEach((p) => {
+          const catName = resolveCategoryName(p);
+          if (catName) {
+            if (!counts[catName]) counts[catName] = 0;
+            counts[catName] += 1;
+          }
+        });
+
         let sortedCatsResult = [];
-        if (allListingsRes.status === "fulfilled") {
-          const products = allListingsRes.value?.products || [];
-          // Debug: log the raw shape of the first product once, so we can see
-          // exactly which category-related field the backend actually sends.
-          if (products[0]) {
-            console.log("[AddListing] Sample product for category debug:", products[0]);
-          }
+        try {
+          const allCats = await fetchCategories();
+          const iconMap = {};
+          allCats.forEach((c) => { if (c.name) iconMap[c.name] = c.imageUrl; });
+          if (!cancelled) setCategoryIconMap(iconMap);
 
-          // Top categories by listing count — checks every category-name
-          // variant seen elsewhere in sellerService.js (categoryName can be
-          // an array or string; subCategory/category/CategoryName are also
-          // used in different responses).
-          const resolveCategoryName = (p) => {
-            const raw =
-              (Array.isArray(p.categoryName) ? p.categoryName[0] : p.categoryName) ||
-              p.CategoryName ||
-              p.category ||
-              p.Category ||
-              p.category_name ||
-              p.mainCategory ||
-              p.subCategory ||
-              p.SubCategory ||
-              "";
-            return typeof raw === "string" && raw.trim() ? raw.trim() : null;
-          };
+          const mappedCats = allCats.map((c) => ({
+            name: c.name,
+            count: counts[c.name] || 0,
+            imageUrl: c.imageUrl || null,
+          })).sort((a, b) => b.count - a.count);
 
-          const counts = {};
-          let unlabeledCount = 0;
-          products.forEach((p) => {
-            const catName = resolveCategoryName(p);
-            if (!catName) { unlabeledCount++; return; }
-            if (!counts[catName]) counts[catName] = { name: catName, count: 0 };
-            counts[catName].count += 1;
-          });
-          if (unlabeledCount > 0) {
-            console.warn(`[AddListing] ${unlabeledCount} product(s) had no resolvable category field — check the sample logged above.`);
-          }
-         const sortedCats = Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 3);
+          sortedCatsResult = mappedCats;
+          if (!cancelled) setTopCategories(mappedCats);
+        } catch (e) {
+          console.warn("[AddListing] Failed to load category icons:", e);
+          const sortedCats = Object.entries(counts).map(([name, count]) => ({
+            name,
+            count,
+            imageUrl: null,
+          })).sort((a, b) => b.count - a.count);
           sortedCatsResult = sortedCats;
-          setTopCategories(sortedCats);
+          if (!cancelled) setTopCategories(sortedCats);
+        }
 
-          // Cross-reference the real site category list so we show the actual
-          // category image/icon instead of a generic emoji.
+        // Fallback: most recent listing as "featured" card if no top-seller data
+        if (!resolvedTopProduct && consolidated.length > 0) {
+          const recent = consolidated[0];
+          const recentId = recent.Table_ID || recent._id || recent.id || recent.productId;
           try {
-            const allCats = await fetchCategories();
-            const iconMap = {};
-            allCats.forEach((c) => { if (c.name) iconMap[c.name] = c.imageUrl; });
-            if (!cancelled) setCategoryIconMap(iconMap);
-          } catch (e) {
-            console.warn("[AddListing] Failed to load category icons:", e);
-          }
-          // Fallback: most recent listing as "featured" card if no top-seller data
-          if (!resolvedTopProduct && products.length > 0) {
-            const recent = products[0];
+            const fullProduct = await fetchProductDetails(recentId);
             resolvedTopProduct = {
+              ...recent,
+              ...fullProduct,
+              name: recent.name || fullProduct?.name || "Your latest listing",
+              price: recent.price ?? fullProduct?.price ?? 0,
+              rating: null,
+              sold: null,
+              imageUrl: recent.mainmedia || fullProduct?.mainmedia || null,
+              category: resolveCategoryName(fullProduct || recent),
+              subCategory: resolveSubcategoryName(fullProduct || recent),
+              status: recent.status || fullProduct?.status || "Live",
+              isRecent: true,
+            };
+          } catch (e) {
+            console.warn("Failed to load details for recent product:", e);
+            resolvedTopProduct = {
+              ...recent,
               name: recent.name || "Your latest listing",
               price: recent.price ?? 0,
               rating: null,
               sold: null,
               imageUrl: recent.mainmedia || null,
-              category: resolveCategoryName(recent) || "",
+              category: resolveCategoryName(recent),
+              subCategory: resolveSubcategoryName(recent),
               status: recent.status || "Live",
               isRecent: true,
             };
           }
         }
 
-        // If no product carries a resolvable category yet, fall back to
-        // showing popular/trending categories (same source as the new-seller
-        // card) so this card never sits empty.
-        if (sortedCatsResult.length === 0) {
+        // If no categories have counts, fall back to trending categories
+        const hasCategoriesWithCounts = sortedCatsResult.some(c => c.count > 0);
+        if (!hasCategoriesWithCounts) {
           try {
             const cats = await fetchCategories();
             if (!cancelled) setTrendingCategories(cats.slice(0, 4));
@@ -217,7 +344,7 @@ const AddListing = () => {
           }
         }
 
-        setTopProduct(resolvedTopProduct);
+        if (!cancelled) setTopProduct(resolvedTopProduct);
       } catch (err) {
         console.error("[AddListing] Failed to load seller data:", err);
       } finally {
@@ -309,7 +436,7 @@ const AddListing = () => {
         <div className="al-hero-left">
 
           <h1 className={`al-h1 ${cardVisible ? "al-fadeup" : ""}`}>
-            Start Selling.<br/>
+            Start Selling.<br />
             <span className="al-h1-grad">Start Growing.</span>
           </h1>
 
@@ -323,21 +450,43 @@ const AddListing = () => {
             <div className="al-mc-grid">
               {loadingStats ? (
                 <>
-                  <MobileSkeletonCard /><MobileSkeletonCard /><MobileSkeletonCard /><MobileSkeletonCard />
+                  <DesktopSkeletonCard slot="revenue" />
+                  <DesktopSkeletonCard slot="orders" />
+                  <DesktopSkeletonCard slot="views" />
+                  <DesktopSkeletonCard slot="product" />
                 </>
               ) : isNewSeller ? (
                 <>
-                  <MobileChecklistCard pct={checklistPct} doneCount={doneCount} total={checklistSteps.length} />
-                  <MobileTrendingCard categories={trendingCategories} />
-                  <MobileAddFirstProductCard navigate={navigate} />
-                  <MobileTipCard />
+                  <ChecklistCard pct={checklistPct} doneCount={doneCount} steps={checklistSteps} slot="product" />
+                  <TrendingCategoriesCard categories={trendingCategories} slot="orders" />
+                  <AddFirstProductCard navigate={navigate} slot="revenue" />
+                  <TipCard slot="views" />
                 </>
               ) : (
                 <>
-                  <MobileListingsCard animatedListings={animatedListings} activeListings={listingStats.activeListings} totalProducts={listingStats.totalProducts} barVisible={barVisible} />
-                  <MobileInProgressCard animatedInProgress={animatedInProgress} barVisible={barVisible} />
-                  <MobileCategoriesCard categories={topCategories} />
-                  <MobileTopProductCard product={topProduct} navigate={navigate} formatINR={formatINR} />
+                  <ListingsCard
+                    animatedListings={animatedListings}
+                    activeListings={listingStats.activeListings}
+                    totalProducts={listingStats.totalProducts}
+                    summary={listingSummary}
+                    slot="revenue"
+                  />
+                  <SellerMomentumCard
+                    summary={listingSummary}
+                    slot="orders"
+                  />
+                  <CategoriesCard
+                    categories={topCategories}
+                    iconMap={categoryIconMap}
+                    slot="views"
+                    trending={trendingCategories}
+                  />
+                  <TopProductCard
+                    product={topProduct}
+                    navigate={navigate}
+                    formatINR={formatINR}
+                    slot="product"
+                  />
                 </>
               )}
             </div>
@@ -351,10 +500,10 @@ const AddListing = () => {
                 onClick={() => handleTabClick("my-listings")}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <rect x="3"  y="3"  width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2"/>
-                  <rect x="14" y="3"  width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2"/>
-                  <rect x="3"  y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2"/>
-                  <rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2"/>
+                  <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2" />
+                  <rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2" />
+                  <rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2" />
+                  <rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2" />
                 </svg>
                 My Listings
               </button>
@@ -364,8 +513,8 @@ const AddListing = () => {
                 onClick={() => handleTabClick("inprogress")}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2"/>
-                  <path d="M12 7v5l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+                  <path d="M12 7v5l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
                 In Progress
               </button>
@@ -376,7 +525,7 @@ const AddListing = () => {
               onClick={() => navigate("/dashboard/listing/select-category")}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+                <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
               </svg>
               Add Product
             </button>
@@ -405,11 +554,11 @@ const AddListing = () => {
                 animatedListings={animatedListings}
                 activeListings={listingStats.activeListings}
                 totalProducts={listingStats.totalProducts}
+                summary={listingSummary}
                 slot="revenue"
               />
-              <InProgressCard
-                animatedInProgress={animatedInProgress}
-                latestProduct={latestInProgressProduct}
+              <SellerMomentumCard
+                summary={listingSummary}
                 slot="orders"
               />
               <CategoriesCard categories={topCategories} iconMap={categoryIconMap} slot="views" trending={trendingCategories} />
@@ -436,123 +585,222 @@ const AddListing = () => {
    so the floating animation + grid placement CSS keeps working.
 ════════════════════════════════════════════════════════════════ */
 
+const resolveCategoryName = (p) => {
+  if (!p) return "";
+  const raw =
+    (Array.isArray(p.categoryName) ? p.categoryName[0] : p.categoryName) ||
+    p.categoryName ||
+    p.CategoryName ||
+    (Array.isArray(p.category) ? p.category[0] : p.category) ||
+    p.category ||
+    p.Category ||
+    p.category_name ||
+    p.mainCategory ||
+    "";
+  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "object" && raw) return raw.name || raw.title || "";
+  return "";
+};
+
+const resolveSubcategoryName = (p) => {
+  if (!p) return "";
+  const raw =
+    (Array.isArray(p.subCategoryName) ? p.subCategoryName[0] : p.subCategoryName) ||
+    p.subCategoryName ||
+    p.SubCategoryName ||
+    (Array.isArray(p.subCategory) ? p.subCategory[0] : p.subCategory) ||
+    p.subCategory ||
+    p.SubCategory ||
+    p.subcategory ||
+    p.Subcategory ||
+    p.subcategoryName ||
+    "";
+  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "object" && raw) return raw.name || raw.title || "";
+  return "";
+};
+
 const slotClass = (slot) => `al-fc al-fc-${slot}`;
 
-const ListingsCard = ({ animatedListings, activeListings, totalProducts, slot }) => {
-  const pct = totalProducts > 0 ? Math.round((activeListings / totalProducts) * 100) : 0;
-  const r = 34;
+const ListingsCard = ({ animatedListings, activeListings, totalProducts, summary, slot }) => {
+  const total = summary?.total ?? totalProducts ?? 0;
+  const approved = summary?.approved ?? activeListings ?? 0;
+  const draft = summary?.draft ?? 0;
+  const inReview = summary?.inReview ?? 0;
+  const updateRequested = summary?.updateRequested ?? 0;
+
+  // Animate the percentage chart alongside count-up animation
+  const pct = total > 0 ? Math.round((animatedListings / total) * 100) : 0;
+  const r = 38;
   const circumference = 2 * Math.PI * r;
   const dash = (pct / 100) * circumference;
-  return (
-    <div className={`${slotClass(slot)} al-fc--rich`}>
-      <div className="al-fc-row">
-        <p className="al-fc-lbl">Active Listings</p>
-        <span className="al-fc-ico al-ico-blue">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-            <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-              stroke="#2962ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </span>
-      </div>
-      <div className="al-ring-row">
-        <div className="al-ring-wrap">
-          <svg width="84" height="84" viewBox="0 0 84 84" className="al-ring">
-            <circle cx="42" cy="42" r={r} stroke="rgba(79,70,229,0.12)" strokeWidth="8" fill="none" />
-            <circle
-              cx="42" cy="42" r={r} stroke="url(#al-ring-grad)" strokeWidth="8" fill="none"
-              strokeDasharray={`${dash} ${circumference}`} strokeLinecap="round"
-              transform="rotate(-90 42 42)"
-            />
-            <defs>
-              <linearGradient id="al-ring-grad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#4F46E5" />
-                <stop offset="100%" stopColor="#3B82F6" />
-              </linearGradient>
-            </defs>
-          </svg>
-          <span className="al-ring-pct">{pct}%</span>
-        </div>
-        <div>
-          <p className="al-fc-val" style={{ marginBottom: 0 }}>{animatedListings}</p>
-          <span className="al-muted" style={{ fontSize: 11.5 }}>of {totalProducts} live</span>
-        </div>
-      </div>
-      <div className="al-fc-foot">
-        <span className="al-badge-green">{pct}% active</span>
-        <span className="al-muted">on Haatza</span>
-      </div>
-    </div>
-  );
-};
-
-// Two possible journeys a listing goes through, based on IN_PROGRESS_STATUSES
-// in sellerService.js. New listing → QC path. Live listing sent back → update path.
-const NEW_LISTING_FLOW = ["Uploaded", "Send for QC", "Under Review", "Live"];
-const UPDATE_FLOW      = ["Uploaded", "Update Listing", "Update Requested", "Live"];
-
-const resolveProgressStep = (status) => {
-  const s = (status || "").toLowerCase();
-  if (s === "update requested") return { flow: UPDATE_FLOW, index: 2 };
-  if (s === "rejected")         return { flow: UPDATE_FLOW, index: 1 };
-  if (s === "approved")         return { flow: NEW_LISTING_FLOW, index: 3 };
-  if (s === "under review")     return { flow: NEW_LISTING_FLOW, index: 2 };
-  if (s === "pending")          return { flow: NEW_LISTING_FLOW, index: 1 };
-  return { flow: NEW_LISTING_FLOW, index: 0 }; // Draft / unknown = just uploaded
-};
-
-const InProgressCard = ({ animatedInProgress, latestProduct, slot }) => {
-  const clear = animatedInProgress === 0;
-  const { flow, index } = latestProduct ? resolveProgressStep(latestProduct.status) : { flow: NEW_LISTING_FLOW, index: 0 };
 
   return (
-    <div className={`${slotClass(slot)} al-fc--rich`}>
-      <div className="al-fc-row">
-        <p className="al-fc-lbl">In Progress</p>
-        <span className={`al-fc-ico ${clear ? "al-ico-green" : "al-ico-amber"}`}>
-          {clear ? (
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-              <path d="M20 6L9 17l-5-5" stroke="#059669" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+    <div className={`${slotClass(slot)} al-fc--rich al-fc-summary`}>
+      <div className="al-summary-layout">
+        {/* Left Side: Prominent Pie Chart */}
+        <div className="al-summary-left">
+          <div className="al-ring-wrap-lg">
+            <svg width="96" height="96" viewBox="0 0 96 96" className="al-ring-lg">
+              <circle cx="48" cy="48" r={r} stroke="rgba(79,70,229,0.08)" strokeWidth="8" fill="none" />
+              <circle
+                cx="48"
+                cy="48"
+                r={r}
+                stroke="#4F46E5"
+                strokeWidth="8"
+                fill="none"
+                strokeDasharray={`${dash} ${circumference}`}
+                strokeLinecap="round"
+                transform="rotate(-90 48 48)"
+              />
             </svg>
-          ) : (
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="9" stroke="#b45309" strokeWidth="2"/>
-              <path d="M12 7v5l3 3" stroke="#b45309" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-          )}
-        </span>
-      </div>
-
-      <p className="al-fc-val al-fc-val--big">{animatedInProgress}</p>
-
-      {clear ? (
-        <div className="al-fc-foot">
-          <span className="al-badge-green">All clear 🎉</span>
-        </div>
-      ) : (
-        <>
-          {latestProduct && <p className="al-ip-prodname">{latestProduct.name}</p>}
-          <div className="al-step-track">
-            {flow.map((label, i) => (
-              <div
-                key={i}
-                className={`al-step-node ${i <= index ? "al-step-node--done" : ""} ${i === index ? "al-step-node--current" : ""}`}
-              >
-                {i < flow.length - 1 && (
-                  <span className={`al-step-connector ${i < index ? "al-step-connector--done" : ""}`} />
-                )}
-                <span className="al-step-dot" />
-                <span className="al-step-label">{label}</span>
-              </div>
-            ))}
+            <div className="al-ring-center-text">
+              <span className="al-ring-pct-lg">{pct}%</span>
+              <span className="al-ring-pct-sub">Active</span>
+            </div>
           </div>
-        </>
-      )}
+        </div>
+
+        {/* Right Side: Details */}
+        <div className="al-summary-right">
+          <div className="al-summary-header">
+            <p className="al-fc-lbl-summary">Listing Summary</p>
+          </div>
+          
+          <div className="al-summary-stats">
+            <div className="al-summary-stat-row">
+              <span className="al-summary-stat-label">Total Listings</span>
+              <span className="al-summary-stat-value">{total}</span>
+            </div>
+            <div className="al-summary-stat-row">
+              <span className="al-summary-stat-label">Approved</span>
+              <span className="al-summary-stat-value">{approved} <span className="al-summary-slash">/ {total}</span></span>
+            </div>
+            <div className="al-summary-stat-row">
+              <span className="al-summary-stat-label">Draft</span>
+              <span className="al-summary-stat-value">{draft} <span className="al-summary-slash">/ {total}</span></span>
+            </div>
+            <div className="al-summary-stat-row">
+              <span className="al-summary-stat-label">In Review</span>
+              <span className="al-summary-stat-value">{inReview} <span className="al-summary-slash">/ {total}</span></span>
+            </div>
+            <div className="al-summary-stat-row">
+              <span className="al-summary-stat-label">Update Requested</span>
+              <span className="al-summary-stat-value">{updateRequested} <span className="al-summary-slash">/ {total}</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Motivational Quote at bottom */}
+      <div className="al-summary-quote">
+        "Keep your catalog updated to maximize visibility."
+      </div>
     </div>
   );
 };
+
+const SellerMomentumCard = ({ summary, slot }) => {
+  const total = summary?.total ?? 0;
+
+  // Resolve Seller Milestone Level
+  let levelName = "Beginner Seller";
+  let emoji = "🌱";
+  let nextMilestone = 10;
+  let prevMilestone = 0;
+
+  if (total >= 100) {
+    levelName = "Elite Seller";
+    emoji = "👑";
+    nextMilestone = 250;
+    prevMilestone = 100;
+  } else if (total >= 50) {
+    levelName = "Pro Seller";
+    emoji = "💎";
+    nextMilestone = 100;
+    prevMilestone = 50;
+  } else if (total >= 25) {
+    levelName = "Rising Seller";
+    emoji = "⭐";
+    nextMilestone = 50;
+    prevMilestone = 25;
+  } else if (total >= 10) {
+    levelName = "Growing Seller";
+    emoji = "🚀";
+    nextMilestone = 25;
+    prevMilestone = 10;
+  } else {
+    levelName = "Beginner Seller";
+    emoji = "🌱";
+    nextMilestone = 10;
+    prevMilestone = 0;
+  }
+
+  const pct = Math.min(100, Math.round((total / nextMilestone) * 100));
+  const remaining = Math.max(0, nextMilestone - total);
+
+  // Dynamic motivational quote
+  let motivation = `You've unlocked the ultimate milestone! 👑`;
+  if (remaining > 0) {
+    motivation = `You're only ${remaining} listing${remaining > 1 ? "s" : ""} away from unlocking the next seller milestone!`;
+  }
+
+  return (
+    <div className={`${slotClass(slot)} al-fc--rich al-fc-momentum`}>
+      <div className="al-fc-row" style={{ marginBottom: 6 }}>
+        <p className="al-fc-lbl-momentum">Seller Momentum 🚀</p>
+      </div>
+
+      <div className="al-momentum-body">
+        {/* Level Display */}
+        <div className="al-momentum-level-row">
+          <span className="al-momentum-level-badge">
+            <span className="al-momentum-emoji">{emoji}</span> {levelName}
+          </span>
+        </div>
+
+        {/* Progress Section */}
+        <div className="al-momentum-progress-section">
+          <div className="al-momentum-progress-text">
+            <span className="al-momentum-progress-listings">
+              <strong>{total}</strong> <span className="al-momentum-muted">/ {nextMilestone} Listings</span>
+            </span>
+            <span className="al-momentum-pct">{pct}%</span>
+          </div>
+
+          <div className="al-momentum-track">
+            <div className="al-momentum-fill" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+
+        {/* Next Milestone Row */}
+        <div className="al-momentum-milestone-row">
+          <div className="al-momentum-m-item">
+            <span className="al-momentum-m-lbl">Next Milestone</span>
+            <span className="al-momentum-m-val">{nextMilestone} Listings</span>
+          </div>
+          <div className="al-momentum-m-divider" />
+          <div className="al-momentum-m-item" style={{ alignItems: "flex-end" }}>
+            <span className="al-momentum-m-lbl">Remaining</span>
+            <span className="al-momentum-m-val">{remaining} Listing{remaining !== 1 ? "s" : ""}</span>
+          </div>
+        </div>
+
+        {/* Motivation Message */}
+        <div className="al-momentum-quote">
+          "{motivation}"
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const CATEGORY_EMOJI_FALLBACK = ["👕", "👗", "👟", "👜"];
 
-const CategoriesCard = ({ categories, iconMap, slot, trending = [] }) => {  const maxCount = categories.length > 0 ? Math.max(...categories.map((c) => c.count)) : 1;
+const CategoriesCard = ({ categories, iconMap, slot, trending = [] }) => {
+  const displayCategories = categories.slice(0, 7);
+  const maxCount = displayCategories.length > 0 ? Math.max(...displayCategories.map((c) => c.count)) : 1;
   const resolveIcon = (name) => {
     if (!iconMap) return null;
     if (iconMap[name]) return iconMap[name];
@@ -560,18 +808,22 @@ const CategoriesCard = ({ categories, iconMap, slot, trending = [] }) => {  cons
     const foundKey = Object.keys(iconMap).find((k) => k.trim().toLowerCase() === target);
     return foundKey ? iconMap[foundKey] : null;
   };
+
+  // Duplicate items to support infinite, seamless marquee scroll
+  const scrollingItems = [...displayCategories, ...displayCategories];
+
   return (
-    <div className={`${slotClass(slot)} al-fc--rich`}>
-      <div className="al-fc-row">
+    <div className={`${slotClass(slot)} al-fc--rich al-fc-categories-scroll`}>
+      <div className="al-fc-row" style={{ marginBottom: 10 }}>
         <p className="al-fc-lbl">Top Categories</p>
         <span className="al-fc-ico al-ico-purple">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-            <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="#7c3aed" strokeWidth="2"/>
-            <rect x="14" y="14" width="7" height="7" rx="1.5" stroke="#7c3aed" strokeWidth="2"/>
+            <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="#7c3aed" strokeWidth="2" />
+            <rect x="14" y="14" width="7" height="7" rx="1.5" stroke="#7c3aed" strokeWidth="2" />
           </svg>
         </span>
       </div>
-      {categories.length === 0 ? (
+      {displayCategories.length === 0 ? (
         trending.length > 0 ? (
           <>
             <p className="al-cat-fallback-lbl">Popular on Haatza</p>
@@ -589,93 +841,98 @@ const CategoriesCard = ({ categories, iconMap, slot, trending = [] }) => {  cons
           <p className="al-muted">No categories yet</p>
         )
       ) : (
-        <div className="al-cat-chip-list">
-          {categories.map((c, i) => {
-            const img = resolveIcon(c.name);
-            return (
-              <div key={i} className="al-cat-chip-row">
-                <span className="al-cat-chip-icon">
-                  {img ? (
-                    <img src={img} alt={c.name} />
-                  ) : (
-                    CATEGORY_EMOJI_FALLBACK[i % CATEGORY_EMOJI_FALLBACK.length]
-                  )}
-                </span>
-                <span className="al-cat-chip-name">{c.name}</span>
-                <span className="al-cat-chip-count">{c.count}</span>
-                <div className="al-cat-chip-bar-track">
-                  <div className="al-cat-chip-bar-fill" style={{ width: `${Math.max(8, (c.count / maxCount) * 100)}%` }} />
+        <div className="al-catbar-scroll-container">
+          <div
+            className="al-catbar-scroll-list"
+            style={{ animationDuration: `${Math.max(10, displayCategories.length * 3.5)}s` }}
+          >
+            {scrollingItems.map((c, i) => {
+              const img = resolveIcon(c.name);
+              return (
+                <div key={i} className="al-catbar-row-custom">
+                  <span className="al-catbar-icon-custom">
+                    {img ? <img src={img} alt={c.name} /> : CATEGORY_EMOJI_FALLBACK[i % CATEGORY_EMOJI_FALLBACK.length]}
+                  </span>
+                  <span className="al-catbar-name-custom" title={c.name}>{c.name}</span>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
   );
 };
 
-const TopProductCard = ({ product, navigate, slot, formatINR }) => (
-  <div className={`${slotClass(slot)} al-fc--spotlight`}>
-    {!product ? (
-      <>
-        <div className="al-prod-img al-prod-img--empty">
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-            <path d="M12 5v14M5 12h14" stroke="#4F46E5" strokeWidth="1.8" strokeLinecap="round"/>
-          </svg>
-        </div>
-        <p className="al-prod-name">No products yet</p>
-        <button className="al-mini-cta" onClick={() => navigate("/dashboard/listing/select-category")}>
-          Add your first product →
-        </button>
-      </>
-    ) : (
-      <>
-        <div className="al-prod-spotlight-header">
-          <span className="al-prod-spotlight-lbl">
-            {product.isRecent ? "✨ Newest Listing" : "🔥 Best Seller"}
-          </span>
-        </div>
 
-        {/* Image beside name/price, like the reference card */}
-        <div className="al-prod-row">
-          <div className="al-prod-img al-prod-img--lg">
-            {product.imageUrl
-              ? <img src={product.imageUrl} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 14 }} />
-              : (
-                <svg width="42" height="42" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="3" width="18" height="18" rx="3" stroke="#4F46E5" strokeWidth="1.5"/>
-                  <path d="M8 12l3 3 5-5" stroke="#4F46E5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+const TopProductCard = ({ product, navigate, slot, formatINR }) => {
+  const categoryName = product ? resolveCategoryName(product) : "";
+  const subcategoryName = product ? resolveSubcategoryName(product) : "";
+
+  return (
+    <div className={`${slotClass(slot)} al-fc--spotlight`}>
+      {!product ? (
+        <>
+          <div className="al-prod-img al-prod-img--empty">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+              <path d="M12 5v14M5 12h14" stroke="#4F46E5" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </div>
+          <p className="al-prod-name">No products yet</p>
+          <button className="al-mini-cta" onClick={() => navigate("/dashboard/listing/select-category")}>
+            Add your first product →
+          </button>
+        </>
+      ) : (
+        <div className="al-spotlight-split">
+          {/* Left Side: Product Image */}
+          <div className="al-spotlight-left">
+            <div className="al-spotlight-img-wrap">
+              {product.imageUrl ? (
+                <img
+                  src={product.imageUrl}
+                  alt={product.name}
+                  className="al-spotlight-img"
+                />
+              ) : (
+                <div className="al-spotlight-img-placeholder">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                    <rect x="3" y="3" width="18" height="18" rx="3" stroke="#4F46E5" strokeWidth="1.5" />
+                    <path d="M8 12l3 3 5-5" stroke="#4F46E5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
               )}
+            </div>
           </div>
-          <div className="al-prod-info">
-            <p className="al-prod-name">{product.name}</p>
-            <p className="al-prod-price">{formatINR(product.price)}</p>
-            {(product.rating != null || product.sold != null) && (
-              <div className="al-prod-meta">
-                {product.rating != null && <span className="al-prod-stat">⭐ {product.rating}</span>}
-                {product.sold != null && <span className="al-prod-stat">{product.sold} sold</span>}
+
+          {/* Right Side: Product Details */}
+          <div className="al-spotlight-right">
+            <span className="al-spotlight-tag">
+              {product.isRecent ? "✨ Newest Listing" : "🔥 Best Seller"}
+            </span>
+            <h3 className="al-spotlight-name" title={product.name}>
+              {product.name}
+            </h3>
+            <div className="al-spotlight-details">
+              <div className="al-spotlight-detail-item">
+                <span className="al-spotlight-detail-label">Category:</span>
+                <span className="al-spotlight-detail-val" title={categoryName}>{categoryName || "—"}</span>
               </div>
-            )}
+              <div className="al-spotlight-detail-item">
+                <span className="al-spotlight-detail-label">Subcategory:</span>
+                <span className="al-spotlight-detail-val" title={subcategoryName}>{subcategoryName || "—"}</span>
+              </div>
+            </div>
+            <div className="al-spotlight-price-row">
+              <span className="al-spotlight-price-label">Price:</span>
+              <span className="al-spotlight-price">{formatINR(product.price)}</span>
+            </div>
           </div>
         </div>
-
-        <div className="al-prod-tags">
-          {product.category && <span className="al-tag al-tag-blue">{product.category}</span>}
-          <span className="al-tag al-tag-green">{product.status}</span>
-        </div>
-
-        <button
-          className="al-mini-cta al-mini-cta--full"
-          onClick={() => navigate("/dashboard/listing", { state: { tab: "my-listings" } })}
-        >
-          View Listing →
-        </button>
-      </>
-    )}
-  </div>
-);
+      )}
+    </div>
+  );
+};
 
 /* ════════════════════════════════════════════════════════════════
    DESKTOP CARDS — NEW SELLER
@@ -729,7 +986,7 @@ const AddFirstProductCard = ({ navigate, slot }) => (
       </div>
       <span className="al-fc-ico al-ico-blue">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-          <path d="M12 5v14M5 12h14" stroke="#2962ff" strokeWidth="2.5" strokeLinecap="round"/>
+          <path d="M12 5v14M5 12h14" stroke="#2962ff" strokeWidth="2.5" strokeLinecap="round" />
         </svg>
       </span>
     </div>
@@ -811,8 +1068,8 @@ const MobileTopProductCard = ({ product, navigate, formatINR }) => (
               ? <img src={product.imageUrl} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10 }} />
               : (
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="3" width="18" height="18" rx="3" stroke="#2962ff" strokeWidth="1.5"/>
-                  <path d="M8 12l3 3 5-5" stroke="#2962ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <rect x="3" y="3" width="18" height="18" rx="3" stroke="#2962ff" strokeWidth="1.5" />
+                  <path d="M8 12l3 3 5-5" stroke="#2962ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               )}
           </div>

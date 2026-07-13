@@ -19,11 +19,90 @@ import {
   PackageX,
   CheckCircle2,
   Clock,
+  Play,
+  X,
 } from "lucide-react";
 import { getSellerId } from "../../utils/sellerSession";
-import { sellerService, fetchSellerOrders, IN_PROGRESS_STATUSES } from "../../services/sellerService";
+import { sellerService, fetchSellerOrders, IN_PROGRESS_STATUSES, walletService } from "../../services/sellerService";
 import { useAuth } from "../../context/AuthContext";
 import "./DashboardPage.css";
+
+const TUTORIAL_VIDEOS = [
+  {
+    id: "XZKYAJTId6U",
+    title: "How to List Products on Haatza | Step-by-Step Seller Guide",
+    duration: "5:12",
+    thumbnail: "https://img.youtube.com/vi/XZKYAJTId6U/mqdefault.jpg",
+    url: "https://youtu.be/XZKYAJTId6U?si=Dm_24_Eiq9TRGUfQ",
+    description: "Get registered and set up your shop on Haatza.",
+  },
+  {
+    id: "a6tEKsom-dA",
+    title: "Sell Smarter, Earn Faster 💡📲 | Haatza Seller App Launch",
+    duration: "3:45",
+    thumbnail: "https://img.youtube.com/vi/a6tEKsom-dA/mqdefault.jpg",
+    url: "https://youtu.be/a6tEKsom-dA?si=PDoYAFwQJfIBq97R",
+    description: "Learn to read views, orders, and listing charts.",
+  },
+  {
+    id: "Wh-nXR7rxjs",
+    title: "How Quality Insights Help You Sell Better on Haatza | Seller Growth Guide 🌟📊",
+    duration: "6:20",
+    thumbnail: "https://img.youtube.com/vi/Wh-nXR7rxjs/mqdefault.jpg",
+    url: "https://youtu.be/Wh-nXR7rxjs?si=t89JErvmNTw-fFBD",
+    description: "Step-by-step instructions to create listings.",
+  },
+  {
+    id: "lBrLd0mHpss",
+    title: "How Price Recommendation Works on Haatza | Smart Pricing Tips for Sellers 💡💰",
+    duration: "4:15",
+    thumbnail: "https://img.youtube.com/vi/lBrLd0mHpss/mqdefault.jpg",
+    url: "https://youtu.be/lBrLd0mHpss?si=3nfWbOAjKqI6g3Sz",
+    description: "Organize categories and subcategories.",
+  },
+  {
+    id: "fRfJmeYmTH0",
+    title: "How to Promote Your Products on Haatza | Boost Sales & Reach More Customers 🚀",
+    duration: "5:50",
+    thumbnail: "https://img.youtube.com/vi/fRfJmeYmTH0/mqdefault.jpg",
+    url: "https://youtu.be/fRfJmeYmTH0?si=KDu-YCTUZ91QrpTU",
+    description: "Fulfill orders, track shipments, and update status.",
+  },
+  {
+    id: "wRJBS49wzz0",
+    title: "How to Do Next Day Dispatch on Haatza | Fast Shipping Guide 🚀📦",
+    duration: "4:30",
+    thumbnail: "https://img.youtube.com/vi/wRJBS49wzz0/mqdefault.jpg",
+    url: "https://youtu.be/wRJBS49wzz0?si=O14D4NZJSrOJGLYK",
+    description: "Process customer returns and exchange requests.",
+  },
+  {
+    id: "AiTuAr0ciGo",
+    title: "How to Verify Orders & Ship Products on Haatza | Seller Step-by-Step Guide 🚚",
+    duration: "3:25",
+    thumbnail: "https://img.youtube.com/vi/AiTuAr0ciGo/mqdefault.jpg",
+    url: "https://youtu.be/AiTuAr0ciGo?si=xirdBUD2yIMl5FvQ",
+    description: "Optimize product performance with analytics.",
+  },
+  {
+    id: "UZ_AUtlAMC0",
+    title: "How to Receive Settlements on Haatza | Seller Payment Guide 💰",
+    duration: "4:05",
+    thumbnail: "https://img.youtube.com/vi/UZ_AUtlAMC0/mqdefault.jpg",
+    url: "https://youtu.be/UZ_AUtlAMC0?si=0igH3Hhu3nyL2xCt",
+    description: "Manage warehouse location and inventory.",
+  },
+  {
+    id: "dpaOFunbGW4",
+    title: "Best Tools for Online Sellers to Grow Their Business",
+    duration: "5:00",
+    thumbnail: "https://img.youtube.com/vi/dpaOFunbGW4/mqdefault.jpg",
+    url: "https://youtu.be/dpaOFunbGW4?si=yHHx2BC0l4Vi7IkD",
+    description: "Branding checklist to collaborate with influencers.",
+  },
+];
+
+
 
 const INR = (n) =>
   `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -244,7 +323,8 @@ const MountainChart = ({ data, height = 220, valueFormatter = INR, color = "indi
 
   const viewW = 440;
   const viewH = 220;
-  const padLeft = 50;
+  // Dynamically set padLeft to ensure currency labels are not clipped
+  const padLeft = valueFormatter === INR ? 70 : 55;
   const padRight = 16;
   const padTop = 30;
   const padBottom = 10;
@@ -258,10 +338,23 @@ const MountainChart = ({ data, height = 220, valueFormatter = INR, color = "indi
     return Math.ceil((rawMax || 1) / step) * step || 1;
   })();
 
-  const gridLines = [1, 0.75, 0.5, 0.25, 0].map((f) => ({
-    value: Math.round(niceMax * f),
-    y: padTop + plotH * (1 - f),
-  }));
+  const gridLines = (() => {
+    if (niceMax <= 4) {
+      return Array.from({ length: niceMax + 1 }, (_, i) => {
+        const val = niceMax - i;
+        const f = val / niceMax;
+        return {
+          value: val,
+          y: padTop + plotH * (1 - f),
+        };
+      });
+    } else {
+      return [1, 0.75, 0.5, 0.25, 0].map((f) => ({
+        value: Math.round(niceMax * f),
+        y: padTop + plotH * (1 - f),
+      }));
+    }
+  })();
 
   const stepX = data.length > 1 ? plotW / (data.length - 1) : 0;
 
@@ -302,7 +395,7 @@ const MountainChart = ({ data, height = 220, valueFormatter = INR, color = "indi
 
   return (
     <div className="mountain-chart-root">
-      <svg viewBox={`0 0 ${viewW} ${viewH}`} width="100%" height={height}>
+      <svg viewBox={`0 0 ${viewW} ${viewH}`} width="100%" height={height} style={{ overflow: "visible" }}>
         <defs>
           <linearGradient id={`mountainFill-${color}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={colorMap[color].fill} stopOpacity="0.32" />
@@ -318,7 +411,7 @@ const MountainChart = ({ data, height = 220, valueFormatter = INR, color = "indi
         {gridLines.map((g, i) => (
           <g key={i}>
             <line x1={padLeft} y1={g.y} x2={viewW - padRight} y2={g.y} stroke="#eef1f5" strokeWidth="1" />
-            <text x={padLeft - 10} y={g.y + 4} textAnchor="end" fontSize="11" fill="#9ca3af">
+            <text x={padLeft - 10} y={g.y + 4} textAnchor="end" className="chart-axis-text" fill="#9ca3af">
               {g.value}
             </text>
           </g>
@@ -330,7 +423,7 @@ const MountainChart = ({ data, height = 220, valueFormatter = INR, color = "indi
         {points.map((p, i) => (
           <g key={i}>
             <circle cx={p.x} cy={p.y} r="5" fill="#ffffff" stroke={colorMap[color].lineEnd} strokeWidth="2.5" />
-            <text x={p.x} y={p.y - 12} textAnchor="middle" fontSize="11" fontWeight="700" fill={colorMap[color].lineEnd}>
+            <text x={p.x} y={p.y - 12} textAnchor="middle" className="chart-value-text" fontWeight="700" fill={colorMap[color].lineEnd}>
               {valueFormatter(p.amount)}
             </text>
           </g>
@@ -346,11 +439,15 @@ const MountainChart = ({ data, height = 220, valueFormatter = INR, color = "indi
           paddingRight: `${(padRight / viewW) * 100}%`,
         }}
       >
-        {points.map((p, i) => (
-          <span key={i} className="mountain-chart-month">
-            {p.month}
-          </span>
-        ))}
+        {points.map((p, i) => {
+          const parts = p.month.split(" ");
+          return (
+            <span key={i} className="mountain-chart-month">
+              <span className="month-short">{parts[0]}</span>
+              {parts[1] && <span className="month-year"> {parts[1]}</span>}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -363,7 +460,7 @@ const SimpleBarChart = ({ data, height = 220, colors = [] }) => {
 
   const viewW = 440;
   const viewH = 220;
-  const padLeft = 50;
+  const padLeft = 55;
   const padRight = 16;
   const padTop = 30;
   const padBottom = 34;
@@ -377,10 +474,23 @@ const SimpleBarChart = ({ data, height = 220, colors = [] }) => {
     return Math.ceil((rawMax || 1) / step) * step || 1;
   })();
 
-  const gridLines = [1, 0.75, 0.5, 0.25, 0].map((f) => ({
-    value: Math.round(niceMax * f),
-    y: padTop + plotH * (1 - f),
-  }));
+  const gridLines = (() => {
+    if (niceMax <= 4) {
+      return Array.from({ length: niceMax + 1 }, (_, i) => {
+        const val = niceMax - i;
+        const f = val / niceMax;
+        return {
+          value: val,
+          y: padTop + plotH * (1 - f),
+        };
+      });
+    } else {
+      return [1, 0.75, 0.5, 0.25, 0].map((f) => ({
+        value: Math.round(niceMax * f),
+        y: padTop + plotH * (1 - f),
+      }));
+    }
+  })();
 
   const gap = 0.6; // fraction of slot width used as spacing between bars
   const slotW = plotW / data.length;
@@ -396,11 +506,11 @@ const SimpleBarChart = ({ data, height = 220, colors = [] }) => {
 
   return (
     <div className="mountain-chart-root">
-      <svg viewBox={`0 0 ${viewW} ${viewH}`} width="100%" height={height}>
+      <svg viewBox={`0 0 ${viewW} ${viewH}`} width="100%" height={height} style={{ overflow: "visible" }}>
         {gridLines.map((g, i) => (
           <g key={i}>
             <line x1={padLeft} y1={g.y} x2={viewW - padRight} y2={g.y} stroke="#eef1f5" strokeWidth="1" />
-            <text x={padLeft - 10} y={g.y + 4} textAnchor="end" fontSize="11" fill="#9ca3af">
+            <text x={padLeft - 10} y={g.y + 4} textAnchor="end" className="chart-axis-text" fill="#9ca3af">
               {g.value}
             </text>
           </g>
@@ -416,14 +526,14 @@ const SimpleBarChart = ({ data, height = 220, colors = [] }) => {
               rx="6"
               fill={colors[i] || "#3b82f6"}
             />
-            <text x={b.centerX} y={b.y - 10} textAnchor="middle" fontSize="12" fontWeight="700" fill="#111827">
+            <text x={b.centerX} y={b.y - 10} textAnchor="middle" className="chart-value-text" fontWeight="700" fill="#111827">
               {b.value}
             </text>
             <text
               x={b.centerX}
               y={padTop + plotH + 20}
               textAnchor="middle"
-              fontSize="11"
+              className="chart-axis-text"
               fontWeight="600"
               fill="#9ca3af"
             >
@@ -443,6 +553,488 @@ const DashboardPage = () => {
     user?.email || localStorage.getItem("userEmail") || sessionStorage.getItem("userEmail") || "";
   const navigate = useNavigate();
 
+  // Welcome Reward Scratch Card States
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [isCanvasReady, setIsCanvasReady] = useState(false);
+  const [scratchComplete, setScratchComplete] = useState(false);
+  const [isScratchingStarted, setIsScratchingStarted] = useState(false);
+  const [claimPressed, setClaimPressed] = useState(false);
+
+  const [flyingCoins, setFlyingCoins] = useState([]);
+  const [particles, setParticles] = useState([]);
+  const [scratchSparks, setScratchSparks] = useState([]);
+  const [flyingStars, setFlyingStars] = useState([]);
+  const [floatingCash, setFloatingCash] = useState({ x: 0, y: 0, active: false });
+
+  const canvasRef = useRef(null);
+  const isDrawingRef = useRef(false);
+  const claimLockRef = useRef(false);
+
+  // Play Synthesized Sounds using Web Audio API to bypass asset file loading
+  const playSynthesizedSound = (type) => {
+    return; // Audio completely disabled
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      
+      if (type === "scratch") {
+        const bufferSize = ctx.sampleRate * 0.05;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        
+        const filter = ctx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.frequency.value = 1000;
+        
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.04, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.05);
+        
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        noise.start();
+      } else if (type === "success") {
+        const notes = [261.63, 329.63, 392.00, 523.25]; // C major chord arpeggio
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = freq;
+          
+          const startTime = ctx.currentTime + i * 0.12;
+          gain.gain.setValueAtTime(0, startTime);
+          gain.gain.linearRampToValueAtTime(0.12, startTime + 0.03);
+          gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.35);
+          
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(startTime);
+          osc.stop(startTime + 0.4);
+        });
+      } else if (type === "coin") {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(987.77, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+        
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.6);
+      }
+    } catch (e) {
+      console.warn("Audio failed to synthesize:", e);
+    }
+  };
+
+  useEffect(() => {
+    // Show only for newly registered users who just landed from onboarding
+    const justOnboarded = localStorage.getItem("__haatza_just_onboarded") === "true";
+    const isClaimed = user?.welcomeRewardClaimed || false;
+    if (justOnboarded && !isClaimed) {
+      setShowWelcomeModal(true);
+    }
+  }, [user]);
+
+  // Init canvas once welcome modal opens
+  useEffect(() => {
+    if (!showWelcomeModal) return;
+    
+    setIsCanvasReady(false);
+    setScratchComplete(false);
+    setIsScratchingStarted(false);
+    setClaimPressed(false);
+    setScratchSparks([]);
+    setFlyingStars([]);
+
+    const timer = setTimeout(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width || 320;
+      canvas.height = rect.height || 200;
+      
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Paint metallic silver gradient
+      const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      grad.addColorStop(0, "#e2e8f0");
+      grad.addColorStop(0.15, "#f8fafc");
+      grad.addColorStop(0.3, "#cbd5e1");
+      grad.addColorStop(0.45, "#f1f5f9");
+      grad.addColorStop(0.6, "#cbd5e1");
+      grad.addColorStop(0.75, "#94a3b8");
+      grad.addColorStop(1, "#cbd5e1");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Add fine metallic noise
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const noise = (Math.random() - 0.5) * 16;
+        data[i] = Math.min(255, Math.max(0, data[i] + noise));
+        data[i+1] = Math.min(255, Math.max(0, data[i+1] + noise));
+        data[i+2] = Math.min(255, Math.max(0, data[i+2] + noise));
+      }
+      ctx.putImageData(imgData, 0, 0);
+      
+      // Add glitter sparkles
+      ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+      for (let i = 0; i < 45; i++) {
+        const x = Math.random() * canvas.width;
+        const y = Math.random() * canvas.height;
+        const size = Math.random() * 2 + 1;
+        ctx.fillRect(x, y, size, size);
+      }
+      
+      // Elegant cover text details
+      ctx.font = "bold 16px 'Plus Jakarta Sans', 'Poppins', sans-serif";
+      ctx.fillStyle = "#475569";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("HAATZA REWARD 🌟", canvas.width / 2, canvas.height / 2 - 12);
+      
+      ctx.font = "600 11px 'Plus Jakarta Sans', sans-serif";
+      ctx.fillStyle = "#64748b";
+      ctx.fillText("Scratch to reveal cashback", canvas.width / 2, canvas.height / 2 + 12);
+      
+      setIsCanvasReady(true);
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [showWelcomeModal]);
+
+  // Programmatically attach touch listeners with { passive: false } to support smooth scratch drag on mobile
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const onTouchStart = (e) => {
+      isDrawingRef.current = true;
+      const pos = getMousePos(e);
+      scratch(pos.x, pos.y, e);
+    };
+
+    const onTouchMove = (e) => {
+      if (!isDrawingRef.current) return;
+      if (e.cancelable) e.preventDefault();
+      const pos = getMousePos(e);
+      scratch(pos.x, pos.y, e);
+    };
+
+    const onTouchEnd = () => {
+      isDrawingRef.current = false;
+      checkScratchPercentage();
+    };
+
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    canvas.addEventListener("touchend", onTouchEnd, { passive: false });
+
+    return () => {
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [showWelcomeModal]);
+
+  // Particles Tick Loop (Confetti)
+  useEffect(() => {
+    if (particles.length === 0) return;
+    let active = true;
+    const tick = () => {
+      if (!active) return;
+      setParticles(prev => {
+        const next = prev.map(p => ({
+          ...p,
+          x: p.x + p.vx,
+          y: p.y + p.vy,
+          vy: p.vy + 0.6,
+          rotation: p.rotation + p.rotationSpeed,
+          opacity: Math.max(0, p.opacity - 0.015)
+        })).filter(p => p.opacity > 0 && p.y < window.innerHeight);
+        
+        if (next.length > 0) {
+          requestAnimationFrame(tick);
+        }
+        return next;
+      });
+    };
+    requestAnimationFrame(tick);
+    return () => { active = false; };
+  }, [particles.length]);
+
+  // Stars claims flight particles loop
+  useEffect(() => {
+    if (flyingStars.length === 0) return;
+    let active = true;
+    const tick = () => {
+      if (!active) return;
+      setFlyingStars(prev => {
+        const next = prev.map(s => {
+          const dx = s.targetX - s.x;
+          const dy = s.targetY - s.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          
+          if (dist < 18) {
+            triggerWalletBounce();
+            playSynthesizedSound("coin");
+            return null; // reached target
+          }
+          
+          const pullX = dx / dist;
+          const pullY = dy / dist;
+          
+          const nextVx = s.vx * 0.88 + pullX * 2.5;
+          const nextVy = s.vy * 0.88 + pullY * 2.5;
+          
+          return {
+            ...s,
+            x: s.x + nextVx,
+            y: s.y + nextVy,
+            vx: nextVx,
+            vy: nextVy,
+            opacity: Math.max(0.1, s.opacity - 0.003)
+          };
+        }).filter(Boolean);
+        
+        if (next.length > 0) {
+          requestAnimationFrame(tick);
+        } else {
+          finalizeClaim();
+        }
+        return next;
+      });
+    };
+    requestAnimationFrame(tick);
+    return () => { active = false; };
+  }, [flyingStars.length]);
+
+  const triggerCelebration = () => {
+    // Generate Gold, Silver, Blue, and Purple confetti
+    const colors = ["#FFD700", "#C0C0C0", "#2563EB", "#8B5CF6"];
+    const newParticles = Array.from({ length: 65 }).map((_, i) => ({
+      id: i,
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2 - 80,
+      vx: (Math.random() - 0.5) * 16,
+      vy: (Math.random() - 0.7) * 20,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: Math.random() * 12 + 6,
+      rotation: Math.random() * 360,
+      rotationSpeed: (Math.random() - 0.5) * 10,
+      opacity: 1,
+      type: Math.random() > 0.5 ? "star" : "circle"
+    }));
+    setParticles(newParticles);
+    playSynthesizedSound("success");
+  };
+
+  const triggerFlyingCoins = () => {
+    const target = getWalletCoordinates();
+    const startX = window.innerWidth / 2;
+    const startY = window.innerHeight / 2;
+    
+    const coins = Array.from({ length: 8 }).map((_, i) => ({
+      id: `coin-${i}`,
+      startX,
+      startY,
+      targetX: target.x,
+      targetY: target.y,
+      delay: i * 150
+    }));
+    setFlyingCoins(coins);
+    
+    setTimeout(() => {
+      setFlyingCoins([]);
+    }, 2500);
+  };
+
+  const getWalletCoordinates = () => {
+    const navBtn = document.getElementById("navbar-wallet-btn");
+    if (navBtn) {
+      const rect = navBtn.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }
+    const sidebarBtn = document.getElementById("sidebar-menu-wallet");
+    if (sidebarBtn) {
+      const rect = sidebarBtn.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }
+    return { x: 50, y: window.innerHeight - 150 };
+  };
+
+  const triggerWalletBounce = () => {
+    const el = document.getElementById("navbar-wallet-btn") || document.getElementById("sidebar-menu-wallet");
+    if (el) {
+      el.classList.add("wallet-glow-pulse");
+      setTimeout(() => el.classList.remove("wallet-glow-pulse"), 800);
+    }
+  };
+
+  const checkScratchPercentage = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = imgData.data;
+    let transparent = 0;
+    for (let i = 3; i < pixels.length; i += 4) {
+      if (pixels[i] === 0) {
+        transparent++;
+      }
+    }
+    const percent = (transparent / (pixels.length / 4)) * 100;
+    
+    // Auto reveal at 60% scratched area
+    if (percent > 60 && !scratchComplete) {
+      setScratchComplete(true);
+      triggerCelebration();
+    }
+  };
+
+  const startStarFlight = () => {
+    if (claimPressed) return;
+    setClaimPressed(true);
+
+    const target = getWalletCoordinates();
+    const startX = window.innerWidth / 2;
+    const startY = window.innerHeight / 2;
+    
+    const newStars = Array.from({ length: 45 }).map((_, i) => {
+      const angle = Math.random() * Math.PI * 2;
+      const burstSpeed = Math.random() * 7 + 4;
+      return {
+        id: `claim-star-${i}`,
+        x: startX,
+        y: startY,
+        vx: Math.cos(angle) * burstSpeed,
+        vy: Math.sin(angle) * burstSpeed,
+        targetX: target.x,
+        targetY: target.y,
+        delay: Math.random() * 150,
+        opacity: 1,
+        size: Math.random() * 8 + 6
+      };
+    });
+    setFlyingStars(newStars);
+  };
+
+  const finalizeClaim = async () => {
+    const target = getWalletCoordinates();
+    setFloatingCash({ x: target.x, y: target.y - 20, active: true });
+    
+    setTimeout(() => {
+      setFloatingCash({ x: 0, y: 0, active: false });
+    }, 2000);
+    
+    await revealRewardAndCredit();
+    setShowWelcomeModal(false);
+  };
+
+  const revealRewardAndCredit = async () => {
+    if (claimLockRef.current) return;
+    claimLockRef.current = true;
+
+    try {
+      await sellerService.updateSellerOnboarding(sellerEmail, { welcomeRewardClaimed: true });
+      await walletService.addFunds({
+        sellerId,
+        amountAdded: 500,
+        paymentId: `WELCOME_REWARD_${sellerId}`,
+        razorpayOrderId: "WELCOME",
+        description: "New Seller Reward"
+      });
+
+      if (user) {
+        user.welcomeRewardClaimed = true;
+      }
+      localStorage.removeItem("__haatza_just_onboarded");
+
+      setTimeout(async () => {
+        try {
+          const walletRes = await sellerService.checkWalletBalance(sellerId);
+          const bal = Number(walletRes?.message?.RemainingBalance || walletRes?.RemainingBalance || 0);
+          setWallet(bal);
+        } catch {}
+      }, 1000);
+
+    } catch (err) {
+      console.error("[DashboardPage] Welcome Reward Claim Error:", err);
+    }
+  };
+
+  const getMousePos = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  };
+
+  const handleStart = (e) => {
+    isDrawingRef.current = true;
+    const pos = getMousePos(e);
+    scratch(pos.x, pos.y, e);
+  };
+
+  const handleMove = (e) => {
+    if (!isDrawingRef.current) return;
+    e.preventDefault();
+    const pos = getMousePos(e);
+    scratch(pos.x, pos.y, e);
+  };
+
+  const handleEnd = () => {
+    isDrawingRef.current = false;
+    checkScratchPercentage();
+  };
+
+  const scratch = (x, y, e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath();
+    ctx.arc(x, y, 22, 0, Math.PI * 2);
+    ctx.fill();
+    setIsScratchingStarted(true);
+
+    playSynthesizedSound("scratch");
+
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    const sparks = Array.from({ length: 3 }).map((_, idx) => ({
+      id: Math.random() + idx,
+      x: clientX,
+      y: clientY,
+      size: Math.random() * 4 + 2,
+      tx: `${(Math.random() - 0.5) * 80}px`,
+      ty: `${(Math.random() - 0.5) * 80}px`,
+      color: ["#e2e8f0", "#cbd5e1", "#94a3b8", "#f8fafc"][Math.floor(Math.random() * 4)]
+    }));
+    setScratchSparks(prev => [...prev, ...sparks].slice(-60));
+  };
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [quoteIdx, setQuoteIdx] = useState(0);
@@ -458,24 +1050,134 @@ const DashboardPage = () => {
   previous: { count: 0, amount: 0 },
   upcoming: { count: 0, amount: 0 },
 });
-  const [tutorials, setTutorials] = useState([]);
+  const [tutorials, setTutorials] = useState(TUTORIAL_VIDEOS);
 
   const videoScrollRef = useRef(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isTouchActive, setIsTouchActive] = useState(false);
+  const touchTimeoutRef = useRef(null);
+
+  // Measure and wrap scroll position seamlessly to create an infinite loop
+  const handleScroll = useCallback(() => {
+    const el = videoScrollRef.current;
+    if (!el || tutorials.length === 0) return;
+    const N = tutorials.length;
+    if (el.children.length < N * 3) return;
+
+    const card1 = el.children[0];
+    const cardN = el.children[N];
+    if (!card1 || !cardN) return;
+
+    const dist = cardN.offsetLeft - card1.offsetLeft;
+
+    if (el.scrollLeft >= dist * 2) {
+      el.scrollLeft -= dist;
+    } else if (el.scrollLeft < dist) {
+      el.scrollLeft += dist;
+    }
+  }, [tutorials]);
+
+  // Listen to scroll events on the carousel container to handle wrapping
+  useEffect(() => {
+    const el = videoScrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", handleScroll);
+    };
+  }, [handleScroll, loading]);
+
+  // Center the scroll position within the middle set of cards initially
+  useEffect(() => {
+    const el = videoScrollRef.current;
+    if (!el || tutorials.length === 0) return;
+    const N = tutorials.length;
+
+    const initScroll = () => {
+      if (el.children.length >= N * 3) {
+        const card1 = el.children[0];
+        const cardN = el.children[N];
+        if (card1 && cardN) {
+          const dist = cardN.offsetLeft - card1.offsetLeft;
+          el.scrollLeft = dist;
+        }
+      }
+    };
+
+    const timer = setTimeout(initScroll, 100);
+    return () => clearTimeout(timer);
+  }, [tutorials, loading]);
+
+  // Touch event handlers for mobile to pause scrolling during manual swiping
+  const handleTouchStart = () => {
+    setIsTouchActive(true);
+    if (touchTimeoutRef.current) {
+      clearTimeout(touchTimeoutRef.current);
+      touchTimeoutRef.current = null;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimeoutRef.current) {
+      clearTimeout(touchTimeoutRef.current);
+    }
+    // Resume auto scroll after a short delay to let inertia/momentum settle
+    touchTimeoutRef.current = setTimeout(() => {
+      setIsTouchActive(false);
+      touchTimeoutRef.current = null;
+    }, 1500);
+  };
+
+  // Clean up touch timeout on unmount to prevent state updates on unmounted components
+  useEffect(() => {
+    return () => {
+      if (touchTimeoutRef.current) {
+        clearTimeout(touchTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // ── Auto horizontal scrolling carousel for video tutorials ──────────────────
+  useEffect(() => {
+    const el = videoScrollRef.current;
+    if (!el || isHovered || isTouchActive || tutorials.length === 0) return;
+
+    let animationFrameId;
+    let lastTime = performance.now();
+    const speed = 0.04; // speed in pixels per millisecond (about 40px per second)
+
+    const step = (time) => {
+      const delta = time - lastTime;
+      lastTime = time;
+
+      if (!isHovered && !isTouchActive && el) {
+        el.scrollLeft += speed * delta;
+      }
+      animationFrameId = requestAnimationFrame(step);
+    };
+
+    animationFrameId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [isHovered, isTouchActive, tutorials, loading]);
 
   useEffect(() => {
   const t = setInterval(() => setQuoteIdx((i) => (i + 1) % BANNER_IMAGES.length), 5000);
   return () => clearInterval(t);
 }, []);
 
-  const loadDashboardData = useCallback(async () => {
+  const loadDashboardData = useCallback(async (isSilent = false) => {
     if (!sellerId || !sellerEmail) {
       setError("Seller session not found. Please login again.");
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    if (!isSilent) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
       const results = await Promise.allSettled([
@@ -654,16 +1356,16 @@ console.log("[DASHBOARD DEBUG] sellerId:", sellerId, "sellerEmail:", sellerEmail
         });
       }
       // ── Tutorial videos ──────────────────────────────────────────────
-      if (results[8].status === "fulfilled") {
-        const vids =
-          results[8].value?.message?.data || results[8].value?.data || results[8].value || [];
-        setTutorials(Array.isArray(vids) ? vids : []);
-      }
+      setTutorials(TUTORIAL_VIDEOS);
     } catch (err) {
       console.error("[DashboardPage] Fetch data failed:", err);
-      setError("Failed to load dashboard statistics. Please verify your connection.");
+      if (!isSilent) {
+        setError("Failed to load dashboard statistics. Please verify your connection.");
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, [sellerId, sellerEmail]);
 
@@ -671,10 +1373,15 @@ console.log("[DASHBOARD DEBUG] sellerId:", sellerId, "sellerEmail:", sellerEmail
     loadDashboardData();
   }, [loadDashboardData]);
 
-  const scrollVideos = (dir) => {
-    if (!videoScrollRef.current) return;
-    videoScrollRef.current.scrollBy({ left: dir * 260, behavior: "smooth" });
-  };
+  useEffect(() => {
+    if (!sellerId || !sellerEmail) return;
+    const interval = setInterval(() => {
+      loadDashboardData(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [sellerId, sellerEmail, loadDashboardData]);
+
+
 
   if (loading) {
     return (
@@ -702,6 +1409,9 @@ console.log("[DASHBOARD DEBUG] sellerId:", sellerId, "sellerEmail:", sellerEmail
   }
 
   const sellerName = user?.nickname || user?.firstName || user?.name || user?.fullName || user?.companyName || "";
+  const duplicatedTutorials = tutorials.length > 0 ? [...tutorials, ...tutorials, ...tutorials] : [];
+
+
   
 
   return (
@@ -939,32 +1649,206 @@ console.log("[DASHBOARD DEBUG] sellerId:", sellerId, "sellerEmail:", sellerEmail
         <div className="dashboard-section-card">
           <div className="videos-header">
             <h3 style={{ border: "none", margin: 0, padding: 0 }}>Haatza With You</h3>
-            <div className="video-scroll-controls">
-              <button onClick={() => scrollVideos(-1)}><ChevronLeft size={16} /></button>
-              <button onClick={() => scrollVideos(1)}><ChevronRight size={16} /></button>
-            </div>
           </div>
           <p className="section-footnote" style={{ marginTop: 0 }}>Learn, grow and succeed with our latest videos</p>
-          <div className="video-row" ref={videoScrollRef}>
-            {tutorials.length === 0 ? (
+          <div 
+            className="video-row" 
+            ref={videoScrollRef}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
+            {duplicatedTutorials.length === 0 ? (
               <div className="dashboard-empty-substate">
                 <p>No tutorial videos available right now.</p>
               </div>
             ) : (
-              tutorials.map((v, i) => (
-                <div className="video-card" key={v.id || i}>
+              duplicatedTutorials.map((v, i) => (
+                <div 
+                  className="video-card" 
+                  key={v.id ? `${v.id}-${i}` : i}
+                  onClick={() => {
+                    const videoLink = v.url || v.videoUrl || v.link;
+                    if (videoLink) window.open(videoLink, "_blank");
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
                   <div className="video-thumb-wrap">
                     <img src={v.thumbnail || v.thumbnailUrl || v.image} alt={v.title || "tutorial"} />
+                    <div className="video-play-overlay">
+                      <Play size={20} fill="currentColor" />
+                    </div>
                     <span className="video-duration">{v.duration || ""}</span>
                   </div>
-                  <p className="video-title">{v.title || v.name}</p>
+                  <div className="video-info-wrap">
+                    <p className="video-title">{v.title || v.name}</p>
+                    <p className="video-description">{v.description || "Watch tutorial video to learn more."}</p>
+                  </div>
                 </div>
               ))
             )}
           </div>
         </div>
+
+        {/* Welcome Scratch Card Reward Modal Backdrop */}
+        {showWelcomeModal && (
+          <div className="scratch-modal-backdrop">
+            {/* Sparkles background layer behind content */}
+            <div className="scratch-bg-sparkles-container">
+              {Array.from({ length: 15 }).map((_, i) => (
+                <div key={i} className="scratch-bg-sparkle" style={{
+                  left: `${Math.random() * 100}%`,
+                  top: `${Math.random() * 100}%`,
+                  animationDelay: `${Math.random() * 2}s`,
+                  transform: `scale(${Math.random() * 0.5 + 0.5})`
+                }}>★</div>
+              ))}
+            </div>
+
+            <div className="scratch-modal-content">
+              <button 
+                className="scratch-modal-close-btn"
+                onClick={() => {
+                  setShowWelcomeModal(false);
+                  localStorage.removeItem("__haatza_just_onboarded");
+                }}
+              >
+                <X size={20} />
+              </button>
+              <div className="scratch-card-header">
+                <h2>🎉 Welcome Reward!</h2>
+                <p>Scratch your card to reveal your welcome reward!</p>
+              </div>
+              
+              <div className="scratch-card-main-container">
+                {/* Back layer: Reward Details */}
+                <div 
+                  className={`scratch-card-reward-back ${scratchComplete ? "reward-reveal-active" : ""}`}
+                  style={{ opacity: isScratchingStarted || scratchComplete ? 1 : 0.01 }}
+                >
+                  <span className="reward-congrats animate-bounce">🎉 Congratulations!</span>
+                  <span className="reward-cashback-value">₹500</span>
+                  <span className="reward-cashback-label">Welcome Cashback</span>
+                </div>
+                
+                {/* Front Layer: Canvas Container with metallic shine sweep overlay */}
+                <div className={`scratch-canvas-container ${scratchComplete ? "scratch-canvas-fadeout" : ""}`}>
+                  <canvas
+                    ref={canvasRef}
+                    className="scratch-canvas"
+                    onMouseDown={handleStart}
+                    onMouseMove={handleMove}
+                    onMouseUp={handleEnd}
+                    onMouseLeave={handleEnd}
+                  />
+                  <div className="scratch-canvas-shine" />
+                </div>
+              </div>
+              
+              {/* Claim Reward Button */}
+              {scratchComplete && !claimPressed && (
+                <button 
+                  className="claim-reward-btn pulse-button"
+                  onClick={startStarFlight}
+                >
+                  <span className="btn-shimmer" />
+                  Claim Reward 🌟
+                </button>
+              )}
+
+              {claimPressed && (
+                <div className="scratch-claim-success-info">
+                  Sending reward to your wallet...
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Scratch Sparks flying overlay */}
+        {scratchSparks.map(s => (
+          <div 
+            key={s.id}
+            className="scratch-spark"
+            style={{
+              left: s.x,
+              top: s.y,
+              width: s.size,
+              height: s.size,
+              backgroundColor: s.color,
+              "--tx": s.tx,
+              "--ty": s.ty
+            }}
+          />
+        ))}
+
+        {/* Star Collection Flight Animation */}
+        {flyingStars.map(s => (
+          <div
+            key={s.id}
+            className="glowing-star-claim"
+            style={{
+              left: s.x,
+              top: s.y,
+              width: s.size,
+              height: s.size,
+              opacity: s.opacity,
+            }}
+          >
+            ★
+          </div>
+        ))}
+
+        {/* Floating +₹500 Cashback Bubble Animation */}
+        {floatingCash.active && (
+          <div
+            className="floating-cash-bubble"
+            style={{
+              "--x": `${floatingCash.x}px`,
+              "--y": `${floatingCash.y}px`
+            }}
+          >
+            +₹500
+          </div>
+        )}
+
+        {/* Floating Particles Overlay */}
+        {particles.map(p => (
+          <div 
+            key={p.id}
+            className="scratch-particle"
+            style={{
+              left: p.x,
+              top: p.y,
+              width: p.size,
+              height: p.size,
+              backgroundColor: p.color,
+              opacity: p.opacity,
+              borderRadius: p.type === "circle" ? "50%" : "20%",
+              transform: `rotate(${p.rotation}deg)`
+            }}
+          />
+        ))}
+
+        {/* Flying Gold Coins Animation */}
+        {flyingCoins.map(coin => (
+          <div
+            key={coin.id}
+            className="flying-coin"
+            style={{
+              "--start-x": `${coin.startX}px`,
+              "--start-y": `${coin.startY}px`,
+              "--target-x": `${coin.targetX}px`,
+              "--target-y": `${coin.targetY}px`,
+              animationDelay: `${coin.delay}ms`
+            }}
+          >
+            ₹
+          </div>
+        ))}
+        </div>
       </div>
-    </div>
   );
 };
 

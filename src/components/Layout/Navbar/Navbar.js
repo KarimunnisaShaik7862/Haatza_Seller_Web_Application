@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../../context/AuthContext";
+import { sellerService } from "../../../services/sellerService";
 import LogoutConfirmModal from "../../common/LogoutConfirmModal/LogoutConfirmModal";
 import "./Navbar.css";
 import haatzaSellerLogo from "../../../assets/Images/haatzaSellerlogo.png";
@@ -30,12 +31,116 @@ const HaatzaNavbar = ({ seller: propSeller = {} }) => {
   const seller = user || propSeller || {};
   console.log("Navbar Seller Data:", seller);
 
+  const sellerName    =
+    seller.name ||
+    seller.fullName ||
+    seller.sellerName ||
+    seller.userName ||
+    seller.firstName ||
+    seller.nickname ||
+    "";
+  const sellerEmail   = seller.email         || "";
+  const sellerRole    = seller.role          || "Seller";
+  const sellerId      = seller.sellerId      || "";
+  const sellerInitial = seller.avatarInitial || (sellerName ? sellerName.charAt(0).toUpperCase() : "");
+  const sellerLogoUrl = seller.logoUrl       || null;
+
   const [dropdownOpen, setDropdownOpen]         = useState(false);
   const [mobileIconsOpen, setMobileIconsOpen]   = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [searchFocused, setSearchFocused]       = useState(false);
   const [searchValue, setSearchValue]           = useState("");
   const [scrolled, setScrolled]                 = useState(false);
+  const [activePlan, setActivePlan]             = useState("Free Plan");
+
+  useEffect(() => {
+    if (!sellerEmail) return;
+    let isMounted = true;
+    
+    sellerService.fetchSubscriptionPlan(sellerEmail)
+      .then(res => {
+        if (!isMounted) return;
+        const data = res?.data ?? res ?? {};
+        const orders = data?.message?.orders || data?.orders || [];
+        
+        if (Array.isArray(orders) && orders.length > 0) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          const parseDate = (val) => {
+            if (!val) return null;
+            const d = new Date(val);
+            return isNaN(d.getTime()) ? null : d;
+          };
+
+          const getDateTime = (sub) => {
+            const d = parseDate(
+              sub?.startedDate ||
+              sub?.startDate ||
+              sub?.endedDate ||
+              sub?.endDate ||
+              sub?.createdDate ||
+              sub?.createdAt ||
+              0
+            );
+            return d ? d.getTime() : 0;
+          };
+
+          const isActiveNow = (sub) => {
+            const status = String(sub?.status || "").toLowerCase();
+            const start = parseDate(sub?.startedDate || sub?.startDate);
+            const end = parseDate(sub?.endedDate || sub?.endDate);
+            if (!start || !end) return false;
+
+            start.setHours(0, 0, 0, 0);
+            end.setHours(23, 59, 59, 999);
+
+            return status === "active" && today >= start && today <= end;
+          };
+
+          const activeNow = orders.find(isActiveNow);
+          let latest = activeNow;
+          if (!latest) {
+            const active = orders.find(
+              (sub) => String(sub?.status || "").toLowerCase() === "active"
+            );
+            if (active) {
+              latest = active;
+            } else {
+              const scheduled = orders
+                .filter((sub) => String(sub?.status || "").toLowerCase() === "scheduled")
+                .sort((a, b) => getDateTime(b) - getDateTime(a))[0];
+              if (scheduled) {
+                latest = scheduled;
+              } else {
+                latest = [...orders].sort((a, b) => getDateTime(b) - getDateTime(a))[0];
+              }
+            }
+          }
+          
+          if (latest) {
+            const rawPlan = latest.planName || latest.plan || latest.subscriptionPlan || "Free Plan";
+            let formatted = String(rawPlan).trim();
+            if (formatted.toLowerCase() === "free") {
+              formatted = "Free Plan";
+            }
+            if (formatted && !formatted.toLowerCase().endsWith("plan")) {
+              formatted = `${formatted} Plan`;
+            }
+            setActivePlan(formatted);
+          } else {
+            setActivePlan("Free Plan");
+          }
+        } else {
+          setActivePlan("Free Plan");
+        }
+      })
+      .catch(err => {
+        console.error("[Navbar] Fetch subscription failed:", err);
+      });
+      
+    return () => { isMounted = false; };
+  }, [sellerEmail, location.pathname]);
 
   /* ── NEW: Logout confirmation modal state ─────────────────── */
 /* ── NEW: Logout confirmation modal state ─────────────────── */
@@ -82,19 +187,7 @@ const greeting = getGreeting();
     setSearchFocused(false);
     setMobileSearchOpen(false);
   };
-  const sellerName    =
-    seller.name ||
-    seller.fullName ||
-    seller.sellerName ||
-    seller.userName ||
-    seller.firstName ||
-    seller.nickname ||
-    "";
-  const sellerEmail   = seller.email         || "";
-  const sellerRole    = seller.role          || "Seller";
-  const sellerId      = seller.sellerId      || "";
-  const sellerInitial = seller.avatarInitial || (sellerName ? sellerName.charAt(0).toUpperCase() : "");
-  const sellerLogoUrl = seller.logoUrl       || null;
+
 
  useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10);
@@ -362,6 +455,7 @@ const greeting = getGreeting();
               React.createElement(
                 "button",
                 {
+                  id: "navbar-wallet-btn",
                   className: `icon-btn ${location.pathname === "/wallet" ? "active" : ""}`,
                   title: "Wallet",
                   onClick: () => navigate("/wallet"),
@@ -406,7 +500,7 @@ const greeting = getGreeting();
                     sellerEmail &&
                       React.createElement("p", { className: "dropdown-email" }, sellerEmail),
                     sellerRole &&
-                      React.createElement("p", { className: "dropdown-role" }, sellerRole),
+                      React.createElement("p", { className: "dropdown-role" }, `${sellerRole} • ${activePlan}`),
                     sellerId &&
                       React.createElement("p", { className: "dropdown-role", style: { fontSize: "11.5px", color: "rgba(0, 0, 0, 0.45)", marginTop: "2px" } }, `Seller ID: ${sellerId}`)
                   )

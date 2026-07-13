@@ -378,6 +378,64 @@ const isCampaignProduct = (product) => {
   );
 };
 
+const parseCampaignDate = (value) => {
+  if (!value) return null;
+
+  try {
+    if (value instanceof Date && !isNaN(value.getTime())) {
+      return value;
+    }
+
+    if (typeof value === "number") {
+      const dateFromNumber = new Date(value);
+      return isNaN(dateFromNumber.getTime()) ? null : dateFromNumber;
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+
+      const parsed = parseDateTime(trimmed);
+      if (parsed.date) {
+        const [year, month, day] = parsed.date.split("-").map(Number);
+        const [hour = 23, minute = 59] = (parsed.time || "23:59").split(":").map(Number);
+        const localDate = new Date(year, month - 1, day, hour, minute, 59, 999);
+        if (!isNaN(localDate.getTime())) return localDate;
+      }
+
+      const directDate = new Date(trimmed);
+      return isNaN(directDate.getTime()) ? null : directDate;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const getProductCampaignEndDate = (product) => {
+  return parseCampaignDate(
+    product?.campaignEndDateTime ??
+    product?.campaignEndDate ??
+    product?.currentCampaignEndDateTime ??
+    product?.currentCampaignEndDate ??
+    product?.endDateTime ??
+    product?.endDate ??
+    product?.campaign?.endDateTime ??
+    product?.campaign?.endDate ??
+    product?.raw?.campaignEndDateTime ??
+    product?.raw?.campaignEndDate ??
+    product?.raw?.endDateTime ??
+    product?.raw?.endDate
+  );
+};
+
+const isCampaignEndedForProduct = (product) => {
+  const endDate = getProductCampaignEndDate(product);
+  if (!endDate) return false;
+  return endDate.getTime() < Date.now();
+};
+
 const normalizeProduct = (p) => ({
   ...p,
   productId: p.productId || p.ProductID || p.id || p._id || p.tableId || "",
@@ -385,6 +443,7 @@ const normalizeProduct = (p) => ({
   price: p.price || p.sellingPrice || p.finalPrice || p.mrp || 0,
   image: p.mainMedia || p.mainmedia || p.image || p.imageUrl || p.productImage || p.thumbnail || "",
   campaignId: p.campaignId || p.CampaignID || p.campaignID || p.currentCampaignId || "",
+  campaignEndDateTime: p.campaignEndDateTime || p.campaignEndDate || p.currentCampaignEndDateTime || p.currentCampaignEndDate || p.endDateTime || p.endDate || "",
   activeAd: p.activeAd ?? p.activeAdStatus ?? p.isInCampaign ?? false,
   stock: p.stock ?? p.quantity ?? p.availableStock ?? p.inventory
 });
@@ -439,7 +498,13 @@ const CreateCampaignPage = () => {
   const isProductInAnotherCampaign = (product) => {
     const cid = product.campaignId || product.CampaignID || product.campaignID || product.currentCampaignId || "";
     if (!cid) return false;
+
+    // In edit mode, products already attached to this same campaign are allowed.
     if (isEditMode && String(cid) === String(editCampaign?.campaignId)) return false;
+
+    // Products from another campaign can be selected only after that campaign has ended.
+    if (isCampaignEndedForProduct(product)) return false;
+
     return true;
   };
 
@@ -1243,6 +1308,7 @@ const CreateCampaignPage = () => {
       if (!sellerId) throw new Error("Missing sellerId");
       if (!campaignType) throw new Error("Missing campaignType");
       if (!selectedProductIds || !selectedProductIds.length) throw new Error("Please select at least one product");
+      if (new Set(selectedProductIds.map(String)).size !== selectedProductIds.length) throw new Error("Duplicate products are not allowed in the same campaign");
       if (!Number(dailyBudget)) throw new Error("Missing daily budget");
       if (!startDateTime) throw new Error("Missing start date");
       if (!endDateTime) throw new Error("Missing end date");
@@ -1416,6 +1482,13 @@ const CreateCampaignPage = () => {
   // Handle Individual Product Checkbox
   const handleProductSelectChange = (product, isChecked) => {
     const productId = getProductId(product);
+    if (!productId) return;
+
+    if (isChecked && !isProductSelectable(product)) {
+      showToast("This product is already in an active campaign. You can select it only after that campaign ends.", "error");
+      return;
+    }
+
     if (isChecked) {
       setSelectedProductIds(prev => {
         if (prev.includes(productId)) return prev;
@@ -1876,7 +1949,7 @@ const CreateCampaignPage = () => {
             /* =================================================================
                STEP 2: Choose Products
                ================================================================= */
-            <div className="cc-grid-main" style={{ gridTemplateColumns: "1fr 340px" }}>
+            <div className="cc-grid-main cc-product-selection-grid">
               <div className="cc-fields-card">
                 {/* Search Bar top row */}
                 <div className="product-search-wrapper" style={{ marginBottom: "20px" }}>
@@ -2199,14 +2272,7 @@ const CreateCampaignPage = () => {
 
                 {/* Visibility Card overlay inside Step 2 */}
                 {visibilityInfo && selectedProductIds.length > 0 && (
-                  <div className="visibility-card-overlay" style={{
-                    background: "var(--bg-card)",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "12px",
-                    padding: "16px",
-                    marginTop: "20px",
-                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)"
-                  }}>
+                  <div className="visibility-card-overlay">
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: "700", color: "var(--text-main)", fontSize: "14px" }}>
                       <span style={{ color: visibilityInfo.color }}>📈 {visibilityInfo.label}</span>
                       <span style={{ color: "var(--text-muted)", fontWeight: "500" }}>• {selectedProductIds.length} products</span>

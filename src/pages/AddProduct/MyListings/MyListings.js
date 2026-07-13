@@ -465,11 +465,15 @@ const MyListings = ({ embedded = false }) => {
 
   const [allProducts,   setAllProducts]   = useState([]);
   const [isFetchingAll, setIsFetchingAll] = useState(false);
+  const loadingRef = useRef(false);
 
-  const loadListings = useCallback(async () => {
-    if (!sellerEmail) return;
-    setLoading(true);
-    setError(null);
+  const loadListings = useCallback(async (isSilent = false) => {
+    if (!sellerEmail || loadingRef.current) return;
+    loadingRef.current = true;
+    if (!isSilent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const result = await fetchSellerListings({
         email: sellerEmail, page: 1, limit: 100,
@@ -485,16 +489,21 @@ const MyListings = ({ embedded = false }) => {
       }
       setAllProducts(all);
     } catch (err) {
-      setError(err.message || "Unable to load listings. Please try again.");
+      if (!isSilent) {
+        setError(err.message || "Unable to load listings. Please try again.");
+      }
     } finally {
-      setLoading(false);
+      loadingRef.current = false;
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, [sellerEmail]);
 
   useEffect(() => {
     if (sellerEmail) loadListings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sellerEmail]);
+  }, [sellerEmail, loadListings]);
 
   // ── auto-refresh when navigated back from create/update flow ─────────────────
   useEffect(() => {
@@ -504,7 +513,15 @@ const MyListings = ({ embedded = false }) => {
       loadListings();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state?.timestamp, sellerEmail]);
+  }, [location.state?.timestamp, sellerEmail, loadListings]);
+
+  useEffect(() => {
+    if (!sellerEmail) return;
+    const interval = setInterval(() => {
+      loadListings(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [sellerEmail, loadListings]);
 
   const debounceRef = useRef(null);
   const handleSearchChange = (val) => {
@@ -746,7 +763,7 @@ const MyListings = ({ embedded = false }) => {
             <option value="5000+">₹5000+</option>
           </select>
 
-          <button className="ml-btn-refresh" onClick={() => loadListings(page)} disabled={loading}>
+          <button className="ml-btn-refresh" onClick={() => loadListings(false)} disabled={loading}>
             <RefreshCw size={14} /> Refresh
           </button>
         </div>
@@ -759,8 +776,8 @@ const MyListings = ({ embedded = false }) => {
             <h3>Unable to load listings</h3>
             <p>{error}</p>
             <div className="ml-error-btns">
-              <button className="ml-btn-primary" onClick={() => loadListings(page)}>Retry</button>
-              <button className="ml-btn-outline" onClick={() => { setPage(1); setTimeout(() => loadListings(1), 0); }}>
+              <button className="ml-btn-primary" onClick={() => loadListings(false)}>Retry</button>
+              <button className="ml-btn-outline" onClick={() => { setPage(1); setTimeout(() => loadListings(false), 0); }}>
                 <RefreshCw size={14} /> Refresh Listings
               </button>
             </div>
@@ -953,7 +970,7 @@ const MyListings = ({ embedded = false }) => {
 
               const variantRows    = normaliseVariantRows(d.varientPrice).length > 0
                 ? normaliseVariantRows(d.varientPrice) : null;
-              const variantHeaders = variantRows ? Object.keys(variantRows[0] || {}) : [];
+              const variantHeaders = variantRows ? Object.keys(variantRows[0] || {}).filter(h => h !== "priceModified") : [];
 
               const productOptions = normaliseProductOptions(d.productOptions).length > 0
   ? normaliseProductOptions(d.productOptions) : null;
@@ -975,6 +992,10 @@ const MyListings = ({ embedded = false }) => {
               optionNamesSet.add("color picker");
 
               const filteredAdditionalSections = additionalSections ? additionalSections.map(section => {
+                const titleLower = String(section.title || Object.keys(section)[0] || "").toLowerCase();
+                if (titleLower === "promotion photos" || titleLower === "promotionphotos" || titleLower === "keywords") {
+                  return null;
+                }
                 const skipKeys = new Set(["title", "description"]);
                 const otherEntries = Object.entries(section).filter(([key, val]) => {
                   const keyNorm = key.toLowerCase().replace(/_/g, " ").trim();
@@ -982,7 +1003,7 @@ const MyListings = ({ embedded = false }) => {
                   return !skipKeys.has(key) && val != null && val !== "";
                 });
                 return { ...section, otherEntries };
-              }).filter(section => section.otherEntries.length > 0 || (section.description && section.description.trim() !== "")) : null;
+              }).filter(Boolean).filter(section => section.otherEntries.length > 0 || (section.description && section.description.trim() !== "")) : null;
 
               const keywords = resolveKeywords(d.search_keywords);
 
@@ -1052,6 +1073,12 @@ const MyListings = ({ embedded = false }) => {
                     <div className="ml-modal-info">
                       <h3 className="ml-modal-name">{d.name || "—"}</h3>
                       {d.brand && <p className="ml-modal-brand">{d.brand}</p>}
+
+                      {d.description && (
+                        <CollapseSection title="Description" defaultOpen={true}>
+                          <p className="ml-modal-value" style={{ whiteSpace: "pre-line", wordBreak: "break-word" }}>{d.description}</p>
+                        </CollapseSection>
+                      )}
 
                       <CollapseSection title="Identification">
                         <div className="ml-modal-grid">
@@ -1137,7 +1164,7 @@ const MyListings = ({ embedded = false }) => {
                           <div className="ml-modal-field">
                             <span className="ml-modal-label">Total Quantity</span>
                             <span className="ml-modal-value">
-                              {d.totalQuantity ?? d.inventory ?? d.stock ?? "Not Available"}
+                              {d.inventory ?? d.totalQuantity ?? d.stock ?? "Not Available"}
                             </span>
                           </div>
                           <div className="ml-modal-field">

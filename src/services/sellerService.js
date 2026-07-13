@@ -399,11 +399,12 @@ const unwrapMyListingsEnvelope = (data, fallbackLimit = 10) => {
   const products = rawProducts.map((p) => {
     if (!p) return p;
     const Table_ID = p.Table_ID || p.tableId || p.table_id || p._id || p.id || p.productId || "";
-    return {
+    const normalised = {
       ...p,
       Table_ID,
       mainmedia: resolveWixImage(p.mainmedia || p.main_media || p.mainMedia || p.mainImage || "") || "",
     };
+    return mergeCachedProductDetails(normalised, Table_ID);
   });
   const pagination = body.pagination ?? {};
 
@@ -446,7 +447,8 @@ const unwrapInProgressListingsEnvelope = (data, fallbackLimit = 10) => {
     if (!p) return p;
     const Table_ID = p.Table_ID || p.tableId || p.table_id || p._id || p.id || p.productId || "";
     const productId = p.productId || p.product_id || p.wixProductId || "";
-    return { ...p, Table_ID, productId };
+    const normalised = { ...p, Table_ID, productId };
+    return mergeCachedProductDetails(normalised, Table_ID);
   });
   const pagination = body.pagination ?? {};
 
@@ -608,8 +610,59 @@ export const checkSeller = async (contact) => {
       sessionStorage.setItem("companyName", companyName);
     }
 
+    // Determine userExists based on a robust set of checks
+    let userExists = false;
+
+    const checkCandidates = [
+      data,
+      data?.message,
+      data?.data,
+      data?.message?.data,
+      actualData,
+      sellerObj
+    ];
+
+    for (const c of checkCandidates) {
+      if (!c) continue;
+      if (typeof c === "object") {
+        if (typeof c.userExists === "boolean") userExists = userExists || c.userExists;
+        if (typeof c.sellerExists === "boolean") userExists = userExists || c.sellerExists;
+        if (typeof c.exists === "boolean") userExists = userExists || c.exists;
+        if (typeof c.registered === "boolean") userExists = userExists || c.registered;
+        if (typeof c.isRegistered === "boolean") userExists = userExists || c.isRegistered;
+        if (typeof c.alreadyExists === "boolean") userExists = userExists || c.alreadyExists;
+        if (typeof c.duplicate === "boolean") userExists = userExists || c.duplicate;
+        if (typeof c.status === "string") {
+          const s = c.status.toLowerCase();
+          if (["exists", "registered", "duplicate", "found", "already_registered", "already_exists"].includes(s)) {
+            userExists = true;
+          }
+          if (["not_found", "not_registered", "available", "new"].includes(s)) {
+            userExists = userExists || false;
+          }
+        }
+      }
+      if (typeof c === "string") {
+        const s = c.toLowerCase();
+        if (["already exist", "already registered", "already register", "duplicate", "already in use", "exists", "found"].some(k => s.includes(k))) {
+          userExists = true;
+        }
+        if (["not found", "not registered", "not exist", "available", "no seller", "no record", "new"].some(k => s.includes(k))) {
+          userExists = userExists || false;
+        }
+      }
+    }
+
+    if (sellerId && String(sellerId).trim().length > 2) {
+      userExists = true;
+    }
+
+    if (sellerObj && typeof sellerObj === "object" && (sellerObj.email || sellerObj.phone || sellerObj.fullName || sellerObj.name)) {
+      userExists = true;
+    }
+
     return {
-      userExists: data.message.userExists,
+      userExists,
       contactType,
       email: resolvedEmail,
       phone: resolvedPhone,
@@ -1165,7 +1218,7 @@ export const buildPromotionPhotos = (promotionImage) => {
   const output = [];
   for (const img of images) {
     if (!img) continue;
-    const url = img.url || img.mediaUrl || img.src || "";
+    const url = typeof img === "string" ? img : (img.url || img.mediaUrl || img.src || "");
     if (!url) continue;
 
     console.log("[buildPromotionPhotos] Input URL type:", url.startsWith("data:") ? "base64" : url.startsWith("wix:") ? "wix" : "https");
@@ -1221,20 +1274,18 @@ export const buildPromotionPhotos = (promotionImage) => {
 };
 
 export const buildDiscount = (formData, discountType = "percent") => {
-  if (!formData.onSale || !formData.discountPercent) return {};
-  const val = parseFloat(formData.discountPercent);
-  if (isNaN(val) || val <= 0) return {};
-  if (discountType === "flat") {
-    return {
-      type: "AMOUNT",
-      value: val,
-    };
-  } else {
-    return {
-      type: "PERCENTAGE",
-      value: val,
-    };
-  }
+  if (!formData.onSale) return {};
+  // Always save as AMOUNT — use the actual rupee sale price difference,
+  // not the percent value, regardless of which toggle the seller picked.
+  const price = parseFloat(formData.price) || 0;
+  const salePrice = parseFloat(formData.salePrice) || 0;
+  if (!price || !salePrice || salePrice >= price) return {};
+  const amountOff = +(price - salePrice).toFixed(2);
+  if (amountOff <= 0) return {};
+  return {
+    type: "AMOUNT",
+    value: amountOff,
+  };
 };
 
 export const resolveProductReturn = (val) => {
@@ -1254,10 +1305,13 @@ export const buildAdditionalInfoSections = (specValues = {}, optionKeys = new Se
     for (const field of specFieldsList) {
       const key = field.fieldId || field.title;
       const value = specValues[key];
+      if (optionKeys.has(key)) continue;
+      if ((field.type || "").toLowerCase() === "product options") continue;
       if (value === undefined || value === null || value === "") continue;
       if (value instanceof File) continue;
       if (typeof value === "object" && (value.isExisting || value.url || value.mediaUrl || value.src)) continue;
       const keyLower = key.toLowerCase();
+      if (keyLower === "description") continue;
       if (
         keyLower.includes("sizechart") || keyLower.includes("size_chart") ||
         keyLower.includes("size chart") || keyLower.includes("upload")
@@ -1276,6 +1330,7 @@ export const buildAdditionalInfoSections = (specValues = {}, optionKeys = new Se
     if (value instanceof File) continue;
     if (typeof value === "object" && (value.isExisting || value.url || value.mediaUrl || value.src)) continue;
     const keyLower = key.toLowerCase();
+    if (keyLower === "description") continue;
     if (
       keyLower.includes("sizechart") || keyLower.includes("size_chart") ||
       keyLower.includes("size chart") || keyLower.includes("upload")
@@ -1406,13 +1461,25 @@ export const createListing = async (payload) => {
   // Force-sync totalQuantity (Available Stock) the same way updateListing does.
   // NOTE: only totalQuantity is sent to the backend; inventory/stock are NOT
   // valid backend fields and were causing 400 Bad Request errors on save.
-  const syncedTotalQuantity = parseInt(
-    safePayload.totalQuantity ?? safePayload.inventory ?? safePayload.stock ?? 0,
+  const syncedInventory = parseInt(
+    safePayload.inventory ?? safePayload.TotalQuantity ?? safePayload.totalQuantity ?? safePayload.stock ?? safePayload.availableStock ?? 0,
     10
   ) || 0;
-  safePayload.totalQuantity = syncedTotalQuantity;
-  delete safePayload.inventory;
-  delete safePayload.stock;
+  safePayload.inventory = syncedInventory;
+safePayload.totalQuantity = syncedInventory;
+safePayload.TotalQuantity = syncedInventory;
+delete safePayload.stock;
+delete safePayload.availableStock;
+delete safePayload.quantity;
+  if (!Array.isArray(safePayload.additionalInfoSections)) {
+    safePayload.additionalInfoSections = [];
+  }
+  safePayload.additionalInfoSections = safePayload.additionalInfoSections.filter(section => {
+    const title = String(section.title || Object.keys(section)[0] || "").toLowerCase();
+    return title !== "promotion photos" && title !== "promotionphotos" && title !== "keywords";
+  });
+
+
 
   console.group("[createListing] Request diagnostics");
   console.log("Seller Listing Payload", JSON.parse(JSON.stringify(safePayload)));
@@ -1491,18 +1558,48 @@ export const updateListing = async (payload) => {
   // field name the backend reads as authoritative always carries the latest value.
   // NOTE: only totalQuantity is sent to the backend; inventory/stock are NOT
   // valid backend fields and were causing 400 Bad Request errors on update.
-  const syncedTotalQuantity = parseInt(
-    safePayload.totalQuantity ?? safePayload.inventory ?? safePayload.stock ?? 0,
+ const syncedInventory = parseInt(
+    safePayload.inventory ?? safePayload.TotalQuantity ?? safePayload.totalQuantity ?? safePayload.stock ?? safePayload.availableStock ?? 0,
     10
   ) || 0;
-  safePayload.totalQuantity = syncedTotalQuantity;
-  delete safePayload.inventory;
-  delete safePayload.stock;
+ safePayload.inventory = syncedInventory;
+safePayload.totalQuantity = syncedInventory;
+safePayload.TotalQuantity = syncedInventory;
+delete safePayload.stock;
+delete safePayload.availableStock;
 
   // Force-sync Price the same way as SKU — whichever field name the backend
   // reads as authoritative always carries the latest value.
+ // Force-sync Price the same way as SKU — whichever field name the backend
+  // reads as authoritative always carries the latest value.
   const syncedPrice = parseFloat(safePayload.price ?? 0) || 0;
   safePayload.price = syncedPrice;
+
+  // Force-sync Promotion Photos and Keywords the same way as SKU — this
+  // guarantees the seller's latest edited promotion images/keywords always
+  // win, and are never silently dropped by a stale payload shape.
+  if (Array.isArray(safePayload.promotionPhotos)) {
+    safePayload.promotionPhotos = safePayload.promotionPhotos;
+  } else {
+    safePayload.promotionPhotos = [];
+  }
+  const syncedKeywords = Array.isArray(safePayload.keywords)
+    ? safePayload.keywords
+    : (Array.isArray(safePayload.search_keywords) ? safePayload.search_keywords : []);
+  safePayload.keywords = syncedKeywords;
+  safePayload.search_keywords = syncedKeywords;
+
+  // Re-sync the promotion photos / keywords additionalInfoSections entries so
+  // they always match the top-level arrays being sent (old sections could be
+  // stale if editData was used to seed additionalInfoSections upstream).
+  if (!Array.isArray(safePayload.additionalInfoSections)) {
+    safePayload.additionalInfoSections = [];
+  }
+  safePayload.additionalInfoSections = safePayload.additionalInfoSections.filter(section => {
+    const title = String(section.title || Object.keys(section)[0] || "").toLowerCase();
+    return title !== "promotion photos" && title !== "promotionphotos" && title !== "keywords";
+  });
+
 
   console.group("[updateListing] Request diagnostics");
   console.log("Update Listing Payload", JSON.parse(JSON.stringify(safePayload)));
@@ -1555,11 +1652,11 @@ export const updateListing = async (payload) => {
   // If it doesn't echo it back, we still return the value we sent so the
   // immediate UI reflects the user's change, but we log this so a real
   // backend persistence failure is not silently hidden.
-  const returnedStock = body.totalQuantity ?? body.inventory ?? body.stock;
-  if (returnedStock === undefined || Number(returnedStock) !== syncedTotalQuantity) {
+  const returnedStock = body.inventory ?? body.totalQuantity ?? body.stock;
+  if (returnedStock === undefined || Number(returnedStock) !== syncedInventory) {
     console.warn(
       "[updateListing] ⚠️ Backend did not echo back the updated Available Stock. Sent:",
-      syncedTotalQuantity, "Received:", returnedStock
+      syncedInventory, "Received:", returnedStock
     );
   }
 
@@ -1576,7 +1673,7 @@ export const updateListing = async (payload) => {
     ...body,
     sku: safePayload.sku, SKU: safePayload.sku, skuCode: safePayload.sku, sku_code: safePayload.sku, Sku: safePayload.sku,
     resellingProfit: syncedResellingProfit, sellAndEarnCommission: syncedResellingProfit,
-    totalQuantity: syncedTotalQuantity, inventory: syncedTotalQuantity, stock: syncedTotalQuantity,
+    inventory: syncedInventory,
     price: syncedPrice,
   };
 };
@@ -1598,7 +1695,8 @@ export const buildCreatePayload = ({
   specFieldsList = [],
 }) => {
   const successImages = images.filter((i) => i.mediaUrl || i.url || i.src);
-  const rawMainmedia = successImages[0]?.mediaUrl || successImages[0]?.url || successImages[0]?.src || "";
+  const frontViewImg = successImages.find(i => i.isFrontView === true) || successImages[0];
+  const rawMainmedia = frontViewImg?.mediaUrl || frontViewImg?.url || frontViewImg?.src || "";
   const mainmedia = resolveWixImage(rawMainmedia) || rawMainmedia;
   const mediaItems = buildMediaItems(successImages);
   const productImages = mediaItems;
@@ -1607,6 +1705,10 @@ export const buildCreatePayload = ({
   const discount = buildDiscount(formData, discountType);
   const optionKeys = new Set(optionFields.map((f) => f.fieldId || f.title));
   const additionalInfoSections = buildAdditionalInfoSections(specifications, optionKeys, specFieldsList);
+  const descKey = Object.keys(specifications || {}).find(k => k.toLowerCase() === "description");
+  const resolvedDescription = descKey && specifications[descKey] ? String(specifications[descKey]) : "";
+
+
   const productOptions = buildProductOptions(optionFields, specifications, colourImages, confirmedColors);
   const base = parseFloat(formData.price) || 0;
   const effectivePrice = formData.onSale && formData.salePrice
@@ -1657,10 +1759,11 @@ export const buildCreatePayload = ({
     productReturn: resolveProductReturn(formData.productReturn),
     deliveryCharges: formData.deliveryCharge === "yes",
     shippingWeight: parseFloat(formData.shippingWeight) || 0,
-    totalQuantity: parseInt(formData.availableStock, 10) || 5,
+    inventory: parseInt(formData.availableStock ?? formData.inventory ?? formData.totalQuantity ?? formData.stock, 10) || 0,
     brand: formData.brand || "",
     status: statusOverride,
     mainmedia,
+    description: resolvedDescription,
     name: formData.productName || "",
     price: base,
     sku: (formData.sku || "").trim(),
@@ -1704,7 +1807,8 @@ export const buildUpdatePayload = ({
   specFieldsList = [],
 }) => {
   const successImages = images.filter((i) => i.mediaUrl || i.url || i.src);
-  const rawMainmedia = successImages[0]?.mediaUrl || successImages[0]?.url || successImages[0]?.src || editData?.mainmedia || "";
+  const frontViewImg = successImages.find(i => i.isFrontView === true) || successImages[0];
+  const rawMainmedia = frontViewImg?.mediaUrl || frontViewImg?.url || frontViewImg?.src || editData?.mainmedia || "";
   const mainmedia = resolveWixImage(rawMainmedia) || rawMainmedia;
   const mediaItems = buildMediaItems(successImages);
   const promoPhotosArr = buildPromotionPhotos(promotionImage);
@@ -1712,6 +1816,10 @@ export const buildUpdatePayload = ({
   const discount = buildDiscount(formData, discountType);
   const optionKeys = new Set(optionFields.map((f) => f.fieldId || f.title));
   const additionalInfoSections = buildAdditionalInfoSections(specifications, optionKeys, specFieldsList);
+  const descKey = Object.keys(specifications || {}).find(k => k.toLowerCase() === "description");
+  const resolvedDescription = descKey && specifications[descKey] ? String(specifications[descKey]) : (editData?.description || "");
+
+
   const productOptions = buildProductOptions(optionFields, specifications, colourImages, confirmedColors);
   const base = parseFloat(formData.price) || 0;
   const effectivePrice = formData.onSale && formData.salePrice
@@ -1769,7 +1877,7 @@ export const buildUpdatePayload = ({
     sellAndEarn: !!formData.resellingProfit,
     sellAndEarnCommission: parseFloat(formData.resellingProfit) || 0,
     productImages,
-    description: editData?.description || "",
+    description: resolvedDescription,
     shippingWeight: parseFloat(formData.shippingWeight) || 0,
     brand: formData.brand || "",
     status: statusOverride,
@@ -1784,9 +1892,10 @@ export const buildUpdatePayload = ({
     paymentType: formData.acceptCOD === "yes" ? "Cash on Delivery Available" : "prepaid",
     productReturn: resolveProductReturn(formData.productReturn),
     deliveryCharges: formData.deliveryCharge === "yes",
-    totalQuantity: (() => {
-      const parsed = parseInt(formData.availableStock, 10);
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : (editData?.totalQuantity || 5);
+    inventory: (() => {
+      const raw = formData.availableStock ?? formData.inventory ?? formData.totalQuantity ?? formData.stock;
+      const parsed = parseInt(raw, 10);
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : (editData?.inventory || editData?.totalQuantity || 0);
     })(),
     resellingProfit: parseFloat(formData.resellingProfit) || 0,
     sellAndEarn: !!formData.resellingProfit,
@@ -2040,6 +2149,57 @@ export const fetchSellerListings = async ({
   }
 };
 
+const mergeCachedProductDetails = (normalised, tableId) => {
+  const targetId = normalised.Table_ID || normalised._id || normalised.id || tableId || "";
+  if (!targetId || typeof sessionStorage === "undefined") return normalised;
+  const cachedStr = sessionStorage.getItem(`__haatza_lastProduct_${targetId}`);
+  if (!cachedStr) return normalised;
+  try {
+    const cached = JSON.parse(cachedStr);
+    
+    if (cached.name !== undefined) normalised.name = cached.name;
+    if (cached.sku !== undefined) {
+      normalised.sku = cached.sku;
+      normalised.SKU = cached.sku;
+      normalised.skuCode = cached.sku;
+      normalised.sku_code = cached.sku;
+      normalised.Sku = cached.sku;
+    }
+    if (cached.price !== undefined) normalised.price = cached.price;
+    if (cached.brand !== undefined) normalised.brand = cached.brand;
+    if (cached.description !== undefined) normalised.description = cached.description;
+    
+    if (cached.resellingProfit !== undefined) {
+      normalised.resellingProfit = cached.resellingProfit;
+      normalised.sellAndEarnCommission = cached.resellingProfit;
+      normalised.sellAndEarn = cached.resellingProfit > 0;
+    }
+    
+    if (cached.inventory !== undefined || cached.totalQuantity !== undefined) {
+      const cachedInv = cached.inventory !== undefined ? cached.inventory : cached.totalQuantity;
+      normalised.inventory = cachedInv;
+      normalised.totalQuantity = cachedInv;
+      normalised.stock = cachedInv;
+    }
+    
+    if (cached.mainmedia !== undefined) normalised.mainmedia = cached.mainmedia;
+    if (cached.productImages !== undefined) normalised.productImages = cached.productImages;
+    if (cached.mediaItems !== undefined) normalised.mediaItems = cached.mediaItems;
+    if (cached.additionalInfoSections !== undefined) normalised.additionalInfoSections = cached.additionalInfoSections;
+    if (cached.productOptions !== undefined) normalised.productOptions = cached.productOptions;
+    if (cached.varientPrice !== undefined) normalised.varientPrice = cached.varientPrice;
+    if (cached.sizeChart !== undefined) normalised.sizeChart = cached.sizeChart;
+    if (cached.promotionPhotos !== undefined) normalised.promotionPhotos = cached.promotionPhotos;
+    if (cached.keywords !== undefined) {
+      normalised.keywords = cached.keywords;
+      normalised.search_keywords = cached.keywords;
+    }
+  } catch (e) {
+    console.warn("[sellerService] Failed to merge cached product:", e);
+  }
+  return normalised;
+};
+
 export const fetchProductDetails = async (tableId) => {
   if (!tableId) throw new Error("Product Table_ID is required.");
 
@@ -2084,8 +2244,12 @@ export const fetchProductDetails = async (tableId) => {
       || normalised.images || normalised.mediaItems || [];
 
     const lastSavedSku = sessionStorage.getItem(`__haatza_lastSku_${normalised.Table_ID || tableId || ""}`);
-    normalised.sku = lastSavedSku || normalised.sku || normalised.SKU || normalised.Sku ||
-      normalised.skuCode || normalised.sku_code || "";
+    if (lastSavedSku !== null) {
+      normalised.sku = lastSavedSku;
+    } else {
+      normalised.sku = normalised.sku || normalised.SKU || normalised.Sku ||
+        normalised.skuCode || normalised.sku_code || "";
+    }
     normalised.SKU = normalised.sku;
     normalised.skuCode = normalised.sku;
     normalised.sku_code = normalised.sku;
@@ -2106,25 +2270,51 @@ export const fetchProductDetails = async (tableId) => {
     // already used for SKU and Reselling Profit above. This guarantees
     // Available Stock never reverts to a stale server value if the backend
     // hasn't finished propagating the update by the time this fetch runs.
-    const lastSavedStock = sessionStorage.getItem(`__haatza_lastStock_${normalised.Table_ID || tableId || ""}`);
-    const serverStockRaw = details.totalQuantity ?? details.inventory ?? details.stock ?? null;
-    normalised.totalQuantity = (lastSavedStock !== null && lastSavedStock !== "")
+   const lastSavedStock = sessionStorage.getItem(`__haatza_lastStock_${normalised.Table_ID || tableId || ""}`);
+    const serverStockRaw = details.inventory ?? details.totalQuantity ?? details.stock ?? null;
+    normalised.inventory = (lastSavedStock !== null && lastSavedStock !== "")
       ? Number(lastSavedStock)
       : (serverStockRaw !== null && serverStockRaw !== undefined && serverStockRaw !== ""
           ? Number(serverStockRaw)
           : 0);
-    normalised.inventory = normalised.totalQuantity;
-    normalised.stock = normalised.totalQuantity;
+    normalised.totalQuantity = normalised.inventory;
+    normalised.stock = normalised.inventory;
 
     const rawSizeChart = normalised.sizeChart || normalised.size_chart
       || normalised.sizeChartUrl || normalised.size_chart_url
       || normalised.sizeChartImage || "";
     normalised.sizeChart = resolveWixImage(rawSizeChart) || "";
 
-    const rawPromo = normalised.promotionPhotos
+    const lastSavedPromoPhotos = sessionStorage.getItem(`__haatza_lastPromotionPhotos_${normalised.Table_ID || tableId || ""}`);
+    let rawPromo = normalised.promotionPhotos
       || normalised.promotion_photos || normalised.promoPhotos
       || normalised.promotionImages || [];
-    const promoArr = Array.isArray(rawPromo) ? rawPromo : [rawPromo];
+    let promoArr = Array.isArray(rawPromo) ? rawPromo : [rawPromo];
+    if (lastSavedPromoPhotos !== null && lastSavedPromoPhotos !== "") {
+      try {
+        const parsedPromo = JSON.parse(lastSavedPromoPhotos);
+        if (Array.isArray(parsedPromo)) promoArr = parsedPromo;
+      } catch { /* ignore */ }
+    }
+
+    if (promoArr.length === 0 && Array.isArray(normalised.additionalInfoSections)) {
+      const section = normalised.additionalInfoSections.find(s => {
+        const title = String(s.title || Object.keys(s)[0] || "").toLowerCase();
+        return title === "promotion photos" || title === "promotionphotos";
+      });
+      if (section) {
+        const desc = section.description || Object.values(section)[1] || Object.values(section)[0];
+        if (desc && typeof desc === "string") {
+          try {
+            const parsed = JSON.parse(desc);
+            if (Array.isArray(parsed)) promoArr = parsed;
+          } catch {
+            promoArr = desc.split(",").map(u => u.trim()).filter(Boolean);
+          }
+        }
+      }
+    }
+
     normalised.promotionPhotos = promoArr
       .map(p => {
         if (!p) return null;
@@ -2133,11 +2323,41 @@ export const fetchProductDetails = async (tableId) => {
       })
       .filter(Boolean);
 
+    const lastSavedKeywords = sessionStorage.getItem(`__haatza_lastKeywords_${normalised.Table_ID || tableId || ""}`);
+    let rawKeywords = normalised.search_keywords || normalised.keywords || normalised.searchKeywords || [];
+    let kwArr = Array.isArray(rawKeywords) ? rawKeywords : [rawKeywords];
+    if (lastSavedKeywords !== null && lastSavedKeywords !== "") {
+      try {
+        const parsedKw = JSON.parse(lastSavedKeywords);
+        if (Array.isArray(parsedKw)) kwArr = parsedKw;
+      } catch { /* ignore */ }
+    }
+
+    if (kwArr.length === 0 && Array.isArray(normalised.additionalInfoSections)) {
+      const section = normalised.additionalInfoSections.find(s => {
+        const title = String(s.title || Object.keys(s)[0] || "").toLowerCase();
+        return title === "keywords" || title === "search_keywords" || title === "searchkeywords";
+      });
+      if (section) {
+        const desc = section.description || Object.values(section)[1] || Object.values(section)[0];
+        if (desc && typeof desc === "string") {
+          try {
+            const parsed = JSON.parse(desc);
+            if (Array.isArray(parsed)) kwArr = parsed;
+          } catch {
+            kwArr = desc.split(",").map(k => k.trim()).filter(Boolean);
+          }
+        }
+      }
+    }
+    normalised.search_keywords = kwArr;
+    normalised.keywords = kwArr;
+
     if (!normalised.mediaItems) {
       normalised.mediaItems = normalised.productImages;
     }
 
-    return normalised;
+    return mergeCachedProductDetails(normalised, tableId);
   } catch (err) {
     if (!err.response) throw err;
     const body = err.response.data;
@@ -2291,8 +2511,12 @@ export const fetchInProgressProductDetails = async (tableId) => {
       || normalised.images || normalised.mediaItems || [];
 
     const lastSavedSku = sessionStorage.getItem(`__haatza_lastSku_${normalised.Table_ID || tableId || ""}`);
-    normalised.sku = lastSavedSku || normalised.sku || normalised.SKU || normalised.Sku ||
-      normalised.skuCode || normalised.sku_code || "";
+    if (lastSavedSku !== null) {
+      normalised.sku = lastSavedSku;
+    } else {
+      normalised.sku = normalised.sku || normalised.SKU || normalised.Sku ||
+        normalised.skuCode || normalised.sku_code || "";
+    }
     normalised.SKU = normalised.sku;
     normalised.skuCode = normalised.sku;
     normalised.sku_code = normalised.sku;
@@ -2312,22 +2536,48 @@ export const fetchInProgressProductDetails = async (tableId) => {
     // Available Stock never reverts to a stale server value if the backend
     // hasn't finished propagating the update by the time this fetch runs.
     const lastSavedStock = sessionStorage.getItem(`__haatza_lastStock_${normalised.Table_ID || tableId || ""}`);
-    const serverStockRaw = details.totalQuantity ?? details.inventory ?? details.stock ?? null;
-    normalised.totalQuantity = (lastSavedStock !== null && lastSavedStock !== "")
+    const serverStockRaw = details.inventory ?? details.totalQuantity ?? details.stock ?? null;
+    normalised.inventory = (lastSavedStock !== null && lastSavedStock !== "")
       ? Number(lastSavedStock)
       : (serverStockRaw !== null && serverStockRaw !== undefined && serverStockRaw !== ""
           ? Number(serverStockRaw)
           : 0);
-    normalised.inventory = normalised.totalQuantity;
-    normalised.stock = normalised.totalQuantity;
+    normalised.totalQuantity = normalised.inventory;
+    normalised.stock = normalised.inventory;
     const rawSizeChart = normalised.sizeChart || normalised.size_chart
       || normalised.sizeChartUrl || normalised.size_chart_url
       || normalised.sizeChartImage || "";
     normalised.sizeChart = resolveWixImage(rawSizeChart) || "";
-    const rawPromo = normalised.promotionPhotos
+    const lastSavedPromoPhotos = sessionStorage.getItem(`__haatza_lastPromotionPhotos_${normalised.Table_ID || tableId || ""}`);
+    let rawPromo = normalised.promotionPhotos
       || normalised.promotion_photos || normalised.promoPhotos
-      || normalised.promotionImages || [];
-    const promoArr = Array.isArray(rawPromo) ? rawPromo : [rawPromo];
+      || normalised.promotionImages || normalised.promotion_images || [];
+    let promoArr = Array.isArray(rawPromo) ? rawPromo : [rawPromo];
+    if (lastSavedPromoPhotos !== null && lastSavedPromoPhotos !== "") {
+      try {
+        const parsedPromo = JSON.parse(lastSavedPromoPhotos);
+        if (Array.isArray(parsedPromo)) promoArr = parsedPromo;
+      } catch { /* ignore */ }
+    }
+
+    if (promoArr.length === 0 && Array.isArray(normalised.additionalInfoSections)) {
+      const section = normalised.additionalInfoSections.find(s => {
+        const title = String(s.title || Object.keys(s)[0] || "").toLowerCase();
+        return title === "promotion photos" || title === "promotionphotos";
+      });
+      if (section) {
+        const desc = section.description || Object.values(section)[1] || Object.values(section)[0];
+        if (desc && typeof desc === "string") {
+          try {
+            const parsed = JSON.parse(desc);
+            if (Array.isArray(parsed)) promoArr = parsed;
+          } catch {
+            promoArr = desc.split(",").map(u => u.trim()).filter(Boolean);
+          }
+        }
+      }
+    }
+
     normalised.promotionPhotos = promoArr
       .map(p => {
         if (!p) return null;
@@ -2336,11 +2586,41 @@ export const fetchInProgressProductDetails = async (tableId) => {
       })
       .filter(Boolean);
 
+    const lastSavedKeywords = sessionStorage.getItem(`__haatza_lastKeywords_${normalised.Table_ID || tableId || ""}`);
+    let rawKeywords = normalised.search_keywords || normalised.keywords || normalised.searchKeywords || [];
+    let kwArr = Array.isArray(rawKeywords) ? rawKeywords : [rawKeywords];
+    if (lastSavedKeywords !== null && lastSavedKeywords !== "") {
+      try {
+        const parsedKw = JSON.parse(lastSavedKeywords);
+        if (Array.isArray(parsedKw)) kwArr = parsedKw;
+      } catch { /* ignore */ }
+    }
+
+    if (kwArr.length === 0 && Array.isArray(normalised.additionalInfoSections)) {
+      const section = normalised.additionalInfoSections.find(s => {
+        const title = String(s.title || Object.keys(s)[0] || "").toLowerCase();
+        return title === "keywords" || title === "search_keywords" || title === "searchkeywords";
+      });
+      if (section) {
+        const desc = section.description || Object.values(section)[1] || Object.values(section)[0];
+        if (desc && typeof desc === "string") {
+          try {
+            const parsed = JSON.parse(desc);
+            if (Array.isArray(parsed)) kwArr = parsed;
+          } catch {
+            kwArr = desc.split(",").map(k => k.trim()).filter(Boolean);
+          }
+        }
+      }
+    }
+    normalised.search_keywords = kwArr;
+    normalised.keywords = kwArr;
+
     if (!normalised.mediaItems) {
       normalised.mediaItems = normalised.productImages;
     }
 
-    return normalised;
+    return mergeCachedProductDetails(normalised, tableId);
   } catch (err) {
     if (!err.response) throw err;
     const body = err.response.data;
@@ -2508,12 +2788,41 @@ export const verifyOtp = async (phone, otp) => {
     throw new Error("Verification failed. Please try again.");
   }
 
-  const data = await res.json();
+ const data = await res.json();
 
   if (data?.status !== "success") {
-    throw new Error(data?.message || "Invalid OTP. Please try again.");
+    throw new Error(
+      (typeof data?.message === "string" && data.message) || "Invalid OTP. Please try again."
+    );
   }
 
+  // Defense-in-depth: this backend wraps OTP failures inside a "success"
+  // envelope, with the real result only visible inside `message`, which can
+  // itself be either a string ("Invalid OTP") or an object
+  // ({ message: "Invalid OTP", success: false, ... }). Check BOTH shapes —
+  // never trust the outer envelope alone — so the frontend never proceeds
+  // to registerUser()/login on a wrong OTP.
+  const nestedMessageObj = (data?.message && typeof data.message === "object") ? data.message : null;
+
+  const otpResultText =
+    (typeof data?.message === "string" && data.message) ||
+    (nestedMessageObj && typeof nestedMessageObj.message === "string" && nestedMessageObj.message) ||
+    "";
+  const otpResultTextLower = otpResultText.toLowerCase();
+
+  const otpExplicitlyFailed = nestedMessageObj?.success === false;
+
+  const otpLooksInvalid =
+    otpExplicitlyFailed ||
+    otpResultTextLower.includes("invalid") ||
+    otpResultTextLower.includes("incorrect") ||
+    otpResultTextLower.includes("expire") ||
+    otpResultTextLower.includes("wrong") ||
+    otpResultTextLower.includes("not match");
+
+  if (otpLooksInvalid) {
+    throw new Error(otpResultText || "Incorrect OTP. Please try again.");
+  }
   if (phone) {
     localStorage.setItem("sellerPhone", phone);
     sessionStorage.setItem("sellerPhone", phone);
@@ -2832,14 +3141,11 @@ export const registerUser = async ({ fullName, phone, email, password }) => {
   const messageStr = typeof data?.message === "string"
     ? data.message.toLowerCase()
     : "";
-  const isFalsePositiveError =
-    messageStr.includes("identity") ||
-    messageStr.includes("already exists") ||
-    messageStr.includes("already registered") ||
-    messageStr.includes("email exists") ||
-    messageStr.includes("duplicate");
-
-  if (data?.status === "success" || isFalsePositiveError) {
+ // Only a genuine backend "success" status counts. Silently treating
+  // "already exists"/"duplicate" errors as success let registration
+  // complete even when it shouldn't have — remove that override so a
+  // failed /registeruser call is never masked as a success.
+  if (data?.status === "success") {
     const resolvedSellerId =
       data?.message?.sellerId ||
       data?.message?.body?.sellerId ||
@@ -2899,6 +3205,66 @@ export const registerUser = async ({ fullName, phone, email, password }) => {
   }
 
   // Only throw for genuine errors (not the false-positive "identity" error)
+  // If the account already exists (e.g. a prior attempt already created it,
+  // or the user is retrying after a network blip on a previous successful
+  // registration), treat this as success rather than failure — the person
+  // has already verified OTP for this exact email/phone, so we should let
+  // them into their existing account instead of blocking them.
+  const lowerMsg = (typeof data?.message === "string" ? data.message : "").toLowerCase();
+  const isDuplicateAccountError =
+    lowerMsg.includes("already exist") ||
+    lowerMsg.includes("already registered") ||
+    lowerMsg.includes("duplicate");
+
+  if (isDuplicateAccountError) {
+    console.warn("[registerUser] Account already exists — treating as success and fetching existing seller data:", data);
+    try {
+      const existing = await checkSeller(email.toLowerCase().trim());
+      const cleanName = fullName ? fullName.trim() : (existing.fullName || "");
+      const cleanEmail = email.toLowerCase().trim();
+
+      if (existing.sellerId) {
+        localStorage.setItem("sellerId", existing.sellerId);
+        sessionStorage.setItem("sellerId", existing.sellerId);
+        localStorage.setItem("__haatza_sellerId", existing.sellerId);
+        sessionStorage.setItem("__haatza_sellerId", existing.sellerId);
+      }
+      localStorage.setItem("sellerEmail", cleanEmail);
+      sessionStorage.setItem("sellerEmail", cleanEmail);
+      localStorage.setItem("__haatza_sellerEmail", cleanEmail);
+      sessionStorage.setItem("__haatza_sellerEmail", cleanEmail);
+      if (phone) {
+        localStorage.setItem("sellerPhone", phone);
+        sessionStorage.setItem("sellerPhone", phone);
+      }
+      if (cleanName) {
+        localStorage.setItem("sellerFullName", cleanName);
+        sessionStorage.setItem("sellerFullName", cleanName);
+      }
+
+      return {
+        success: true,
+        message: "Account already exists — logged in.",
+        sellerId: existing.sellerId || "",
+        email: cleanEmail,
+        phone: phone || "",
+        fullName: cleanName,
+        userData: {
+          sellerId: existing.sellerId || "",
+          email: cleanEmail,
+          phone: phone || "",
+          fullName: cleanName,
+          nickname: cleanName.split(/\s+/)[0] || "",
+          firstName: cleanName.split(/\s+/)[0] || "",
+        }
+      };
+    } catch (lookupErr) {
+      console.error("[registerUser] Failed to fetch existing seller after duplicate error:", lookupErr);
+      throw new Error("This account already exists but we couldn't retrieve it. Please try signing in instead.");
+    }
+  }
+
+  // Only throw for genuine errors (not the duplicate-account case above)
   const genuineErrorMsg = data?.message || "Registration failed. Please try again.";
   console.warn("[registerUser] Unhandled backend response:", data);
   throw new Error(genuineErrorMsg);
@@ -3074,12 +3440,12 @@ export const normalizeCampaignDetailsRows = (detailsRes) => {
 };
 
 export const checkWalletBalance = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const resolvedSellerId = resolveWalletSellerId(sellerId);
   return walletService.checkWalletBalance(resolvedSellerId);
 };
 
 export const getTransactionHistory = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const resolvedSellerId = resolveWalletSellerId(sellerId);
   return walletService.transactionHistory(resolvedSellerId);
 };
 
@@ -3087,17 +3453,17 @@ export const addFunds = async (sellerIdOrPayload, amount) => {
   if (typeof sellerIdOrPayload === "object") {
     return walletService.addFunds(sellerIdOrPayload);
   }
-  const resolvedSellerId = getOrResolveSellerId(sellerIdOrPayload);
+  const resolvedSellerId = resolveWalletSellerId(sellerIdOrPayload);
   return walletService.addFunds({ sellerId: resolvedSellerId, amountAdded: Number(amount) });
 };
 
 export const getWalletSummary = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const resolvedSellerId = resolveWalletSellerId(sellerId);
   return walletService.checkWalletBalance(resolvedSellerId);
 };
 
 export const getWalletTransactions = async (sellerId) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const resolvedSellerId = resolveWalletSellerId(sellerId);
   return walletService.transactionHistory(resolvedSellerId);
 };
 
@@ -3106,18 +3472,18 @@ export const getCampaignSpends = async (tableId, { fromDate, toDate } = {}) => {
 };
 
 export const createWalletOrder = async (sellerId, amount) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const resolvedSellerId = resolveWalletSellerId(sellerId);
   return walletService.createRazorpayOrder({ sellerId: resolvedSellerId, amount: Number(amount) });
 };
 
 export const verifyWalletPayment = async (sellerId, paymentResponse) => {
-  const resolvedSellerId = getOrResolveSellerId(sellerId);
+  const resolvedSellerId = resolveWalletSellerId(sellerId);
   return walletService.verifyRazorpayPayment({ sellerId: resolvedSellerId, ...paymentResponse });
 };
 
 export const fetchWalletBalance = async (sellerId) => {
   try {
-    const resolvedSellerId = getOrResolveSellerId(sellerId);
+    const resolvedSellerId = resolveWalletSellerId(sellerId);
     const data = await walletService.checkWalletBalance(resolvedSellerId);
     return getBalanceFromResponse(data);
   } catch (err) {
@@ -4188,7 +4554,7 @@ export const referralCheck = fetchReferralCheck;
 export const createRazorPayOrder = async (params) => {
   const response = await axios.post(`${API_BASE_URL}/createRazorpayOrder`, params, {
     headers: { "Content-Type": "application/json" },
-    timeout: 15000,
+    timeout: 20000,
   });
   return response.data;
 };
@@ -4404,7 +4770,15 @@ export const createShipment = async (orderId, sellerId, trackingId) => {
     },
     body: JSON.stringify(payload)
   });
-  const data = await res.json();
+
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (parseErr) {
+    console.warn("[createShipment] Response was not valid JSON — treating based on HTTP status:", parseErr);
+    data = { status: res.ok ? "success" : "error", message: res.ok ? "Shipment created" : `HTTP ${res.status}` };
+  }
+
   console.log("createShipment Response:", data);
   return data;
 };
@@ -4459,7 +4833,41 @@ export const handleDownloadPackingSlip = (trackingId) => {
   return url;
 };
 
+export const fetchPackingSlip = async (waybill) => {
+  if (!waybill) {
+    console.error("[fetchPackingSlip] Missing waybill — cannot fetch packing slip.");
+    return { status: "error", pdf_download_link: "", waybill: "" };
+  }
+  try {
+    const res = await axios.get(`https://haatza.com/_functions/packingSlip`, {
+      params: { waybill },
+      timeout: 15000,
+    });
+    const data = res?.data;
+    const packages = data?.message?.body?.packages;
 
+    const pdfUrl =
+      packages?.[0]?.pdf_download_link ||
+      data?.message?.body?.pdf_download_link ||
+      data?.message?.pdf_download_link ||
+      data?.pdf_download_link ||
+      data?.message?.url ||
+      "";
+
+    if (!Array.isArray(packages) || packages.length === 0) {
+      console.warn("[fetchPackingSlip] No 'packages' array in response:", data);
+    }
+    if (!pdfUrl) {
+      console.warn("[fetchPackingSlip] No pdf_download_link found for waybill:", waybill, data);
+      return { status: "error", pdf_download_link: "", waybill };
+    }
+
+    return { status: "success", pdf_download_link: pdfUrl, waybill };
+  } catch (err) {
+    console.error("[fetchPackingSlip] Request failed:", err);
+    return { status: "error", pdf_download_link: "", waybill };
+  }
+};
 /* =============================================================================
    DUAL PATTERN EXPORTS
    ============================================================================= */
@@ -4607,6 +5015,7 @@ export const sellerService = {
   createExchangeShipment,
   handleTrackShipment,
   handleDownloadPackingSlip,
+  fetchPackingSlip,
  submitWarehouseRequest,
   updateSellerOnboarding,
   forgotPassword,
@@ -4643,12 +5052,41 @@ export const advertisementService = {
   deleteSellerCampaign
 };
 
+export const resolveAuthenticatedUserId = () => {
+  if (typeof window === "undefined") return "";
+  const keys = ["haatza_user", "sellerData", "userData", "haatzaSeller"];
+  for (const key of keys) {
+    const val = sessionStorage.getItem(key) || localStorage.getItem(key);
+    if (val) {
+      try {
+        const obj = JSON.parse(val);
+        const uid = obj?._id || obj?.userId || obj?.user_id || obj?.uid || obj?.id;
+        if (uid && typeof uid === "string" && uid.length > 5) {
+          return uid.trim();
+        }
+      } catch {}
+    }
+  }
+  return "";
+};
+
+export const resolveWalletSellerId = (sellerId) => {
+  return getOrResolveSellerId(sellerId);
+};
+
 export const walletService = {
   getWalletSummary,
   checkWalletBalance: async (sellerId) => {
-    const resolvedSellerId = getOrResolveSellerId(sellerId);
+    const resolvedSellerId = resolveWalletSellerId(sellerId);
     const resolvedEmail = resolveSellerEmailForApi();
-    const params = { sellerId: resolvedSellerId };
+    const resolvedUserId = resolveAuthenticatedUserId();
+    const params = { 
+      sellerId: resolvedSellerId,
+      userId: resolvedUserId,
+      user_id: resolvedUserId,
+      memberId: resolvedUserId,
+      _id: resolvedUserId
+    };
     if (resolvedEmail) {
       params.email = resolvedEmail;
     }
@@ -4668,16 +5106,43 @@ export const walletService = {
   },
 
   transactionHistory: async (sellerId) => {
+    const resolvedSellerId = resolveWalletSellerId(sellerId);
+    const resolvedEmail = resolveSellerEmailForApi();
+    const resolvedUserId = resolveAuthenticatedUserId();
+    const params = { 
+      sellerId: resolvedSellerId,
+      userId: resolvedUserId,
+      user_id: resolvedUserId,
+      memberId: resolvedUserId,
+      _id: resolvedUserId
+    };
+    if (resolvedEmail) {
+      params.email = resolvedEmail;
+    }
     const res = await axios.get(`${API_BASE_URL}/transactionHistory`, {
-      params: { sellerId },
+      params,
     });
     return res.data;
   },
 
   addFunds: async (payload) => {
     _svcLog("[sellerService] addFunds payload:", payload);
+    const resolvedSellerId = resolveWalletSellerId(payload?.sellerId);
+    const resolvedEmail = resolveSellerEmailForApi();
+    const resolvedUserId = resolveAuthenticatedUserId();
+    const cleanPayload = {
+      ...payload,
+      sellerId: resolvedSellerId,
+      userId: resolvedUserId,
+      user_id: resolvedUserId,
+      memberId: resolvedUserId,
+      _id: resolvedUserId
+    };
+    if (resolvedEmail && !cleanPayload.email) {
+      cleanPayload.email = resolvedEmail;
+    }
     try {
-      const res = await axios.post(`${API_BASE_URL}/addFunds`, payload, {
+      const res = await axios.post(`${API_BASE_URL}/addFunds`, cleanPayload, {
         headers: { "Content-Type": "application/json" },
         timeout: 15000,
       });

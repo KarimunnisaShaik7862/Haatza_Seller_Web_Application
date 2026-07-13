@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, XCircle, Truck, Info, CreditCard, User } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
-import { fetchOrderDetails, updateOrdersstatus, getDeliveryAmount, expectedTat, createShipment, getCachedSellerPinCode, getCachedSellerId, cancelShipment } from "../../../services/sellerService";
+import { fetchOrderDetails, updateOrdersstatus, getDeliveryAmount, expectedTat, createShipment, fetchPackingSlip, getCachedSellerPinCode, getCachedSellerId, cancelShipment } from "../../../services/sellerService";
 import "../theme.css";
 import "./OrderDetailsPage.css";
 
@@ -68,6 +68,10 @@ const OrderDetailsPage = () => {
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
   const [cancelling, setCancelling] = useState(false);
+  const [slipLoading, setSlipLoading] = useState(false);
+const [pdfDownloadLink, setPdfDownloadLink] = useState("");
+const [showSlipPopup, setShowSlipPopup] = useState(false);
+
 
   const showToastMsg = (message, type = "success") => {
     setToast({ show: true, message, type });
@@ -391,35 +395,122 @@ const OrderDetailsPage = () => {
         "";
       const res = await createShipment(details?.orderId, sellerId, resolvedTrackingId);
       console.log("[handleCreateShipment] API Response:", res);
-      
-      const newAwb = (res?.message?.trackingId || res?.message?.awb || res?.trackingId || res?.AWB || res?.waybill || "").trim();
+
+      const newAwb = String(
+        res?.message?.body?.waybill ||
+        res?.message?.trackingId ||
+        res?.message?.awb ||
+        res?.message?.waybill ||
+        res?.trackingId ||
+        res?.AWB ||
+        res?.waybill ||
+        res?.awb ||
+        ""
+      ).trim();
+
       if (newAwb) {
         setTrackingId(newAwb);
-        setOrderStatus("Shipped");
         showToastMsg("Shipment created successfully!", "success");
         setShowShipmentModal(false);
+
+        // Do NOT call createShipment again here — only update status.
+        try {
+          await updateOrdersstatus(details?.orderId, sellerId, "Shipping Pickup Scheduled");
+        } catch (statusErr) {
+          console.error("[handleCreateShipment] Failed to update order status:", statusErr);
+        }
+        setOrderStatus("Shipping Pickup Scheduled");
+
+        setSlipLoading(true);
+        try {
+          const slipRes = await fetchPackingSlip(newAwb);
+          if (slipRes?.pdf_download_link) {
+            setPdfDownloadLink(slipRes.pdf_download_link);
+          } else {
+            setPdfDownloadLink("");
+            showToastMsg("Shipment created, but the packing slip isn't ready yet.", "error");
+          }
+        } catch (slipErr) {
+          console.error("[handleCreateShipment] Packing slip fetch failed:", slipErr);
+          setPdfDownloadLink("");
+        } finally {
+          setSlipLoading(false);
+        }
+
+        setShowSlipPopup(true);
         await loadOrderDetails(false);
       } else {
-        const errMsg = res?.message || res?.error || "Delhivery shipment creation failed";
-        console.warn("[handleCreateShipment] API did not return trackingId:", errMsg);
+        const errMsg =
+          (typeof res?.message === "string" && res.message) ||
+          res?.message?.body?.message ||
+          res?.message?.message ||
+          res?.error ||
+          "Delhivery shipment creation failed";
+        console.warn("[handleCreateShipment] API did not return waybill:", errMsg);
         showToastMsg(`Error: ${errMsg}`, "error");
         setShowShipmentModal(false);
       }
     } catch (err) {
       console.error("[handleCreateShipment] Exception:", err);
-      showToastMsg("Failed to create shipment. Network/CORS error.", "error");
+      showToastMsg("Failed to create shipment. Please check the Orders list — it may have still succeeded.", "error");
       setShowShipmentModal(false);
     } finally {
       setCreatingShipment(false);
     }
   };
 
+ const handleOpenPackageSlip = async () => {
+    if (pdfDownloadLink) {
+      setShowSlipPopup(true);
+      return;
+    }
+    setSlipLoading(true);
+    try {
+      const res = await fetchPackingSlip(trackingId);
+      if (res?.pdf_download_link) {
+        setPdfDownloadLink(res.pdf_download_link);
+        setShowSlipPopup(true);
+      } else {
+        showToastMsg("Package slip is not available yet. Please try again shortly.", "error");
+      }
+    } catch (err) {
+      console.error("[handleOpenPackageSlip] Error:", err);
+      showToastMsg("Failed to load package slip.", "error");
+    } finally {
+      setSlipLoading(false);
+    }
+  };
+
+  const handleDownloadSlip = async () => {
+    if (!pdfDownloadLink) {
+      showToastMsg("Package slip link not available yet.", "error");
+      return;
+    }
+    try {
+      const response = await fetch(pdfDownloadLink);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `PackingSlip-${trackingId || details?.orderId || "order"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error("[handleDownloadSlip] Blob download failed, falling back to opening in browser:", err);
+      window.open(pdfDownloadLink, "_blank");
+      showToastMsg("Couldn't force download — opened the PDF instead.", "error");
+    }
+  };
   const handleTrackOrderClick = () => {
     const trimmedId = (trackingId || "").trim();
     if (trimmedId) {
       navigate(`/dashboard/orders/tracking/${trimmedId}`);
     } else {
       setTrackerError(true);
+      showToastMsg("Tracking ID is not available.", "error");
     }
   };
 
@@ -455,9 +546,10 @@ const OrderDetailsPage = () => {
     );
   }
 
-  const isPlaced = orderStatus === "Order Placed";
+const isPlaced = orderStatus === "Order Placed";
   const isConfirmed = orderStatus === "Order Confirmed";
-  const isShipped = orderStatus === "Shipped";
+  const isPickupScheduled = orderStatus === "Shipping Pickup Scheduled";
+  const isShipped = orderStatus === "Shipped" || isPickupScheduled;
   const isCancelled = orderStatus === "Order Cancelled";
 
   return (
@@ -580,11 +672,18 @@ const OrderDetailsPage = () => {
                 {trackingId && (
                   <button 
                     className="btn-secondary" 
-                    onClick={() => window.open(`https://haatza.com/_functions/packingSlip?waybill=${trackingId}`, "_blank")}
+                    onClick={handleOpenPackageSlip}
+                    disabled={slipLoading}
                   >
-                    Download Packing Slip
+                    {slipLoading ? "Loading..." : "Package Slip"}
                   </button>
                 )}
+                <button
+                  className="btn-secondary"
+                  onClick={handleTrackOrderClick}
+                >
+                  Tracking ID
+                </button>
               </div>
               {trackingId && (
                 <div style={{ marginTop: '8px', background: '#FAFBFF', padding: '10px 16px', borderRadius: '10px', border: '1px solid #ECEFF5', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
@@ -597,7 +696,7 @@ const OrderDetailsPage = () => {
                 </div>
               )}
               {!trackingId.trim() && trackerError && (
-                <p className="tracker-error-msg" style={{ margin: 0 }}>Tracker is not available for this product</p>
+                <p className="tracker-error-msg" style={{ margin: 0 }}>Tracking ID is not available.</p>
               )}
             </div>
           )}
@@ -723,12 +822,20 @@ const OrderDetailsPage = () => {
                 {trackingId && (
                   <button 
                     className="mobile-btn-cancel" 
-                    onClick={() => window.open(`https://haatza.com/_functions/packingSlip?waybill=${trackingId}`, "_blank")}
+                    onClick={handleOpenPackageSlip}
+                    disabled={slipLoading}
                     style={{ flex: 1, height: '48px', margin: 0, whiteSpace: 'nowrap', fontSize: '12px' }}
                   >
-                    Packing Slip
+                    {slipLoading ? "Loading..." : "Package Slip"}
                   </button>
                 )}
+                <button
+                  className="mobile-btn-cancel"
+                  onClick={handleTrackOrderClick}
+                  style={{ flex: 1, height: '48px', margin: 0, whiteSpace: 'nowrap', fontSize: '12px' }}
+                >
+                  Tracking ID
+                </button>
               </div>
               {trackingId && (
                 <div className="mobile-barcode-wrap" style={{ textAlign: 'center', marginTop: '8px', background: '#FAFBFF', padding: '10px', borderRadius: '8px', border: '1px solid #ECEFF5', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
@@ -741,7 +848,7 @@ const OrderDetailsPage = () => {
                 </div>
               )}
               {!trackingId.trim() && trackerError && (
-                <p className="tracker-error-msg" style={{ textAlign: 'center', margin: 0 }}>Tracker is not available for this product</p>
+                <p className="tracker-error-msg" style={{ textAlign: 'center', margin: 0 }}>Tracking ID is not available.</p>
               )}
             </div>
           )}
@@ -818,10 +925,60 @@ const OrderDetailsPage = () => {
         </div>
       )}
 
+      {/* Package Slip Popup */}
+      {showSlipPopup && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: "16px"
+          }}
+          onClick={() => setShowSlipPopup(false)}
+        >
+          <div
+            style={{
+              background: "#fff", borderRadius: "16px", padding: "28px",
+              maxWidth: "380px", width: "100%", position: "relative",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.2)"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowSlipPopup(false)}
+              style={{
+                position: "absolute", top: "14px", right: "14px", background: "transparent",
+                border: "none", cursor: "pointer", color: "#64748B", padding: "4px"
+              }}
+              aria-label="Close"
+            >
+              ×
+            </button>
+
+            <h3 style={{ margin: "0 0 8px", fontSize: "18px", fontWeight: 800, color: "#1E293B" }}>
+              Shipment Created Successfully
+            </h3>
+            <p style={{ margin: "0 0 4px", fontSize: "14px", color: "#475569" }}>
+              Waybill Number: <strong>{trackingId}</strong>
+            </p>
+            <p style={{ margin: "0 0 20px", fontSize: "14px", color: "#16A34A", fontWeight: 600 }}>
+              Package Slip Ready
+            </p>
+
+            <button
+              onClick={handleDownloadSlip}
+              style={{
+                width: "100%", padding: "12px 16px", borderRadius: "10px", border: "none",
+                background: "#2962FF", color: "#fff", fontWeight: 700, fontSize: "14px", cursor: "pointer"
+              }}
+            >
+              Download Package Slip
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
-
 const Section = ({ title, icon: Icon, children }) => (
   <div className="glass-card details-section">
     <div className="details-section-title">

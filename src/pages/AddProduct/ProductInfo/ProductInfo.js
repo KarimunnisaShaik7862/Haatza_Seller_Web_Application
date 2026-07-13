@@ -434,9 +434,15 @@ const BackButton = ({ label, onClick }) => (
 /* ─────────────────────────────────────────
    IMAGE UPLOAD SECTION
 ───────────────────────────────────────── */
-const ImageUploadSection = ({ images, onUpload, onRemove }) => {
+const ImageUploadSection = ({ images, onUpload, onRemove, onSelectFrontView }) => {
   const [guidelinesOpen, setGuidelinesOpen] = useState(false);
   const [limitError, setLimitError] = useState("");
+
+  useEffect(() => {
+    if (images.length >= 10) {
+      setLimitError("");
+    }
+  }, [images.length]);
 
   const handleFileChange = async (e) => {
     let files = Array.from(e.target.files);
@@ -545,58 +551,85 @@ const ImageUploadSection = ({ images, onUpload, onRemove }) => {
             </div>
             <span className="pi-upload-text">Click to upload</span>
             <span className="pi-upload-subtext">or drag &amp; drop your images here</span>
-            <span className="pi-upload-hint">PNG, JPG, WEBP up to 150 KB · <strong className="pi-upload-limit-highlight">Min 2, Max 10 images</strong></span>
+            <span className="pi-upload-hint">PNG, JPG, WEBP · <strong className="pi-upload-limit-highlight">Min 2, Max 10 images</strong></span>
           </label>
         )}
 
-        {images.map((img, idx) => (
-          <div key={idx} className="pi-uploaded-img" style={{ position: "relative" }}>
-            <img src={img.preview} alt={`Product ${idx + 1}`} />
-            <button className="pi-img-remove" onClick={() => { setLimitError(""); onRemove(idx); }}>✕</button>
+        {images.map((img, idx) => {
+          const isFront = img.isFrontView === true;
+          return (
+            <div
+              key={idx}
+              className={`pi-uploaded-img ${isFront ? "pi-uploaded-img--front" : ""}`}
+              style={{ position: "relative", cursor: img.status === "success" ? "pointer" : "default" }}
+              onClick={() => {
+                if (img.status === "success" && onSelectFrontView) {
+                  onSelectFrontView(idx);
+                }
+              }}
+            >
+              <img src={img.preview} alt={`Product ${idx + 1}`} />
+              <button
+                className="pi-img-remove"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLimitError("");
+                  onRemove(idx);
+                }}
+              >
+                ✕
+              </button>
 
-            {idx === 0 && img.status === "success" && (
-              <span className="pi-img-primary">Front View</span>
-            )}
+              {isFront && img.status === "success" && (
+                <span className="pi-img-primary">✓ Front View</span>
+              )}
 
-            {img.status === "uploading" && (
-              <div style={overlayStyle("#0000007a")}>
-                <UploadSpinner />
-                <span style={overlayLabelStyle}>Uploading…</span>
-              </div>
-            )}
+              {!isFront && img.status === "success" && (
+                <div className="pi-img-set-primary-hover">
+                  <span>Set Front View</span>
+                </div>
+              )}
 
-            {img.status === "error" && (
-              <div style={overlayStyle("rgba(239,68,68,0.82)")} title={img.error}>
-                <span style={{ fontSize: 20 }}>✕</span>
-                <span style={{ ...overlayLabelStyle, fontSize: 10, textAlign: "center", padding: "0 4px" }}>
-                  {img.error?.length > 40 ? img.error.slice(0, 37) + "…" : img.error}
-                </span>
-              </div>
-            )}
+              {img.status === "uploading" && (
+                <div style={overlayStyle("#0000007a")} onClick={(e) => e.stopPropagation()}>
+                  <UploadSpinner />
+                  <span style={overlayLabelStyle}>Uploading…</span>
+                </div>
+              )}
 
-            {img.status === "success" && (
-              <div style={{
-                position: "absolute", top: 4, left: 4,
-                background: "rgba(5,150,105,0.88)",
-                borderRadius: 5, padding: "2px 5px",
-                display: "flex", alignItems: "center", gap: 3,
-                maxWidth: "calc(100% - 8px)",
-                overflow: "hidden",
-              }}>
-                <CheckIcon size={9} color="white" />
-                <span style={{
-                  color: "white", fontSize: 8, fontWeight: 700,
-                  fontFamily: "var(--ff-display)",
-                  whiteSpace: "nowrap",
+              {img.status === "error" && (
+                <div style={overlayStyle("rgba(239,68,68,0.82)")} title={img.error} onClick={(e) => e.stopPropagation()}>
+                  <span style={{ fontSize: 20 }}>✕</span>
+                  <span style={{ ...overlayLabelStyle, fontSize: 10, textAlign: "center", padding: "0 4px" }}>
+                    {img.error?.length > 40 ? img.error.slice(0, 37) + "…" : img.error}
+                  </span>
+                </div>
+              )}
+
+              {img.status === "success" && (
+                <div style={{
+                  position: "absolute", top: 4, left: 4,
+                  background: "rgba(5,150,105,0.88)",
+                  borderRadius: 5, padding: "2px 5px",
+                  display: "flex", alignItems: "center", gap: 3,
+                  maxWidth: "calc(100% - 8px)",
                   overflow: "hidden",
-                  textOverflow: "ellipsis",
                 }}>
-                  ✓
-                </span>
-              </div>
-            )}
-          </div>
-        ))}
+                  <CheckIcon size={9} color="white" />
+                  <span style={{
+                    color: "white", fontSize: 8, fontWeight: 700,
+                    fontFamily: "var(--ff-display)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}>
+                    ✓
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {limitError && (
@@ -772,7 +805,7 @@ const prefillCOD = (val) => {
 const ProductInfo = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { category: rawCategory, subcategory: rawSubcategory, isEditMode, isDuplicateMode, editData: rawEditData, tableId, origin, email } = location.state || {};
+  const { category: rawCategory, subcategory: rawSubcategory, isEditMode, isDuplicateMode, editData: rawEditData, tableId, origin, email, formData: navFormData } = location.state || {};
 
   const editData = useMemo(() => {
     if (!rawEditData) return null;
@@ -806,6 +839,7 @@ const ProductInfo = () => {
     _id: editData.categoryId?.[0] || "",
     CategoryID: editData.categoryId?.[0] || "",
   } : null);
+  const isApprovedProduct = (isEditMode && !isDuplicateMode) && String(editData?.status || "").toLowerCase() === "approved";
 
   const subcategory = rawSubcategory || (editData ? {
     name: editData.subCategory || "",
@@ -814,8 +848,6 @@ const ProductInfo = () => {
     SubCategoryID: editData.SubCategoryID || "",
   } : null);
   
-  // uses top-level resolveWixImage
-
   const prefillImages = location.state?.images
     ? location.state.images.map(img => ({
         ...img,
@@ -826,16 +858,7 @@ const ProductInfo = () => {
       ? (() => {
           const seen = new Set();
           const result = [];
-
-          // Main image
-          if (editData.mainmedia) {
-            const resolved = resolveWixImage(editData.mainmedia);
-            if (resolved && !seen.has(resolved)) {
-              seen.add(resolved);
-              seen.add(editData.mainmedia);
-              result.push({ preview: resolved, mediaUrl: resolved, url: resolved, status: "success" });
-            }
-          }
+          const mainResolved = editData.mainmedia ? resolveWixImage(editData.mainmedia) : null;
 
           // Additional product images (mediaItems or productImages)
           const extraImages = editData.mediaItems || editData.productImages || [];
@@ -853,15 +876,28 @@ const ProductInfo = () => {
               if (seen.has(resolved) || seen.has(raw)) continue;
               seen.add(resolved);
               seen.add(raw);
+
+              const isFront = mainResolved && (resolved === mainResolved || raw === editData.mainmedia);
               result.push({
                 preview: resolved,
                 mediaUrl: resolved,
                 url: resolved,
                 status: "success",
+                isFrontView: !!isFront,
                 wixSrc: raw.startsWith("wix:image://") ? raw : null,
                 wixResponse: typeof img === "object" ? img : null,
               });
             }
+          }
+
+          if (mainResolved && !seen.has(mainResolved)) {
+            result.push({
+              preview: mainResolved,
+              mediaUrl: mainResolved,
+              url: mainResolved,
+              status: "success",
+              isFrontView: true,
+            });
           }
 
           return result;
@@ -935,14 +971,8 @@ const ProductInfo = () => {
       if (!location.state?.images) {
         const seen = new Set();
         const result = [];
-        if (editData.mainmedia) {
-          const resolved = resolveWixImage(editData.mainmedia);
-          if (resolved && !seen.has(resolved)) {
-            seen.add(resolved);
-            seen.add(editData.mainmedia);
-            result.push({ preview: resolved, mediaUrl: resolved, url: resolved, status: "success" });
-          }
-        }
+        const mainResolved = editData.mainmedia ? resolveWixImage(editData.mainmedia) : null;
+
         const extraImages = editData.mediaItems || editData.productImages || [];
         if (Array.isArray(extraImages)) {
           for (const img of extraImages) {
@@ -958,16 +988,30 @@ const ProductInfo = () => {
             if (seen.has(resolved) || seen.has(raw)) continue;
             seen.add(resolved);
             seen.add(raw);
+
+            const isFront = mainResolved && (resolved === mainResolved || raw === editData.mainmedia);
             result.push({
               preview: resolved,
               mediaUrl: resolved,
               url: resolved,
               status: "success",
+              isFrontView: !!isFront,
               wixSrc: raw.startsWith("wix:image://") ? raw : null,
               wixResponse: typeof img === "object" ? img : null,
             });
           }
         }
+
+        if (mainResolved && !seen.has(mainResolved)) {
+          result.push({
+            preview: mainResolved,
+            mediaUrl: mainResolved,
+            url: mainResolved,
+            status: "success",
+            isFrontView: true,
+          });
+        }
+
         setImages(result);
       }
     }
@@ -1012,7 +1056,8 @@ const ProductInfo = () => {
       if (Array.isArray(editData.additionalInfoSections)) {
         editData.additionalInfoSections.forEach(section => {
           Object.entries(section).forEach(([k, v]) => {
-            if (k !== "title" && k !== "description" && v != null && v !== "") {
+            const normK = k.toLowerCase().replace(/_/g, "").trim();
+            if (k !== "title" && k !== "description" && normK !== "promotionphotos" && normK !== "keywords" && normK !== "searchkeywords" && v != null && v !== "") {
               merged[k] = v;
             }
           });
@@ -1145,7 +1190,7 @@ const ProductInfo = () => {
       return val ? [val] : [];
     }
     if ((isEditMode || isDuplicateMode) && editData) {
-      const photos = editData.promotionPhotos;
+      const photos = editData.promotionPhotos || editData.promotion_photos || editData.promoPhotos || editData.promotionImages;
       if (Array.isArray(photos) && photos.length > 0) {
         return photos.map((p, idx) => {
           const url = typeof p === "string" ? p : p?.url || p?.src || null;
@@ -1158,8 +1203,8 @@ const ProductInfo = () => {
 
   const previewKeywords = (() => {
     if (Array.isArray(location.state?.keywords)) return location.state.keywords;
-    if ((isEditMode || isDuplicateMode) && editData?.search_keywords) {
-      const kw = editData.search_keywords;
+    const kw = editData?.search_keywords || editData?.searchKeywords || editData?.keywords;
+    if ((isEditMode || isDuplicateMode) && kw) {
       if (Array.isArray(kw)) return kw.map(k => String(k)).filter(Boolean);
       if (typeof kw === "string") return kw.split(",").map(k => k.trim()).filter(Boolean);
     }
@@ -1319,12 +1364,48 @@ const ProductInfo = () => {
     const maxProfit = isNaN(baseForCalc) ? Infinity : baseForCalc * 0.3;
     const num = parseFloat(cleaned);
     if (!isNaN(num) && num > maxProfit) {
-      setResellerError(`Max reseller profit is ₹${maxProfit.toFixed(2)} (30% of ${formData.onSale && formData.salePrice ? "sale" : "regular"} price)`);
+      setResellerError("Reselling profit cannot exceed 30% of the On Sale Price.");
     } else {
       setResellerError("");
     }
     updateField("resellingProfit", cleaned);
   };
+
+  const handleSelectFrontView = (idx) => {
+    setImages(prev => prev.map((img, i) => ({
+      ...img,
+      isFrontView: i === idx,
+    })));
+  };
+
+  useEffect(() => {
+    const successImages = images.filter(img => img.status === "success");
+    if (successImages.length > 0 && !successImages.some(img => img.isFrontView === true)) {
+      setImages(prev => {
+        const firstSuccessIdx = prev.findIndex(img => img.status === "success");
+        if (firstSuccessIdx !== -1) {
+          return prev.map((img, i) => ({
+            ...img,
+            isFrontView: i === firstSuccessIdx,
+          }));
+        }
+        return prev;
+      });
+    }
+  }, [images]);
+
+  useEffect(() => {
+    const baseForCalc = formData.onSale && formData.salePrice
+      ? parseFloat(formData.salePrice)
+      : parseFloat(formData.price);
+    const maxProfit = isNaN(baseForCalc) ? 0 : baseForCalc * 0.3;
+    const num = parseFloat(formData.resellingProfit);
+    if (!isNaN(num) && num > 0 && num > maxProfit) {
+      setResellerError("Reselling profit cannot exceed 30% of the On Sale Price.");
+    } else {
+      setResellerError("");
+    }
+  }, [formData.price, formData.onSale, formData.salePrice, formData.resellingProfit]);
 
   const handleImageUpload = (img) => {
     if (images.length >= 10) return;
@@ -1384,6 +1465,17 @@ const ProductInfo = () => {
     if (!formData.availableStock) errors.availableStock = "Please enter Available Stock";
     if (!formData.shippingWeight) errors.shippingWeight = "Please enter Shipping Weight";
 
+    const baseForCalc = formData.onSale && formData.salePrice
+      ? parseFloat(formData.salePrice)
+      : parseFloat(formData.price);
+    const profitVal = parseFloat(formData.resellingProfit);
+    if (!isNaN(profitVal) && profitVal > 0) {
+      const maxProfit = isNaN(baseForCalc) ? 0 : baseForCalc * 0.3;
+      if (profitVal > maxProfit) {
+        errors.resellingProfit = "Reselling profit cannot exceed 30% of the On Sale Price.";
+      }
+    }
+
     const successImages = images.filter(img => img.status === "success");
     const uploadingImages = images.filter(img => img.status === "uploading");
 
@@ -1436,6 +1528,7 @@ const ProductInfo = () => {
         mediaUrl: img.mediaUrl,
         file: img.file,
         wixResponse: img.wixResponse,
+        isFrontView: img.isFrontView || false,
       }));
 
     navigate(
@@ -1506,7 +1599,7 @@ const ProductInfo = () => {
         <div className="lp-form-side">
           <div className="pi-master-card">
         <div className="pi-card-section">
-          <ImageUploadSection images={images} onUpload={handleImageUpload} onRemove={handleImageRemove} />
+          <ImageUploadSection images={images} onUpload={handleImageUpload} onRemove={handleImageRemove} onSelectFrontView={handleSelectFrontView} />
           {fieldErrors.images && submitAttempted && (
             <p className="pi-error-text pi-error-anim" style={{ marginTop: 8 }}>{fieldErrors.images}</p>
           )}
@@ -1639,6 +1732,7 @@ const ProductInfo = () => {
               error={fieldErrors.shippingWeight}
               touched={touched.shippingWeight || submitAttempted}
             />
+            {!isApprovedProduct && (
             <div className="pi-field">
               <label className="pi-label">
                 Available Stock <span className="pi-required"> *</span>
@@ -1660,6 +1754,7 @@ const ProductInfo = () => {
                 <p className="pi-error-text pi-error-anim">{fieldErrors.availableStock}</p>
               )}
             </div>
+            )}
           </div>
         </div>
 
@@ -1718,13 +1813,13 @@ const ProductInfo = () => {
 
           <div className="pi-form-grid">
             <FormInput
-              label="Reselling Profit"
-              placeholder="0.00" prefix="₹" type="number"
+              label={<>Reselling Commission <span style={{ color: "var(--pi-red)", fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>(Maximum allowed: 30% of the On Sale Price)</span></>}
+              placeholder="0.00" prefix="₹" type="text"
               value={formData.resellingProfit}
               onChange={handleResellerChange}
               helperText="Resellers earn this per sale"
-              error={resellerError}
-              touched={!!resellerError}
+              error={resellerError || fieldErrors.resellingProfit}
+              touched={!!(resellerError || fieldErrors.resellingProfit)}
             />
           </div>
         </div>

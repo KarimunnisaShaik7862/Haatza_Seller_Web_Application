@@ -271,6 +271,8 @@
   gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid #f1f3f6;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .ip-mobile-card:last-child {
@@ -295,6 +297,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow: hidden;
 }
 
 .ip-mobile-card__name {
@@ -802,20 +805,25 @@
   }
 
   .ip-pagination-controls {
-    width: 100%;
-    justify-content: space-between;
-    flex-wrap: nowrap;
-    gap: 6px;
+    width: 100% !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
   }
 
   /* Both page buttons — compact base */
   .ip-page-btn {
-    flex: 0 0 auto;
-    min-width: 0;
-    padding: 6px 10px;
-    font-size: 12px;
-    gap: 3px;
-    justify-content: center;
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 6px 8px !important;
+    font-size: 11.5px !important;
+    min-width: 0 !important;
+    white-space: nowrap !important;
+  }
+  .ip-page-indicator {
+    font-size: 11px !important;
+    white-space: nowrap !important;
+    text-align: center !important;
   }
 
   /* Previous button — icon only, hide the "Previous" text */
@@ -839,6 +847,32 @@
   .ip-modal-grid   { grid-template-columns: 1fr; }
 
   .ip-name-btn { max-width: 100%; }
+
+  @media (max-width: 480px) {
+    .ip-mobile-card {
+      padding: 10px 10px !important;
+      gap: 8px !important;
+    }
+    .ip-mobile-card__info div {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ip-mobile-card__right {
+      gap: 4px !important;
+    }
+    .ip-badge {
+      padding: 2px 6px !important;
+      font-size: 10px !important;
+    }
+    .ip-dropdown {
+      min-width: 130px !important;
+    }
+    .ip-dropdown button {
+      padding: 8px 10px !important;
+      font-size: 12px !important;
+    }
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

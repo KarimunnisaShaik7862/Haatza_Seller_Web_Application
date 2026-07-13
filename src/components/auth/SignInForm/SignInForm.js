@@ -326,9 +326,9 @@ function SignInForm({
           "p",
           { className: "terms-text" },
           "By continuing, you agree to our ",
-          React.createElement("a", { href: "/terms", target: "_blank", rel: "noopener noreferrer", className: "terms-link" }, "Terms of Use"),
+          React.createElement(Link, { to: "/terms", className: "terms-link" }, "Terms of Use"),
           " and ",
-          React.createElement("a", { href: "/privacy", target: "_blank", rel: "noopener noreferrer", className: "terms-link" }, "Privacy Policy"),
+          React.createElement(Link, { to: "/privacy", className: "terms-link" }, "Privacy Policy"),
           "."
         ),
 

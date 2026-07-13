@@ -18,9 +18,9 @@ function SignUpPage() {
     const isPhone = /^[6-9]\d{9}$/.test(contact);
 
     return {
-      fullName: "",
+      fullName: routeState.prefillFullName || "",
       phone: isPhone ? contact : "",
-      email: isEmail ? contact : "",
+      email: isEmail ? contact : (routeState.prefillEmail || ""),
       password: "",
     };
   });

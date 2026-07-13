@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,7 +24,7 @@ const TABS = [
   { key: "cancelled", label: "Cancelled Orders", icon: XCircle },
 ];
 
-const CONFIRMED_STATUSES = ["Order Placed", "Order Confirmed"];
+const CONFIRMED_STATUSES = ["Order Placed", "Order Confirmed", "Shipping Pickup Scheduled"];
 const SHIPPED_STATUSES = ["Shipped"];
 const CANCELLED_STATUSES = ["Order Cancelled"];
 
@@ -49,6 +49,25 @@ const [calendarYear, setCalendarYear] = useState(today.getFullYear());
 const [pickerView, setPickerView] = useState("days"); // "days" | "months" | "years"
 const [decadeStart, setDecadeStart] = useState(Math.floor(today.getFullYear() / 10) * 10);
   const datePickerRef = React.useRef(null);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleDropdownClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleDropdownClickOutside);
+    return () => document.removeEventListener("mousedown", handleDropdownClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!isDropdownOpen) return;
+    const handleScroll = () => setIsDropdownOpen(false);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => window.removeEventListener("scroll", handleScroll, true);
+  }, [isDropdownOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -70,13 +89,14 @@ const [decadeStart, setDecadeStart] = useState(Math.floor(today.getFullYear() / 
     }
   }, [user]);
 
-  const loadOrders = async () => {
-    if (!sellerId) {
-      setOrders([]);
-      setLoading(false);
-      return;
+  const loadingRef = useRef(false);
+
+  const loadOrders = useCallback(async (isSilent = false) => {
+    if (!sellerId || loadingRef.current) return;
+    loadingRef.current = true;
+    if (!isSilent) {
+      setLoading(true);
     }
-    setLoading(true);
     try {
       const response = await fetchSellerOrders(sellerId);
       const list = Array.isArray(response) ? response : response?.message?.results || response?.items || response?.orders || [];
@@ -85,14 +105,25 @@ const [decadeStart, setDecadeStart] = useState(Math.floor(today.getFullYear() / 
       console.error("Error fetching seller orders", err);
       setOrders([]);
     } finally {
-      setLoading(false);
+      loadingRef.current = false;
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
-  };
+  }, [sellerId]);
 
   useEffect(() => {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sellerId]);
+  }, [sellerId, loadOrders]);
+
+  useEffect(() => {
+    if (!sellerId) return;
+    const interval = setInterval(() => {
+      loadOrders(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [sellerId, loadOrders]);
 
   const filteredOrders = useMemo(() => {
     let list = [...orders];
@@ -329,7 +360,7 @@ const handleMonthSelect = (monthIndex) => {
             <p className="orders-subtitle">Manage customer orders, shipping, and fulfillment</p>
           </div>
           <div className="orders-header-actions">
-            <button className="btn-secondary" onClick={loadOrders}>
+            <button className="btn-secondary" onClick={() => loadOrders(false)}>
               <RefreshCw size={16} className={loading ? "spin" : ""} />
               Refresh Orders
             </button>
@@ -518,16 +549,52 @@ const handleMonthSelect = (monthIndex) => {
         })}
       </div>
 
-      <div className="orders-status-dropdown-container">
-        <select
-          value={activeTab}
-          onChange={(e) => setActiveTab(e.target.value)}
-          className="orders-status-select"
+      <div className="orders-status-dropdown-container" ref={dropdownRef}>
+        <button
+          type="button"
+          className={`orders-status-select-btn ${isDropdownOpen ? "open" : ""}`}
+          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
         >
-          <option value="confirmed">Confirmed Orders</option>
-          <option value="shipped">Shipped Orders</option>
-          <option value="cancelled">Cancelled Orders</option>
-        </select>
+          <span>
+            {activeTab === "confirmed" && "Confirmed Orders"}
+            {activeTab === "shipped" && "Shipped Orders"}
+            {activeTab === "cancelled" && "Cancelled Orders"}
+          </span>
+        </button>
+        {isDropdownOpen && (
+          <div className="orders-status-dropdown-menu">
+            <button
+              type="button"
+              className={`orders-status-dropdown-item ${activeTab === "confirmed" ? "active" : ""}`}
+              onClick={() => {
+                setActiveTab("confirmed");
+                setIsDropdownOpen(false);
+              }}
+            >
+              Confirmed Orders
+            </button>
+            <button
+              type="button"
+              className={`orders-status-dropdown-item ${activeTab === "shipped" ? "active" : ""}`}
+              onClick={() => {
+                setActiveTab("shipped");
+                setIsDropdownOpen(false);
+              }}
+            >
+              Shipped Orders
+            </button>
+            <button
+              type="button"
+              className={`orders-status-dropdown-item ${activeTab === "cancelled" ? "active" : ""}`}
+              onClick={() => {
+                setActiveTab("cancelled");
+                setIsDropdownOpen(false);
+              }}
+            >
+              Cancelled Orders
+            </button>
+          </div>
+        )}
       </div>
 
       <AnimatePresence mode="wait">
@@ -555,10 +622,7 @@ const handleMonthSelect = (monthIndex) => {
           <PackageSearch size={48} color="#2962FF" />
           <h3>No Orders Found</h3>
           <p>No orders are currently available.</p>
-          <button className="btn-primary" onClick={loadOrders}>
-            <RefreshCw size={16} />
-            Refresh Orders
-          </button>
+          {/* Refresh button removed for automatic refresh */}
         </div>
       )}
     </div>

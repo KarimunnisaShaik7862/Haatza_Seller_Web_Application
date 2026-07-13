@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import sellerService, { resolveWixImage, resolveSellerId } from "../../../services/sellerService";
 
-const LIMIT = 10;
-const RECENT_UPDATE_TTL_MS = 5000;
+const LIMIT = 15;
+const RECENT_UPDATE_TTL_MS = 10 * 60 * 1000;
 
 const parseNumber = (val) => {
   const parsed = Number(val);
@@ -84,6 +84,7 @@ export const useInventoryViewModel = (sellerId) => {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [successMessage, setSuccessMessage] = useState(null);
+  const [recentUpdateVersion, setRecentUpdateVersion] = useState(0);
 
   // ISSUE 6: tracks the "Refresh" button's own loading state, independent
   // of the initial page-load `loading` state.
@@ -140,12 +141,14 @@ export const useInventoryViewModel = (sellerId) => {
     const resolvedSellerId = sellerId || resolveSellerId();
 
     // TASK 14: Debug log - list request
-    console.log("[Inventory] list request:", { sellerId: resolvedSellerId, page, searchText: search });
+    console.log("[Inventory] list request:", { sellerId: resolvedSellerId, page, searchText: search, limit: LIMIT });
 
     try {
       const response = await sellerService.getSellerProductInventory({
         sellerId: resolvedSellerId,
         page,
+        limit: LIMIT,
+        count: LIMIT,
         searchText: search,
         signal
       });
@@ -540,6 +543,7 @@ export const useInventoryViewModel = (sellerId) => {
           timestamp: updateTimestamp
         });
       });
+      setRecentUpdateVersion((version) => version + 1);
       if (process.env.NODE_ENV !== "production") {
         console.log("[Inventory] recently updated rows:", recentlyUpdatedRowsRef.current);
       }
@@ -638,31 +642,52 @@ export const useInventoryViewModel = (sellerId) => {
 
   // Filter items based on dropdown filters and tab selection
   const filteredItems = useMemo(() => {
-    return inventoryItems.filter((item) => {
+    const filtered = inventoryItems.filter((item) => {
       // 1. Status filter
-      let matchesStatus = true;
       const qty = Number(item.originalQuantity ?? 0);
       const inStock = qty > 0 || item.inStock === true;
+
       if (statusFilter === "in_stock") {
-        matchesStatus = inStock;
-      } else if (statusFilter === "out_of_stock") {
-        matchesStatus = !inStock;
+        return inStock;
       }
 
-      // 2. Local search filter (TASK 12: Prefer backend search result)
-      const query = (search || "").toLowerCase().trim();
-      let matchesSearch = true;
-      if (query) {
-        matchesSearch = true; // Prefer backend search results completely to avoid double filtering
+      if (statusFilter === "out_of_stock") {
+        return !inStock;
       }
 
-      return matchesStatus && matchesSearch;
+      return true;
     });
-  }, [inventoryItems, statusFilter, search]);
+
+    // Keep recently updated variants visible at the top of the active tab.
+    return [...filtered].sort((a, b) => {
+      const aKey = `${a.productId}-${a.variantId}`;
+      const bKey = `${b.productId}-${b.variantId}`;
+
+      const aRecent = recentlyUpdatedRowsRef.current.get(aKey)?.timestamp || 0;
+      const bRecent = recentlyUpdatedRowsRef.current.get(bKey)?.timestamp || 0;
+
+      return bRecent - aRecent;
+    });
+  }, [inventoryItems, statusFilter, search, recentUpdateVersion]);
+
+  const filteredTotalItems = filteredItems.length;
+  const filteredTotalPages = Math.max(1, Math.ceil(filteredTotalItems / LIMIT));
+
+  const paginatedItems = useMemo(() => {
+    const startIndex = (page - 1) * LIMIT;
+    return filteredItems.slice(startIndex, startIndex + LIMIT);
+  }, [filteredItems, page]);
+
+  useEffect(() => {
+    if (page > filteredTotalPages) {
+      setPage(filteredTotalPages);
+    }
+  }, [page, filteredTotalPages]);
 
   return {
     inventory,
     filteredItems,
+    paginatedItems,
     loading,
     error,
     setError,
@@ -678,8 +703,8 @@ export const useInventoryViewModel = (sellerId) => {
     refreshing,
     page,
     setPage,
-    totalPages,
-    totalItems,
+    totalPages: filteredTotalPages,
+    totalItems: filteredTotalItems,
     limit: LIMIT,
 
     // Batch updates

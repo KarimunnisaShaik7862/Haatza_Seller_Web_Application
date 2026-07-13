@@ -83,9 +83,11 @@ export default function ProductInsightsList() {
   const [currentPage, setCurrentPage] = useState(1);
   const [resolvingDetails, setResolvingDetails] = useState(false);
 
-  const fetchAllListings = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchAllListings = useCallback(async (isSilent = false) => {
+    if (!isSilent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const email = getSellerEmail();
       const listRes = await fetchSellerListings({ email, page: 1, limit: 100, type: "mylisting" });
@@ -93,14 +95,25 @@ export default function ProductInsightsList() {
       setRawProducts(list);
     } catch (err) {
       console.error("Error loading products list:", err);
-      setError(err.message || "Unable to load seller listings list.");
+      if (!isSilent) {
+        setError(err.message || "Unable to load seller listings list.");
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     fetchAllListings();
+  }, [fetchAllListings]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchAllListings(true);
+    }, 30000);
+    return () => clearInterval(interval);
   }, [fetchAllListings]);
 
   const totalPages = Math.max(1, Math.ceil(rawProducts.length / 10));

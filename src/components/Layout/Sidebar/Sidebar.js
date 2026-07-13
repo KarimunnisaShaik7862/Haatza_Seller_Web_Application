@@ -281,6 +281,7 @@ function NavItem({ item, active, onClick, isCollapsed, onTooltipShow, onTooltipH
     "button",
     {
       ref:          btnRef,
+      id:           `sidebar-menu-${item.key}`,
       className:    [
         "nav-item",
         active      ? "nav-item--active"    : "",

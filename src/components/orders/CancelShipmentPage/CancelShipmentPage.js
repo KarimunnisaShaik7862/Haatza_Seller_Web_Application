@@ -38,6 +38,7 @@ export default function CancelShipmentPage() {
   const [cancelReason, setCancelReason] = useState("");
   const [cancelComments, setCancelComments] = useState("");
   const [showReasonDropdown, setShowReasonDropdown] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
   const dropdownRef = useRef(null);
@@ -115,33 +116,39 @@ export default function CancelShipmentPage() {
     navigate(`/dashboard/orders/details/${tableId}`, { state: { fromTab } });
   };
 
-  const handleCancelSubmit = async () => {
+  // "Cancel Shipment" button just opens the confirmation modal.
+  const handleCancelSubmit = () => {
     if (!cancelReason) return;
+    setShowConfirmModal(true);
+  };
+
+  // Called when the user taps "Yes" in the confirmation modal.
+  // Per requirement: no API calls here — just mark it cancelled locally
+  // and route straight into the Cancelled Orders view.
+  // Called when the user taps "Yes" in the confirmation modal.
+  // Only updates order status to "Order Cancelled" — cancelShipment API is NOT called.
+  const handleConfirmCancelYes = async () => {
+    setShowConfirmModal(false);
     setCancelling(true);
 
-    const waybillVal = (details?.trackingId || details?.waybill || details?.awb || "").trim();
-    console.log("[CancelShipmentPage] Submitting cancellation. Waybill:", waybillVal);
-
     try {
-      // Call cancelShipment API first
-      await cancelShipment(waybillVal || details?.orderId || "");
-
-      // Update order status in DB to "Order Cancelled"
       await updateOrdersstatus(details?.orderId, sellerId, "Order Cancelled");
+      showToastMsg("Order cancelled successfully", "success"); 
 
-      showToastMsg("Shipment cancelled successfully", "success");
-
-      // Redirect back to details page after a delay to show success state
       setTimeout(() => {
-        navigate(`/dashboard/orders/details/${tableId}`, { state: { fromTab } });
-      }, 1500);
+        navigate("/dashboard/orders", { state: { fromTab: "cancelled" } });
+      }, 800);
     } catch (err) {
-      console.error("[CancelShipmentPage] Error cancelling:", err);
+      console.error("[CancelShipmentPage] Failed to update order status:", err);
       const backendErrMsg = err?.response?.data?.message || err?.message || "";
-      showToastMsg(backendErrMsg || "Unable to cancel shipment. Please try again.", "error");
+      showToastMsg(backendErrMsg || "Unable to cancel order. Please try again.", "error");
     } finally {
       setCancelling(false);
     }
+  };
+
+  const handleConfirmCancelNo = () => {
+    setShowConfirmModal(false);
   };
 
   if (loading) {
@@ -255,6 +262,58 @@ export default function CancelShipmentPage() {
           </button>
         </div>
       </div>
+
+      {/* Cancel Confirmation Modal */}
+      {showConfirmModal && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            zIndex: 2000
+          }}
+          onClick={handleConfirmCancelNo}
+        >
+          <div
+            style={{
+              background: "#fff", width: "100%", maxWidth: "480px",
+              borderTopLeftRadius: "20px", borderTopRightRadius: "20px",
+              padding: "36px 24px 28px", textAlign: "center",
+              boxShadow: "0 -8px 30px rgba(0,0,0,0.15)"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{ margin: "0 0 8px", fontSize: "17px", color: "#1E293B" }}>
+              Are you sure want to cancel shipment.
+            </p>
+            <p style={{ margin: "0 0 28px", fontSize: "17px", color: "#1E293B" }}>
+              Reason: {cancelReason}
+            </p>
+
+            <div style={{ display: "flex", gap: "16px" }}>
+              <button
+                onClick={handleConfirmCancelYes}
+                style={{
+                  flex: 1, padding: "16px", borderRadius: "12px",
+                  border: "2px solid #2962FF", background: "#fff",
+                  color: "#2962FF", fontWeight: 600, fontSize: "16px", cursor: "pointer"
+                }}
+              >
+                Yes
+              </button>
+              <button
+                onClick={handleConfirmCancelNo}
+                style={{
+                  flex: 1, padding: "16px", borderRadius: "12px",
+                  border: "none", background: "#2962FF",
+                  color: "#fff", fontWeight: 600, fontSize: "16px", cursor: "pointer"
+                }}
+              >
+                No
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toast.show && (

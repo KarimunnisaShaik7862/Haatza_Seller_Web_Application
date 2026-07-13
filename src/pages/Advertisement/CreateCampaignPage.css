@@ -84,14 +84,26 @@
 
 .cc-grid-main {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: minmax(0, 1fr) 340px;
   gap: 24px;
   align-items: start;
+}
+
+.cc-product-selection-grid {
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+.cc-product-selection-grid .cc-fields-card {
+  padding-bottom: 116px;
 }
 
 @media (max-width: 992px) {
   .cc-grid-main {
     grid-template-columns: 1fr;
+  }
+
+  .visibility-card-overlay {
+    right: 52px;
   }
 }
 
@@ -102,6 +114,7 @@
   border-radius: 14px;
   padding: 24px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  min-width: 0;
 }
 
 .form-group-section {
@@ -739,6 +752,171 @@
 }
 
 /* Step 2 Choose Products selections */
+.product-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.product-search-wrapper .search-icon {
+  position: absolute;
+  left: 0;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.search-product-input {
+  width: 100%;
+  max-width: 360px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px 10px 24px;
+  font-size: 13.5px;
+  color: #0f172a;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.search-product-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(41, 98, 255, 0.08);
+}
+
+.table-wrapper-horizontal {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.products-selection-table {
+  width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13.5px;
+}
+
+.products-selection-table th,
+.products-selection-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.products-selection-table th {
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.products-selection-table th:nth-child(1),
+.products-selection-table td:nth-child(1) {
+  width: 40px;
+}
+
+.products-selection-table th:nth-child(2),
+.products-selection-table td:nth-child(2) {
+  width: 68px;
+}
+
+.products-selection-table th:nth-child(3),
+.products-selection-table td:nth-child(3) {
+  width: auto;
+}
+
+.products-selection-table th:nth-child(4),
+.products-selection-table td:nth-child(4) {
+  width: 90px;
+  white-space: nowrap;
+}
+
+.products-selection-table th:nth-child(5),
+.products-selection-table td:nth-child(5) {
+  width: 170px;
+}
+
+.product-img-holder {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.product-img-holder img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.img-placeholder {
+  color: var(--text-muted);
+}
+
+.campaign-name-bold {
+  color: #0f172a;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.campaign-budget-value {
+  color: #0f172a;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-capsule {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
+.status-capsule.active,
+.status-capsule.running {
+  background: #e6fcf5;
+  color: #0ca678;
+}
+
+.status-capsule.inactive {
+  background: #fff5f5;
+  color: #f03e3e;
+}
+
+.visibility-card-overlay {
+  position: fixed;
+  left: calc(var(--sidebar-width, 280px) + 52px);
+  right: calc(340px + 92px);
+  bottom: 0;
+  z-index: 900;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-sizing: border-box;
+}
+
+.app-container.sidebar-collapsed .visibility-card-overlay,
+.app-container.sidebar-open.sidebar-collapsed .visibility-card-overlay {
+  left: calc(var(--sidebar-width-mini, 76px) + 52px);
+}
+
 .products-selection-table tbody tr {
   transition: background-color 0.15s ease;
 }
@@ -966,5 +1144,21 @@
 
   .cc-page-root {
     padding-bottom: 120px;
+  }
+
+  .cc-product-selection-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .search-product-input {
+    max-width: 100%;
+  }
+
+  .visibility-card-overlay {
+    left: 16px;
+    right: 16px;
+    bottom: 0;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   }
 }

@@ -4,7 +4,8 @@ import { ChevronLeft, Bell, Plus, X, CheckCircle2 } from "lucide-react";
 import {
     resolveSellerId,
     walletService,
-    getUserProfile
+    getUserProfile,
+    resolveAuthenticatedUserId
 } from '../../services/sellerService';
 import "./WalletPage.css";
 
@@ -106,6 +107,29 @@ const formatDateToEnGB = (dateStr) => {
     return String(dateStr);
 };
 
+const formatTransactionType = (rawType) => {
+    if (!rawType) return "Transaction";
+    const type = String(rawType).trim();
+    if (/^WELCOME_REWARD/i.test(type)) {
+        return "New Seller Reward";
+    }
+    return type;
+};
+
+const isScratchCardTransaction = (tx) => {
+    return tx?.gstDeducted !== undefined && tx?.gstDeducted !== null;
+};
+
+const getTransactionBalance = (tx) => {
+    return Number(
+        tx?.remainingBalance ??
+        tx?.RemainingBalance ??
+        tx?.balance ??
+        tx?.walletBalance ??
+        tx?.currentBalance ??
+        0
+    );
+};
 const WalletPage = () => {
     const sellerId = resolveSellerId();
     console.log("[WalletPage] Resolved sellerId", sellerId);
@@ -122,6 +146,7 @@ const WalletPage = () => {
     const [loadingCampaignHistory, setLoadingCampaignHistory] = useState(false);
     const [addingFunds, setAddingFunds] = useState(false);
     const [razorpayLoading, setRazorpayLoading] = useState(false);
+    const [isTransactionProcessing, setIsTransactionProcessing] = useState(false);
     const [error, setError] = useState(null);
     const [successMessage, setSuccessMessage] = useState(null);
     const [amount, setAmount] = useState("");
@@ -134,6 +159,87 @@ const WalletPage = () => {
     const hasFetchedHistoryRef = useRef(false);
     const paymentInProgressRef = useRef(false);
     const processedPaymentRef = useRef(new Set());
+
+    const [displayBalance, setDisplayBalance] = useState(0);
+    const [wpParticles, setWpParticles] = useState([]);
+
+    useEffect(() => {
+        let start = displayBalance;
+        const end = balance;
+        if (start === end) return;
+        
+        const range = end - start;
+        const duration = 1500;
+        const startTime = performance.now();
+        
+        let active = true;
+        const tick = (now) => {
+            if (!active) return;
+            const elapsed = now - startTime;
+            const progress = Math.min(1, elapsed / duration);
+            const ease = progress * (2 - progress);
+            const current = start + range * ease;
+            setDisplayBalance(current);
+            
+            if (progress < 1) {
+                requestAnimationFrame(tick);
+            } else {
+                setDisplayBalance(end);
+            }
+        };
+        requestAnimationFrame(tick);
+        return () => { active = false; };
+    }, [balance]);
+
+    useEffect(() => {
+        const list = [];
+        
+        // 1. Falling coins
+        for (let i = 0; i < 15; i++) {
+            list.push({
+                id: `coin-${i}`,
+                className: "falling-coin-wp",
+                style: {
+                    left: `${Math.random() * 85}%`,
+                    top: `-10px`,
+                    animationDelay: `${Math.random() * 1.5}s`,
+                    transform: `scale(${Math.random() * 0.4 + 0.8})`
+                }
+            });
+        }
+        
+        // 2. Sparkles
+        for (let i = 0; i < 10; i++) {
+            list.push({
+                id: `sparkle-${i}`,
+                className: "wp-sparkle",
+                style: {
+                    left: `${Math.random() * 90}%`,
+                    top: `${Math.random() * 80}%`,
+                    "--mx": `${(Math.random() - 0.5) * 40}px`,
+                    "--my": `${(Math.random() - 0.5) * 40}px`,
+                    animationDelay: `${Math.random() * 2}s`
+                }
+            });
+        }
+        
+        // 3. Entering stars
+        for (let i = 0; i < 8; i++) {
+            list.push({
+                id: `star-${i}`,
+                className: "wp-entering-star",
+                style: {
+                    left: `${Math.random() * 80}%`,
+                    "--sx": `${(Math.random() - 0.5) * 20}px`,
+                    "--tx": `${(Math.random() - 0.5) * 60}px`,
+                    "--ty": `${Math.random() * 50 + 60}px`,
+                    animationDelay: `${Math.random() * 0.8}s`
+                }
+            });
+        }
+        
+        setWpParticles(list);
+    }, []);
 
     useEffect(() => {
         const fetchProfile = async () => {
@@ -212,8 +318,16 @@ const WalletPage = () => {
                 transactionsRes?.data ||
                 [];
 
+            const currentUid = resolveAuthenticatedUserId();
             const walletTransactions = rawTx
                 .filter(shouldShowInTransactionHistory)
+                .filter((tx) => {
+                    const txOwner = tx._owner || tx.userId || tx.user_id || tx.memberId;
+                    if (txOwner && currentUid && txOwner !== currentUid) {
+                        return false;
+                    }
+                    return true;
+                })
                 .map((tx) => {
                     const type = String(tx.type || "").toLowerCase();
                     const isCredit =
@@ -226,15 +340,24 @@ const WalletPage = () => {
                     return {
                         id: tx._id || tx.id || `${dateVal}-${tx.type}-${getTransactionTotal(tx)}`,
                         date: formatDateToEnGB(dateVal),
-                        type: tx.type || "Transaction",
+                        type: formatTransactionType(tx.type),
                         amount: getTransactionTotal(tx),
                         isCredit,
-                        status: tx.status || "Completed"
+                        status: tx.status || "Completed",
+                        isScratchCard: isScratchCardTransaction(tx),
+                        balance: getTransactionBalance(tx)
                     };
                 });
 
             const campaignSpendTransactions = rawTx
                 .filter(shouldShowInCampaignSpends)
+                .filter((tx) => {
+                    const txOwner = tx._owner || tx.userId || tx.user_id || tx.memberId;
+                    if (txOwner && currentUid && txOwner !== currentUid) {
+                        return false;
+                    }
+                    return true;
+                })
                 .map((tx) => {
                     const dateVal = tx.createdDate || tx.date || tx.createdAt;
 
@@ -247,6 +370,7 @@ const WalletPage = () => {
                         status: tx.status || "Completed"
                     };
                 });
+                
 
             setTransactions(walletTransactions);
             setCampaignHistory(campaignSpendTransactions);
@@ -322,6 +446,8 @@ const WalletPage = () => {
     }, [loadWalletBalance, loadTransactionHistory]);
 
     const handleTabChange = (tab) => {
+        if (isTransactionProcessing) return;
+
         setActiveTab(tab);
 
         if (tab === "history") {
@@ -334,6 +460,8 @@ const WalletPage = () => {
     };
 
     const openModal = () => {
+        if (isTransactionProcessing || paymentInProgressRef.current) return;
+
         setAmount("");
         setSuccessMessage(null);
         setError(null);
@@ -373,7 +501,7 @@ const WalletPage = () => {
     const handleProceedPayment = async (e) => {
         e.preventDefault();
 
-        if (paymentInProgressRef.current) return;
+        if (paymentInProgressRef.current || isTransactionProcessing) return;
 
         const amountVal = Number(amount);
 
@@ -391,6 +519,8 @@ const WalletPage = () => {
         }
 
         paymentInProgressRef.current = true;
+        let checkoutOpened = false;
+        setIsTransactionProcessing(true);
         setRazorpayLoading(true);
         setError(null);
 
@@ -627,7 +757,6 @@ const WalletPage = () => {
                         window.dispatchEvent(new CustomEvent("walletUpdate"));
 
                         setSuccessMessage(`₹${Number(amountVal).toFixed(2)} credited to your wallet.`);
-                        setAddingFunds(false);
 
                         setTimeout(() => {
                             setIsModalOpen(false);
@@ -640,8 +769,10 @@ const WalletPage = () => {
                             handlerErr.message ||
                             "Failed to complete payment. Please contact support."
                         );
-                        setAddingFunds(false);
                     } finally {
+                        setAddingFunds(false);
+                        setRazorpayLoading(false);
+                        setIsTransactionProcessing(false);
                         paymentInProgressRef.current = false;
                     }
                 },
@@ -649,6 +780,7 @@ const WalletPage = () => {
                     ondismiss: () => {
                         setAddingFunds(false);
                         setRazorpayLoading(false);
+                        setIsTransactionProcessing(false);
                         paymentInProgressRef.current = false;
                         setError("Payment cancelled. Your wallet has not been charged.");
                     }
@@ -661,6 +793,7 @@ const WalletPage = () => {
                 devError("[WalletPage] Razorpay payment.failed:", resp?.error);
                 setAddingFunds(false);
                 setRazorpayLoading(false);
+                setIsTransactionProcessing(false);
                 paymentInProgressRef.current = false;
 
                 const reason =
@@ -672,25 +805,31 @@ const WalletPage = () => {
             });
 
             rzp.open();
+            checkoutOpened = true;
         } catch (err) {
             devError("[WalletPage] Add funds failed:", err);
             setError(err.message || "Could not complete add funds flow.");
             setRazorpayLoading(false);
             setAddingFunds(false);
             paymentInProgressRef.current = false;
+        } finally {
+            if (!checkoutOpened) {
+                setIsTransactionProcessing(false);
+            }
         }
     };
 
     const isInitialLoading = loadingBalance && balance === 0 && !error;
+    const walletActionsDisabled = isTransactionProcessing || razorpayLoading || addingFunds;
 
     return (
         <div className="transaction-page-root">
             <div className="transaction-header-bar">
-                <button className="header-icon-btn back-btn" onClick={() => navigate(-1)} aria-label="Go Back">
+                <button className="header-icon-btn back-btn" onClick={() => navigate(-1)} aria-label="Go Back" disabled={walletActionsDisabled}>
                     <ChevronLeft size={24} />
                 </button>
                 <h1 className="transaction-title">Transaction</h1>
-                <button className="header-icon-btn bell-btn" onClick={() => navigate("/notifications")} aria-label="Notifications">
+                <button className="header-icon-btn bell-btn" onClick={() => navigate("/notifications")} aria-label="Notifications" disabled={walletActionsDisabled}>
                     <Bell size={24} />
                 </button>
             </div>
@@ -706,7 +845,7 @@ const WalletPage = () => {
                 {error && (
                     <div className="wallet-error-banner">
                         <span>{error}</span>
-                        <button type="button" className="error-close" onClick={() => setError(null)}>&times;</button>
+                        <button type="button" className="error-close" onClick={() => setError(null)} disabled={walletActionsDisabled}>&times;</button>
                     </div>
                 )}
 
@@ -717,12 +856,22 @@ const WalletPage = () => {
                     </div>
                 ) : (
                     <>
-                        <div className="wallet-balance-card-v2">
-                            <div className="balance-info-left">
+                        <div className="wallet-balance-card-v2 wallet-card-opening">
+                            {/* Mount particle animations */}
+                            {wpParticles.map(p => (
+                                <div 
+                                    key={p.id} 
+                                    className={p.className} 
+                                    style={p.style}
+                                >
+                                    {p.className.includes("star") ? "★" : p.className.includes("coin") ? "₹" : ""}
+                                </div>
+                            ))}
+                            <div className="balance-info-left" style={{ zIndex: 3 }}>
                                 <span className="balance-label">Wallet Balance</span>
-                                <h2 className="balance-value">₹{balance.toFixed(2)}</h2>
+                                <h2 className="balance-value">₹{displayBalance.toFixed(2)}</h2>
                             </div>
-                            <button className="btn-add-funds-v2" onClick={openModal}>
+                            <button className="btn-add-funds-v2" onClick={openModal} disabled={walletActionsDisabled}>
                                 <Plus size={16} />
                                 <span>Add Funds</span>
                             </button>
@@ -733,6 +882,7 @@ const WalletPage = () => {
                                 type="button"
                                 className={`tab-btn-v2 ${activeTab === "history" ? "active" : ""}`}
                                 onClick={() => handleTabChange("history")}
+                                disabled={walletActionsDisabled}
                             >
                                 Transaction History
                             </button>
@@ -740,6 +890,7 @@ const WalletPage = () => {
                                 type="button"
                                 className={`tab-btn-v2 ${activeTab === "campaign" ? "active" : ""}`}
                                 onClick={() => handleTabChange("campaign")}
+                                disabled={walletActionsDisabled}
                             >
                                 Campaign Spends
                             </button>
@@ -767,6 +918,11 @@ const WalletPage = () => {
                                                 <span className={`tx-amount-text ${t.isCredit ? "credit" : "spend"}`}>
                                                     ₹{t.amount.toFixed(2)}
                                                 </span>
+                                                {t.isScratchCard && (
+                                                    <span className="tx-balance-text">
+                                                        ₹{t.balance.toFixed(2)}
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                     ))
@@ -822,15 +978,15 @@ const WalletPage = () => {
             </div>
 
             {isModalOpen && (
-                <div className="wallet-modal-overlay" onClick={() => !(razorpayLoading || addingFunds) && setIsModalOpen(false)}>
+                <div className="wallet-modal-overlay" onClick={() => !walletActionsDisabled && setIsModalOpen(false)}>
                     <div className="wallet-bottom-sheet" onClick={(e) => e.stopPropagation()}>
                         <div className="bottom-sheet-handle" />
 
                         <button
                             type="button"
                             className="bottom-sheet-close"
-                            onClick={() => !(razorpayLoading || addingFunds) && setIsModalOpen(false)}
-                            disabled={razorpayLoading || addingFunds}
+                            onClick={() => !walletActionsDisabled && setIsModalOpen(false)}
+                            disabled={walletActionsDisabled}
                         >
                             <X size={20} />
                         </button>
@@ -859,7 +1015,7 @@ const WalletPage = () => {
                                             min="1"
                                             required
                                             autoFocus
-                                            disabled={razorpayLoading || addingFunds}
+                                            disabled={walletActionsDisabled}
                                         />
                                     </div>
                                 </div>
@@ -870,8 +1026,8 @@ const WalletPage = () => {
                                             key={amt}
                                             type="button"
                                             className="quick-amt-button"
-                                            onClick={() => setAmount(String(amt))}
-                                            disabled={razorpayLoading || addingFunds}
+                                            onClick={() => !walletActionsDisabled && setAmount(String(amt))}
+                                            disabled={walletActionsDisabled}
                                         >
                                             +₹{amt}
                                         </button>
@@ -881,7 +1037,7 @@ const WalletPage = () => {
                                 <button
                                     type="submit"
                                     className="btn-bottom-sheet-add"
-                                    disabled={razorpayLoading || addingFunds}
+                                    disabled={walletActionsDisabled}
                                 >
                                     {razorpayLoading
                                         ? "Opening Razorpay..."
@@ -891,6 +1047,16 @@ const WalletPage = () => {
                                 </button>
                             </form>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {isTransactionProcessing && (
+                <div className="wallet-transaction-overlay" role="alert" aria-live="assertive" aria-busy="true">
+                    <div className="wallet-transaction-loader-card">
+                        <div className="wallet-transaction-spinner" />
+                        <p className="wallet-transaction-title">Processing your transaction...</p>
+                        <p className="wallet-transaction-subtitle">Please do not close or refresh this page.</p>
                     </div>
                 </div>
             )}

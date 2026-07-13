@@ -586,15 +586,21 @@ const InProgressListings = ({ embedded = false }) => {
 
   const [allProducts,   setAllProducts]   = useState([]);
   const [isFetchingAll, setIsFetchingAll] = useState(false);
+  const loadingRef = useRef(false);
 
   // ── fetch helpers ────────────────────────────────────────────────────────────
-  const loadListings = useCallback(async () => {
-    if (!sellerEmail) {
-      console.warn("[InProgressListings] loadListings skipped — no sellerEmail");
+  const loadListings = useCallback(async (isSilent = false) => {
+    if (!sellerEmail || loadingRef.current) {
+      if (!sellerEmail) {
+        console.warn("[InProgressListings] loadListings skipped — no sellerEmail");
+      }
       return;
     }
-    setLoading(true);
-    setError(null);
+    loadingRef.current = true;
+    if (!isSilent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const first = await fetchInProgressListings({ email: sellerEmail, page: 1, limit: 100 });
       let all = [...first.products];
@@ -609,9 +615,14 @@ const InProgressListings = ({ embedded = false }) => {
       setAllProducts(all);
     } catch (err) {
       console.error("[InProgressListings] loadListings error:", err);
-      setError(err.message || "Unable to load in-progress listings. Please try again.");
+      if (!isSilent) {
+        setError(err.message || "Unable to load in-progress listings. Please try again.");
+      }
     } finally {
-      setLoading(false);
+      loadingRef.current = false;
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, [sellerEmail]);
 
@@ -621,7 +632,7 @@ const InProgressListings = ({ embedded = false }) => {
       loadListings();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sellerEmail]);
+  }, [sellerEmail, loadListings]);
 
   // ── auto-refresh when navigated back from create/update flow ─────────────────
   useEffect(() => {
@@ -631,7 +642,15 @@ const InProgressListings = ({ embedded = false }) => {
       loadListings();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state?.timestamp, sellerEmail]);
+  }, [location.state?.timestamp, sellerEmail, loadListings]);
+
+  useEffect(() => {
+    if (!sellerEmail) return;
+    const interval = setInterval(() => {
+      loadListings(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [sellerEmail, loadListings]);
 
   // ── search debounce ──────────────────────────────────────────────────────────
   const debounceRef = useRef(null);
@@ -877,7 +896,7 @@ const InProgressListings = ({ embedded = false }) => {
             <option value="5000+">₹5000+</option>
           </select>
 
-          <button className="ip-btn-refresh" onClick={() => loadListings(page)} disabled={loading}>
+          <button className="ip-btn-refresh" onClick={() => loadListings(false)} disabled={loading}>
             <RefreshCw size={14} /> Refresh
           </button>
         </div>
@@ -890,9 +909,9 @@ const InProgressListings = ({ embedded = false }) => {
             <h3>Unable to load listings</h3>
             <p>{error}</p>
             <div className="ip-error-btns">
-              <button className="ip-btn-primary" onClick={() => loadListings(page)}>Retry</button>
+              <button className="ip-btn-primary" onClick={() => loadListings(false)}>Retry</button>
               <button className="ip-btn-outline"
-                onClick={() => { setPage(1); setTimeout(() => loadListings(1), 0); }}>
+                onClick={() => { setPage(1); setTimeout(() => loadListings(false), 0); }}>
                 <RefreshCw size={14} /> Refresh Listings
               </button>
             </div>
@@ -1113,7 +1132,7 @@ const InProgressListings = ({ embedded = false }) => {
               const promoPhotos = resolveImageList(d.promotionPhotos);
               const variantRows   = normaliseVariantRows(d.varientPrice).length > 0
                 ? normaliseVariantRows(d.varientPrice) : null;
-              const variantHeaders = variantRows ? Object.keys(variantRows[0] || {}) : [];
+              const variantHeaders = variantRows ? Object.keys(variantRows[0] || {}).filter(h => h !== "priceModified") : [];
 
               const productOptions = normaliseProductOptions(d.productOptions).length > 0
                 ? normaliseProductOptions(d.productOptions) : null;
@@ -1135,6 +1154,10 @@ const InProgressListings = ({ embedded = false }) => {
               optionNamesSet.add("color picker");
 
               const filteredAdditionalSections = additionalSections ? additionalSections.map(section => {
+                const titleLower = String(section.title || Object.keys(section)[0] || "").toLowerCase();
+                if (titleLower === "promotion photos" || titleLower === "promotionphotos" || titleLower === "keywords") {
+                  return null;
+                }
                 const skipKeys = new Set(["title", "description"]);
                 const otherEntries = Object.entries(section).filter(([key, val]) => {
                   const keyNorm = key.toLowerCase().replace(/_/g, " ").trim();
@@ -1142,7 +1165,7 @@ const InProgressListings = ({ embedded = false }) => {
                   return !skipKeys.has(key) && val != null && val !== "";
                 });
                 return { ...section, otherEntries };
-              }).filter(section => section.otherEntries.length > 0 || (section.description && section.description.trim() !== "")) : null;
+              }).filter(Boolean).filter(section => section.otherEntries.length > 0 || (section.description && section.description.trim() !== "")) : null;
 
               const keywords = resolveKeywords(d.search_keywords);
 
@@ -1207,6 +1230,12 @@ const InProgressListings = ({ embedded = false }) => {
                       <p className="ip-modal-brand" style={{ fontSize: "11px", color: "#64748b", marginTop: "2px", textTransform: "none" }}>
                         Product ID: {d.productId || "Pending Approval"}
                       </p>
+
+                      {d.description && (
+                        <CollapseSection title="Description" defaultOpen={true}>
+                          <p className="ip-modal-value" style={{ whiteSpace: "pre-line", wordBreak: "break-word" }}>{d.description}</p>
+                        </CollapseSection>
+                      )}
 
                       <CollapseSection title="Identification">
                         <div className="ip-modal-grid">

@@ -3,29 +3,25 @@ import { useLocation, useNavigate, Navigate } from "react-router-dom";
 import { ChevronLeft, CheckCircle2 } from "lucide-react";
 import { resolveSellerId, resolveSellerEmail, resolveSellerPhone } from "../../utils/sellerSession";
 import { sellerService } from "../../services/sellerService";
+import {
+  parseLocalDate,
+  getDurationMultiplier,
+  calculateInclusiveEndDate,
+  getInclusiveEffectiveEndDate,
+  getPlanRank,
+  daysBetween,
+  calculateExactMonths,
+  isWithinRenewalWindow,
+  calculatePlanPricing
+} from "../../utils/pricingUtils";
 import "./PlanReviewPage.css";
 
-// TEST MODE FOR QA: keep this true while testing all Grow Plan flows.
-// Razorpay will charge only ₹1, while the page still calculates the real
-// plan price, wallet adjustment, coupon discount, upgrade waive-off, and downgrade scheduling.
-// Set this to false before production release.
-const FORCE_GROW_PLAN_ONE_RUPEE_TEST = true;
-
-const IS_SUBSCRIPTION_TEST_PAYMENT =
-  FORCE_GROW_PLAN_ONE_RUPEE_TEST ||
-  process.env.REACT_APP_SUBSCRIPTION_TEST_PAYMENT === "true" ||
-  process.env.REACT_APP_GROW_PLAN_TEST_PAYMENT === "true";
-
-const isGrowPlanTestPayment = IS_SUBSCRIPTION_TEST_PAYMENT;
-
-const growPlanTestAmount = Number(
-  process.env.REACT_APP_GROW_PLAN_TEST_AMOUNT ||
-  1
-);
+// Test payment mode has been permanently disabled for production use.
+// Razorpay must always be charged the real calculated payable amount.
+const FORCE_GROW_PLAN_ONE_RUPEE_TEST = false;
 
 const getRazorpayAmount = (actualPayableAmount) => {
   const amount = Number(actualPayableAmount || 0);
-  if (isGrowPlanTestPayment) return growPlanTestAmount;
   return Math.round(amount);
 };
 
@@ -66,6 +62,20 @@ const loadRazorpayScript = () => {
 
 const normalize = (value) => String(value || "").trim().toLowerCase();
 
+const getSubscriptionPlanName = (subscription) =>
+  subscription?.planName || subscription?.plan || subscription?.subscriptionPlan || "";
+
+const getSubscriptionTableId = (subscription) =>
+  subscription?.TableID || subscription?.tableId || subscription?._id || "";
+
+const getSubscriptionStartYmd = (subscription) => {
+  const value = subscription?.startedDate || subscription?.startDate;
+  if (!value) return "";
+  if (typeof value === "string") return value.includes("T") ? value.split("T")[0] : value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : toLocalYmd(date);
+};
+
 const parseDateSafe = (dateVal) => {
   if (!dateVal) return null;
   if (dateVal instanceof Date) return dateVal;
@@ -89,62 +99,11 @@ const parseDateSafe = (dateVal) => {
   return null;
 };
 
-// ─── Plan hierarchy helpers ────────────────────────────────────────────────
-const PLAN_RANK = {
-  growth: 1,
-  pro: 2,
-  enterprise: 3
-};
-
-function getPlanRank(planName) {
-  const name = String(planName || "").trim().toLowerCase();
-  if (name.includes("enterprise")) return 3;
-  if (name.includes("pro")) return 2;
-  if (name.includes("growth")) return 1;
-  return 0;
-}
-
-const getDurationMultiplier = (duration) => {
-  if (duration === "12 Months") return 10;
-  if (duration === "6 Months") return 5;
-  if (duration === "3 Months") return 3;
-  return 1;
-};
-
-const calculateExactMonths = (start, end) => {
-  const diffTime = Math.abs(end - start);
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return Math.round(diffDays / 30);
-};
-
-const daysBetween = (date1, date2) => {
-  const d1 = new Date(date1.getFullYear(), date1.getMonth(), date1.getDate());
-  const d2 = new Date(date2.getFullYear(), date2.getMonth(), date2.getDate());
-  const diff = d2.getTime() - d1.getTime();
-  return Math.round(diff / (1000 * 60 * 60 * 24));
-};
-
-// Renewal window: 1/2 months = last 7 days, 3 months = last 14 days, 6/12 months = last 30 days
-const getRenewalWindowDays = (months) => {
-  if (months >= 6) return 30;
-  if (months >= 3) return 14;
-  return 7;
-};
-
-const isWithinRenewalWindow = (currentSubscription, oldExpiry) => {
-  if (!currentSubscription || !oldExpiry) return false;
-  const start = parseDateSafe(currentSubscription.startedDate || currentSubscription.startDate);
-  if (!start) return false;
-  const months = calculateExactMonths(start, oldExpiry);
-  const windowDays = getRenewalWindowDays(months);
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const expiry = new Date(oldExpiry);
-  expiry.setHours(0, 0, 0, 0);
-
-  const daysUntilExpiry = Math.round((expiry - today) / (1000 * 60 * 60 * 24));
-  return daysUntilExpiry <= windowDays;
+const toApiDateOnlyIso = (date) => {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T00:00:00.000Z`;
 };
 
 const toLocalYmd = (d) => {
@@ -161,65 +120,81 @@ const startOfDay = (value) => {
   return copy;
 };
 
-const calculateOngoingPlanAdjustment = (currentSubscription, oldPlan, selectedStartDate) => {
-  if (!currentSubscription || !oldPlan) return {
-    oldEffectiveAmount: 0,
-    usedAmount: 0,
-    remainingAmount: 0
-  };
+// Mobile-app-style short date format, e.g. "04 Jul 26"
+const formatDisplayDate = (dateVal) => {
+  if (!dateVal) return "-";
+  const d = dateVal instanceof Date ? dateVal : parseDateSafe(dateVal);
+  if (!d || isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+  });
+};
 
-  const start = new Date(currentSubscription.startedDate || currentSubscription.startDate);
-  const end = new Date(currentSubscription.endedDate || currentSubscription.endDate);
-  const selectedStart = new Date(selectedStartDate);
+// Current Plan card End Date display — always shows the corrected inclusive
+// end date, regardless of whether the backend record was saved exclusively
+// (legacy) or inclusively (correct). Never subtracts twice.
+const formatCurrentPlanEndDate = (subscription) => {
+  const effectiveEnd = getInclusiveEffectiveEndDate(subscription);
+  return effectiveEnd ? formatDisplayDate(effectiveEnd) : "-";
+};
 
-  start.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-  selectedStart.setHours(0, 0, 0, 0);
-
-  if (selectedStart > end) {
-    return {
-      oldEffectiveAmount: 0,
-      usedAmount: 0,
-      remainingAmount: 0
-    };
+const getScheduledPlanPrice = (sub, plans) => {
+  if (!sub) return 0;
+  const planName = getSubscriptionPlanName(sub);
+  const planObj = plans?.find(p => normalize(p.name || p.planName) === normalize(planName));
+  if (planObj) {
+    const multiplier = getDurationMultiplier(sub.duration || sub.planDuration || sub.billingCycle || "1 Month");
+    return Number(planObj.price || planObj.amount || 0) * multiplier;
   }
-
-  const totalMonths = calculateExactMonths(start, end);
-  const oldDuration =
-    totalMonths >= 12 ? "12 Months" :
-      totalMonths >= 6 ? "6 Months" :
-        totalMonths >= 3 ? "3 Months" :
-          "1 Month";
-
-  const oldEffectiveAmount =
-    Number(oldPlan.price || oldPlan.amount || 0) * getDurationMultiplier(oldDuration);
-
-  const totalDays = daysBetween(start, end) + 1;
-  const usedDays = Math.max(0, daysBetween(start, selectedStart));
-  const dailyRate = oldEffectiveAmount / totalDays;
-
-  const usedAmount = Math.min(oldEffectiveAmount, Math.round(dailyRate * usedDays));
-  const remainingAmount = Math.max(0, oldEffectiveAmount - usedAmount);
-
-  return {
-    oldEffectiveAmount,
-    usedAmount,
-    remainingAmount
-  };
+  // Static fallback
+  const name = String(planName || "").toLowerCase();
+  let price = 999;
+  if (name.includes("enterprise")) price = 2499;
+  else if (name.includes("pro")) price = 1999;
+  else if (name.includes("growth")) price = 999;
+  const multiplier = getDurationMultiplier(sub.duration || sub.planDuration || sub.billingCycle || "1 Month");
+  return price * multiplier;
 };
 
-const calculateEndDate = (startDateVal, duration) => {
-  const months =
-    duration === "12 Months" ? 12 :
-      duration === "6 Months" ? 6 :
-        duration === "3 Months" ? 3 : 1;
-
-  const start = new Date(startDateVal);
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + months);
-  end.setDate(end.getDate() - 1);
-  return end;
+const safeNum = (val) => {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : 0;
 };
+
+const getSubscriptionPaidAmount = (sub, plans) => {
+  if (!sub) return 0;
+  const fields = [
+    sub.amountPaid,
+    sub.transactionAmount,
+    sub.paidAmount,
+    sub.amount,
+    sub.originalPlanAmount,
+    sub.payableAmount,
+    sub.totalPayable,
+    sub.subtotal,
+    sub.price,
+    sub.PaidAmount,
+    sub.Amount,
+    sub.PayableAmount,
+    sub.TotalPayable,
+    sub.Price,
+    sub.paidamount,
+    sub.payableamount,
+    sub.totalpayable
+  ];
+  for (const val of fields) {
+    const num = Number(val);
+    if (!isNaN(num) && num > 0) {
+      return num;
+    }
+  }
+  return getScheduledPlanPrice(sub, plans) || 0;
+};
+
+
+
 
 const PlanReviewPage = () => {
   const location = useLocation();
@@ -228,7 +203,7 @@ const PlanReviewPage = () => {
   const sellerEmail = resolveSellerEmail();
 
   // Retrieve state passed from React Router Link/navigate
-  const { selectedPlan, currentSubscription, walletBalance: initialWallet, plans } = location.state || {};
+  const { selectedPlan, currentSubscription, walletBalance: initialWallet, plans, subscriptionList } = location.state || {};
 
   // Setup component states
   const [startDate, setStartDate] = useState(() => {
@@ -253,7 +228,6 @@ const PlanReviewPage = () => {
   const [toastMessage, setToastMessage] = useState(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [sellerProfile, setSellerProfile] = useState(null);
-  const [isFeaturesExpanded, setIsFeaturesExpanded] = useState(false);
 
   console.log("[PlanReview] paymentStatus:", paymentStatus);
 
@@ -279,6 +253,14 @@ const PlanReviewPage = () => {
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
+  // If wallet balance is unavailable, make sure the "use wallet" toggle can't stay on.
+  useEffect(() => {
+    if (walletBalance <= 0 && useWallet) {
+      setUseWallet(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walletBalance]);
+
   // Expiry date parse. Mobile app treats the plan end date as inclusive.
   const currentPlanName = currentSubscription?.planName || currentSubscription?.plan;
   const oldStart = currentSubscription ? parseDateSafe(currentSubscription.startedDate || currentSubscription.startDate) : null;
@@ -289,17 +271,15 @@ const PlanReviewPage = () => {
     currentSubscription.expiredOn ||
     currentSubscription.validTill
   ) : null;
+  // Effective (corrected-for-inclusivity) expiry — used whenever we need to
+  // derive a "next start date" from the current plan's true end date.
+  const effectiveOldExpiry = currentSubscription ? getInclusiveEffectiveEndDate(currentSubscription) : null;
   const todayOnly = startOfDay(new Date());
   const oldStartOnly = oldStart ? startOfDay(oldStart) : null;
   const oldExpiryOnly = oldExpiry ? startOfDay(oldExpiry) : null;
   const isOldActive = Boolean(
     currentSubscription &&
-    oldStartOnly &&
-    oldExpiryOnly &&
-    todayOnly &&
-    normalize(currentSubscription.status) === "active" &&
-    todayOnly >= oldStartOnly &&
-    todayOnly <= oldExpiryOnly
+    normalize(currentSubscription.status) === "active"
   );
 
   // Resolve old plan info
@@ -309,9 +289,20 @@ const PlanReviewPage = () => {
     normalize(p.name) === normalize(currentSubscription?.planName || currentSubscription?.plan)
   );
 
+  // Upcoming/scheduled plan (if any) for display on this page, from subscriptionList
+  // passed via navigate state from GrowPlanPage.
+  const scheduledSubscription = Array.isArray(subscriptionList)
+    ? subscriptionList.find((s) => normalize(s?.status) === "scheduled")
+    : null;
+
   // ─── Plan rank / upgrade / downgrade / renewal classification ───────────
   const currentRank = getPlanRank(currentSubscription?.planName || currentSubscription?.plan);
   const selectedRank = selectedPlan ? getPlanRank(selectedPlan.name || selectedPlan.planName) : 0;
+  const scheduledPlanRank = getPlanRank(getSubscriptionPlanName(scheduledSubscription));
+  const isScheduledReplacement = Boolean(
+    scheduledSubscription &&
+    selectedRank > scheduledPlanRank
+  );
 
   const isSamePlan = Boolean(currentSubscription && selectedRank === currentRank);
   const isUpgrade = Boolean(currentSubscription && isOldActive && selectedRank > currentRank);
@@ -329,17 +320,31 @@ const PlanReviewPage = () => {
 
   const renewalAllowed = isActiveRenewal ? isWithinRenewalWindow(currentSubscription, oldExpiry) : true;
 
-  // Force start date for downgrade / renewal: current plan expiry + 1 day.
-  // Manual date selection is disabled for these cases (datepicker click is a no-op).
+  // Default start date for downgrade / renewal / scheduled replacement:
+  // For downgrade / renewal, starts 1 day after current plan expires.
+  // For scheduled replacements, defaults to the existing scheduled plan's start date.
   useEffect(() => {
     if (!selectedPlan) return;
-    if ((isDowngrade || isRenewal) && oldExpiry) {
-      const forcedStart = new Date(oldExpiry.getTime());
-      forcedStart.setDate(forcedStart.getDate() + 1);
+    if (isScheduledReplacement) {
+      const scheduledStart = parseLocalDate(scheduledSubscription.startedDate || scheduledSubscription.startDate);
+      if (scheduledStart) {
+        setStartDate(toLocalYmd(scheduledStart));
+        return;
+      }
+    }
+    if ((isDowngrade || isRenewal) && effectiveOldExpiry) {
+      const isExistingScheduledPlan = scheduledSubscription &&
+        normalize(getSubscriptionPlanName(scheduledSubscription)) === normalize(selectedPlan?.name);
+      const existingScheduledStart = isExistingScheduledPlan
+        ? parseLocalDate(scheduledSubscription.startedDate || scheduledSubscription.startDate)
+        : null;
+      const forcedStart = existingScheduledStart || new Date(effectiveOldExpiry.getTime());
+      if (!existingScheduledStart) forcedStart.setDate(forcedStart.getDate() + 1);
+      const calculatedEndDate = calculateInclusiveEndDate(forcedStart, planDuration);
       setStartDate(toLocalYmd(forcedStart));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDowngrade, isRenewal, oldExpiry ? oldExpiry.getTime() : null, selectedPlan]);
+  }, [isDowngrade, isRenewal, isScheduledReplacement, effectiveOldExpiry ? effectiveOldExpiry.getTime() : null, selectedPlan, scheduledSubscription]);
 
   // Start/End date constraints
   const getTodayYmd = () => {
@@ -396,6 +401,10 @@ const PlanReviewPage = () => {
     return days;
   };
 
+  const earliestDowngradeStart = effectiveOldExpiry
+    ? new Date(effectiveOldExpiry.getFullYear(), effectiveOldExpiry.getMonth(), effectiveOldExpiry.getDate() + 1)
+    : null;
+
   const isDateDisabled = (dayObj) => {
     const date = new Date(dayObj.year, dayObj.month, dayObj.day);
     date.setHours(0, 0, 0, 0);
@@ -403,15 +412,17 @@ const PlanReviewPage = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const maxDate = new Date();
-    maxDate.setMonth(maxDate.getMonth() + 3);
+    const maxDate = new Date(earliestDowngradeStart || today);
+    maxDate.setMonth(maxDate.getMonth() + 12);
     maxDate.setHours(0, 0, 0, 0);
 
-    return date < today || date > maxDate;
+    const isDowngradeOrSame = isDowngrade || isRenewal || isSamePlan;
+    const minimumDate = isDowngradeOrSame && earliestDowngradeStart ? earliestDowngradeStart : today;
+    return date < minimumDate || date > maxDate;
   };
 
-  // Manual date selection is only allowed for upgrade / new subscription flows.
-  const isDatePickerLocked = isDowngrade || isRenewal;
+  // Renewals remain fixed; downgrades can be moved but never before active + 1 day.
+  const isDatePickerLocked = isRenewal;
 
   const handleSelectDate = (dayObj) => {
     if (isDatePickerLocked) return;
@@ -447,28 +458,139 @@ const PlanReviewPage = () => {
     }
   };
 
-  // Calculations
-  const basePrice = selectedPlan ? Number(selectedPlan.price || 0) : 0;
-  const newMultiplier = getDurationMultiplier(planDuration);
-  const totalPrice = basePrice * newMultiplier;
+  // Centralized calculations
+  const DURATION_ORDER = ["1 Month", "3 Months", "6 Months", "12 Months"];
 
-  // Ongoing plan waive-off only applies to true upgrades.
-  const { oldEffectiveAmount, usedAmount, remainingAmount } = (isUpgrade && oldPlan)
-    ? calculateOngoingPlanAdjustment(currentSubscription, oldPlan, startDate)
-    : { oldEffectiveAmount: 0, usedAmount: 0, remainingAmount: 0 };
+  const activeEndObj = effectiveOldExpiry ? startOfDay(effectiveOldExpiry) : null;
+  const startDayObj = startDate ? startOfDay(parseLocalDate(startDate)) : null;
 
-  const payableBeforeWallet = Math.max(totalPrice - remainingAmount - discountAmount, 0);
-  const walletUsedAmount = useWallet ? Math.min(walletBalance, payableBeforeWallet) : 0;
-  const payableAmount = Math.max(payableBeforeWallet - walletUsedAmount, 0);
+  const shouldBypassActiveWaiveOff = Boolean(
+    isScheduledReplacement &&
+    activeEndObj &&
+    startDayObj &&
+    startDayObj > activeEndObj
+  );
 
-  const endDateObj = calculateEndDate(startDate, planDuration);
+  const pricing = calculatePlanPricing({
+    selectedPlan,
+    planDuration,
+    currentSubscription: shouldBypassActiveWaiveOff ? null : currentSubscription,
+    oldPlan: shouldBypassActiveWaiveOff ? null : oldPlan,
+    selectedStartDate: startDate,
+    discountAmount,
+    useWallet,
+    walletBalance,
+    plans
+  });
+
+  const basePrice = safeNum(pricing.basePrice);
+  const totalPrice = safeNum(pricing.totalPrice);
+  const remainingAmount = safeNum(pricing.remainingAmount);
+
+  const scheduledPaidAmount = isScheduledReplacement
+    ? getSubscriptionPaidAmount(scheduledSubscription, plans)
+    : 0;
+
+
+  const payableBeforeWallet = isScheduledReplacement
+    ? safeNum(Math.max(totalPrice - remainingAmount - scheduledPaidAmount - discountAmount, 0))
+    : safeNum(pricing.payableBeforeWallet);
+
+  const walletUsedAmount = isScheduledReplacement
+    ? safeNum(useWallet ? Math.min(walletBalance, payableBeforeWallet) : 0)
+    : safeNum(pricing.walletUsedAmount);
+
+  const payableAmount = isScheduledReplacement
+    ? safeNum(Math.max(payableBeforeWallet - walletUsedAmount, 0))
+    : safeNum(pricing.payableAmount);
+
+  const { oldEffectiveAmount, remainingDays, totalDays, dailyRate } = pricing.waiveOffDetails;
+  const usedAmount = Math.max(0, oldEffectiveAmount - remainingAmount);
+  const availableWalletBalance = Number(walletBalance || 0);
+  const remainingWalletBalance = Math.max(
+    0,
+    availableWalletBalance - Number(walletUsedAmount || 0)
+  );
+  const formatWalletCurrency = (value) =>
+    Number(value || 0).toLocaleString("en-IN", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    });
+
+  const getDurationTotalPrice = (duration) => basePrice * getDurationMultiplier(duration);
+
+  const isDurationAllowedForUpgrade = (duration) => {
+    if (!isUpgrade) return true;
+    return getDurationTotalPrice(duration) >= remainingAmount;
+  };
+
+  // If the currently selected duration becomes invalid for an upgrade
+  // (e.g. after remainingAmount recalculates), auto-switch to the first
+  // allowed duration in priority order.
+  useEffect(() => {
+    if (!isUpgrade) return;
+    if (isDurationAllowedForUpgrade(planDuration)) return;
+    const nextAllowed = DURATION_ORDER.find((d) => isDurationAllowedForUpgrade(d));
+    if (nextAllowed && nextAllowed !== planDuration) {
+      setPlanDuration(nextAllowed);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUpgrade, remainingAmount, basePrice, planDuration]);
+
+  const endDateObj = calculateInclusiveEndDate(startDate, planDuration);
 
   // Detect future start date (Scheduled Plan)
   const todayStr = getTodayYmd();
   const isScheduled = startDate > todayStr;
 
+  const isSameScheduledPlan = Boolean(
+    scheduledSubscription && normalize(getSubscriptionPlanName(scheduledSubscription)) === normalize(selectedPlan?.name)
+  );
+  const isSameScheduledDate = isSameScheduledPlan && getSubscriptionStartYmd(scheduledSubscription) === startDate;
+  const isReschedule = isSameScheduledPlan && !isSameScheduledDate;
+  const displayedPlanDuration = isSameScheduledPlan
+    ? (scheduledSubscription?.duration || scheduledSubscription?.planDuration || scheduledSubscription?.billingCycle || planDuration)
+    : planDuration;
+  const isFutureUpgrade = isUpgrade && isScheduled;
+  const isImmediateUpgrade = isUpgrade && !isScheduled;
+
+  const getSchedulingValidationMessage = () => {
+    if (!scheduledSubscription) return "";
+
+    // Rule 1 / Rule 4: Selected plan is LOWER than the scheduled plan.
+    // This must be rejected unconditionally — even for immediate upgrades —
+    // because the active plan would end AFTER the scheduled plan starts,
+    // creating an overlapping, invalid subscription timeline.
+    if (selectedRank < scheduledPlanRank) {
+      const scheduledPlanName = getSubscriptionPlanName(scheduledSubscription);
+      return `You already have a scheduled ${scheduledPlanName} plan. A lower plan cannot be purchased because it would create an invalid subscription timeline. Please cancel your scheduled ${scheduledPlanName} plan before purchasing a lower plan.`;
+    }
+
+    // For immediate upgrades where the selected rank is >= scheduled rank:
+    // Rule 3 applies — the higher selected plan will replace the lower
+    // scheduled plan. This is handled by schedulingAction: "replace" in
+    // completeSubscriptionActivation, so no further check is needed here.
+    if (isImmediateUpgrade) return "";
+
+    if (isSameScheduledPlan) {
+      return isSameScheduledDate ? "This plan is already scheduled for the selected date." : "";
+    }
+
+    if (selectedRank < currentRank) {
+      return "You already have a scheduled downgrade. You can reschedule the same plan or cancel it before selecting another downgrade plan.";
+    }
+
+    return "";
+  };
+
   // Adaptive CTA Button Text
   const getCtaButtonText = () => {
+    if (isSameScheduledPlan) {
+      return "Reschedule Plan";
+    }
+    if (isScheduledReplacement) {
+      return "Replace Scheduled Plan";
+    }
     if (isRenewal) {
       return renewalAllowed ? "Renew Now" : "Current Plan";
     }
@@ -482,13 +604,16 @@ const PlanReviewPage = () => {
   };
 
   const getConfirmModalTitle = () => {
+    if (isSameScheduledPlan) return "Ready to reschedule?";
+    if (isScheduledReplacement) return "Ready to replace scheduled plan?";
     if (isRenewal) return "Ready to renew?";
     if (isDowngrade) return "Ready to schedule downgrade?";
     if (isUpgrade) return "Ready to upgrade?";
     return "Ready to subscribe?";
   };
 
-  const isCtaDisabled = isRenewal && !renewalAllowed;
+  const hasScheduledConflict = Boolean(scheduledSubscription && selectedRank < scheduledPlanRank);
+  const isCtaDisabled = hasScheduledConflict || (isRenewal && !renewalAllowed) || (isUpgrade && !isDurationAllowedForUpgrade(planDuration));
 
   // Toast helper
   const showToast = (msg) => {
@@ -612,13 +737,16 @@ const PlanReviewPage = () => {
 
       const toApiEndOfDayIso = (value) => {
         const startIso = toApiMidnightIso(value);
-        return `${startIso.split("T")[0]}T23:59:59.999Z`;
+        // Keep subscription end dates as date-only midnight UTC.
+        // Example: 04 Jul 26 + 1 Month => 03 Aug 26, not 04 Aug 26 in IST.
+        return `${startIso.split("T")[0]}T00:00:00.000Z`;
       };
 
       const addDaysToApiIso = (value, days) => {
         const parsed = parseDateSafe(value) || new Date(value);
-        parsed.setDate(parsed.getDate() + days);
-        return toApiMidnightIso(parsed);
+        const copy = new Date(parsed.getTime());
+        copy.setDate(copy.getDate() + days);
+        return toApiMidnightIso(copy);
       };
 
       const calculateEndApiIso = (startIso, duration) => {
@@ -632,19 +760,6 @@ const PlanReviewPage = () => {
         end.setMonth(end.getMonth() + months);
         end.setDate(end.getDate() - 1);
         return toApiEndOfDayIso(end);
-      };
-
-      const getGstInclusiveBreakup = (total) => {
-        const totalValue = Number(total || 0);
-        const taxableAmount = Math.round(totalValue / 1.10);
-        const taxAmount = Math.round(((totalValue - taxableAmount) / 2) * 100) / 100;
-        return {
-          rate: taxableAmount,
-          amount: taxableAmount,
-          subtotal: taxableAmount,
-          cgst: taxAmount,
-          sgst: taxAmount
-        };
       };
 
       const sName = safeValue(
@@ -693,19 +808,124 @@ const PlanReviewPage = () => {
       let finalStartedDate = toApiMidnightIso(startDate);
       let finalEndedDate = calculateEndApiIso(finalStartedDate, planDuration);
 
-      if ((isDowngrade || isRenewal) && oldExpiry) {
-        finalStartedDate = addDaysToApiIso(oldExpiry, 1);
+      if (isRenewal && effectiveOldExpiry) {
+        finalStartedDate = addDaysToApiIso(effectiveOldExpiry, 1);
         finalEndedDate = calculateEndApiIso(finalStartedDate, planDuration);
       }
 
-      const statusStr = isDowngrade ? "Scheduled" : "Active";
+      if (isDowngrade && earliestDowngradeStart && startOfDay(finalStartedDate) < earliestDowngradeStart) {
+        throw new Error("A downgrade plan can only start after your current subscription ends. Please select a date after your current plan expiry.");
+      }
 
-      const tableIdToUse = (isUpgrade || isRenewal) ? currentTableId : "";
+      console.log("[GrowPlan Date Debug]", {
+        startDate: finalStartedDate,
+        planDuration,
+        calculatedEndDate: finalEndedDate,
+        apiStartedDate: finalStartedDate,
+        apiEndedDate: finalEndedDate
+      });
 
-      const invoicePayableAmount = payableAmount;
-      const walletPaymentAmount = Number(walletUsedAmount || 0);
-      const upiPaymentAmount = invoicePayableAmount;
-      const gstBreakup = getGstInclusiveBreakup(invoicePayableAmount);
+      const statusStr = (isDowngrade || isFutureUpgrade || isScheduledReplacement) ? "Scheduled" : "Active";
+
+      const tableIdToUse = (isDowngrade || isFutureUpgrade) && scheduledSubscription && !isScheduledReplacement
+        ? getSubscriptionTableId(scheduledSubscription)
+        : (isImmediateUpgrade || isRenewal)
+          ? currentTableId
+          : "";
+
+      // ─── Boundary-date sync for surviving scheduled subscription ──────────
+      // When the primary operation keeps an existing scheduled subscription
+      // alive (i.e. it is NOT being cancelled via cancelScheduledTableId),
+      // derive the correct new startedDate so it begins exactly one day after
+      // the new active plan ends.  This prevents both overlaps and gaps.
+      const isScheduledBeingCancelled = Boolean(
+        (isImmediateUpgrade && scheduledSubscription) || isScheduledReplacement
+      );
+
+      let newScheduledStartedDate = null;
+      let newScheduledEndedDate = null;
+
+      if (scheduledSubscription && !isScheduledBeingCancelled) {
+        const activeEndDateObj = parseDateSafe(finalEndedDate) || new Date(finalEndedDate);
+        const scheduledNextDay = new Date(
+          activeEndDateObj.getFullYear(),
+          activeEndDateObj.getMonth(),
+          activeEndDateObj.getDate() + 1
+        );
+        newScheduledStartedDate = toApiMidnightIso(scheduledNextDay);
+
+        // Preserve the scheduled plan's original billing duration.
+        const scheduledDuration =
+          scheduledSubscription.duration ||
+          scheduledSubscription.planDuration ||
+          scheduledSubscription.billingCycle ||
+          "1 Month";
+        newScheduledEndedDate = calculateEndApiIso(newScheduledStartedDate, scheduledDuration);
+
+        console.log("[GrowPlan] Computed boundary-aligned scheduled dates:", {
+          newScheduledStartedDate,
+          newScheduledEndedDate,
+          scheduledDuration
+        });
+      }
+
+      // ─── Active plan end-date trim for overlapping future schedule ─────────
+      // When the user schedules a plan whose start date falls BEFORE the
+      // current active plan expires, shorten the active plan's end date to one
+      // day before the scheduled start.  This eliminates the overlap so that
+      // active.endedDate is always exactly scheduled.startedDate − 1 day.
+      //
+      // Example:
+      //   Active   Growth  13 Jul → 12 Aug  (original)
+      //   Scheduled Enterprise  31 Jul  (user-selected start)
+      //   Fix: Growth endedDate → 30 Jul
+      //
+      // Scope: only for newly-scheduled plans (statusStr === "Scheduled"),
+      // when a real active subscription exists and there is an actual overlap.
+      let newActiveEndedDate = null;
+
+      if (statusStr === "Scheduled" && currentSubscription && currentTableId) {
+        const activeExpiry = getInclusiveEffectiveEndDate(currentSubscription);
+        const scheduledStartObj = parseDateSafe(finalStartedDate) || new Date(finalStartedDate);
+
+        if (activeExpiry && scheduledStartObj <= activeExpiry) {
+          // Overlap detected: trim active plan to end the day before schedule starts.
+          const dayBeforeSchedule = new Date(
+            scheduledStartObj.getFullYear(),
+            scheduledStartObj.getMonth(),
+            scheduledStartObj.getDate() - 1
+          );
+          newActiveEndedDate = toApiMidnightIso(dayBeforeSchedule);
+
+          console.log("[GrowPlan] Active plan trimmed to prevent overlap:", {
+            activeExpiry: toApiMidnightIso(activeExpiry),
+            scheduledStart: finalStartedDate,
+            newActiveEndedDate
+          });
+        }
+      }
+
+
+
+      const scheduledPaidAmount = isScheduledReplacement
+        ? getSubscriptionPaidAmount(scheduledSubscription, plans)
+        : 0;
+
+      const finalRemainingAmount = safeNum(remainingAmount);
+
+      // Invoice totalPayable is the FULL order amount (after discount/upgrade
+      // waive-off, but BEFORE wallet is applied). wallet + upi must always sum
+      // to this value — matches what the backend expects.
+      const totalPayableBeforeWallet = isScheduledReplacement
+        ? safeNum(Math.max(totalPrice - finalRemainingAmount - scheduledPaidAmount - discountAmount, 0))
+        : safeNum(payableBeforeWallet);
+      const walletPaymentAmount = isScheduledReplacement
+        ? safeNum(useWallet ? Math.min(walletBalance, totalPayableBeforeWallet) : 0)
+        : safeNum(walletUsedAmount || 0);
+      const upiPaymentAmount = isScheduledReplacement
+        ? safeNum(Math.max(totalPayableBeforeWallet - walletPaymentAmount, 0))
+        : safeNum(payableAmount || 0);
+      const paidAmount = safeNum(walletPaymentAmount + upiPaymentAmount);
 
       const invoiceData = {
         invoiceDate: new Date().toISOString(),
@@ -715,20 +935,28 @@ const PlanReviewPage = () => {
         gstin: sGstin,
         item: selectedPlan.name,
         qty: 1,
-        rate: gstBreakup.rate,
-        amount: gstBreakup.amount,
-        subtotal: gstBreakup.subtotal,
-        cgst: gstBreakup.cgst,
-        sgst: gstBreakup.sgst,
-        totalPayable: invoicePayableAmount,
+        rate: totalPayableBeforeWallet,
+        amount: totalPrice,
+        originalPlanAmount: totalPrice,
+        waivedAmount: finalRemainingAmount,
+        remainingSubscriptionValue: finalRemainingAmount,
+        discountAmount: discountAmount,
+        subtotal: totalPayableBeforeWallet,
+        totalPayable: totalPayableBeforeWallet,
+        payableAmount: upiPaymentAmount,
         payments: {
           wallet: walletPaymentAmount,
           upi: upiPaymentAmount
         },
+        paymentMethod: walletPaymentAmount > 0 && upiPaymentAmount === 0
+          ? "Wallet"
+          : walletPaymentAmount > 0 && upiPaymentAmount > 0
+            ? "Wallet + UPI"
+            : "UPI",
         transactionMethod: walletPaymentAmount > 0 && upiPaymentAmount === 0
           ? "Wallet"
           : walletPaymentAmount > 0 && upiPaymentAmount > 0
-            ? "Wallet, UPI"
+            ? "Wallet + UPI"
             : "UPI"
       };
 
@@ -743,9 +971,34 @@ const PlanReviewPage = () => {
         paymentId: paymentId,
         razorpayOrderId: razorpayOrderId,
         sellerId: sellerId,
-        phone: sPhone
+        phone: sPhone,
+        amount: totalPrice,
+        originalPlanAmount: totalPrice,
+        payableAmount: upiPaymentAmount,
+        waivedAmount: finalRemainingAmount,
+        remainingSubscriptionValue: finalRemainingAmount,
+        subtotal: totalPayableBeforeWallet,
+        totalPayable: totalPayableBeforeWallet,
+        walletAmount: walletPaymentAmount,
+        razorpayAmount: upiPaymentAmount,
+        paymentMethod: walletPaymentAmount > 0 && upiPaymentAmount === 0
+          ? "Wallet"
+          : walletPaymentAmount > 0 && upiPaymentAmount > 0
+            ? "Wallet + UPI"
+            : "UPI",
+        paidAmount: paidAmount
       };
-
+      subPayload.schedulingAction = isSameScheduledPlan
+        ? "reschedule"
+        : (scheduledSubscription && (isFutureUpgrade || isImmediateUpgrade || isScheduledReplacement))
+          ? "replace"
+          : statusStr === "Scheduled"
+            ? "schedule"
+            : "activate";
+      subPayload.existingScheduledTableId = getSubscriptionTableId(scheduledSubscription);
+      subPayload.cancelScheduledTableId = (isImmediateUpgrade || isScheduledReplacement)
+        ? getSubscriptionTableId(scheduledSubscription)
+        : "";
       const referralPayload = {
         rewardEarned: isCouponApplied ? discountAmount : 0,
         rewardUsed: isCouponApplied ? 1 : 0,
@@ -773,13 +1026,255 @@ const PlanReviewPage = () => {
         throw new Error(storeRes?.message?.error || "Subscription activation failed on backend.");
       }
 
-      const successToastMsg = isDowngrade
-        ? "Downgrade scheduled successfully"
-        : isRenewal
-          ? "Plan renewed successfully"
-          : isUpgrade
-            ? "Plan upgraded successfully"
-            : "Subscription successful";
+      // ─── Cancel replaced scheduled subscription in the database ───────────
+      // When a scheduled replacement or immediate upgrade occurs, cancel the
+      // old scheduled plan record in the database by setting its status to "Cancelled".
+      const cancelScheduledTableId = (isImmediateUpgrade || isScheduledReplacement)
+        ? getSubscriptionTableId(scheduledSubscription)
+        : "";
+
+      if (cancelScheduledTableId && scheduledSubscription) {
+        const cancelScheduledPayload = {
+          createSellerInvoice: null,
+          createSubscription: {
+            tableId: cancelScheduledTableId,
+            planName: getSubscriptionPlanName(scheduledSubscription),
+            planId:
+              scheduledSubscription.planId ||
+              scheduledSubscription._id ||
+              scheduledSubscription.id ||
+              "",
+            status: "Cancelled",
+            email: sellerEmail,
+            sellerId: sellerId,
+            startedDate: toApiMidnightIso(scheduledSubscription.startedDate || scheduledSubscription.startDate),
+            endedDate: toApiMidnightIso(scheduledSubscription.endedDate || scheduledSubscription.endDate),
+            schedulingAction: "schedule",
+            existingScheduledTableId: cancelScheduledTableId,
+            cancelScheduledTableId: "",
+            phone: sPhone,
+            amount: scheduledSubscription.amount || scheduledSubscription.originalPlanAmount || 0,
+            originalPlanAmount: scheduledSubscription.originalPlanAmount || scheduledSubscription.amount || 0,
+            payableAmount: scheduledSubscription.payableAmount || 0,
+            waivedAmount: scheduledSubscription.waivedAmount || 0,
+            remainingSubscriptionValue: scheduledSubscription.remainingSubscriptionValue || 0,
+            subtotal: scheduledSubscription.subtotal || 0,
+            totalPayable: scheduledSubscription.totalPayable || 0,
+            walletAmount: scheduledSubscription.walletAmount || 0,
+            razorpayAmount: scheduledSubscription.razorpayAmount || 0,
+            paymentMethod: scheduledSubscription.paymentMethod || "UPI",
+            paidAmount: scheduledSubscription.paidAmount || 0,
+            paymentId: "cancelled",
+            razorpayOrderId: "cancelled"
+          },
+          referralUpdate: null
+        };
+
+        console.log("[GrowPlan] Cancelling replaced scheduled subscription in database:", cancelScheduledPayload);
+        try {
+          const cancelRes = await sellerService.processSubscriptionOrder(cancelScheduledPayload);
+          console.log("[GrowPlan] Scheduled cancel result:", cancelRes);
+        } catch (cancelErr) {
+          console.error("[GrowPlan] Non-fatal: failed to cancel scheduled subscription:", cancelErr);
+        }
+      }
+
+      // ─── Sync scheduled subscription boundary dates ───────────────────────
+      // After the primary activation is confirmed successful, push the
+      // corrected startedDate / endedDate to the scheduled subscription so
+      // that it starts exactly one day after the new active plan ends.
+      // This call is NON-FATAL: a failure here is logged but does not roll
+      // back or affect the already-confirmed main activation.
+      if (newScheduledStartedDate && newScheduledEndedDate && scheduledSubscription && !isScheduledBeingCancelled) {
+        const scheduledTableId = getSubscriptionTableId(scheduledSubscription);
+        if (scheduledTableId) {
+          const scheduledInvoiceData = {
+            invoiceDate: new Date().toISOString(),
+            sellerName: sName,
+            sellerId: sellerId,
+            address: sAddress,
+            gstin: sGstin,
+            item: getSubscriptionPlanName(scheduledSubscription) || "Scheduled Plan",
+            qty: 1,
+            rate: Number(scheduledSubscription.amount || scheduledSubscription.originalPlanAmount || 999),
+            amount: Number(scheduledSubscription.amount || scheduledSubscription.originalPlanAmount || 999),
+            originalPlanAmount: Number(scheduledSubscription.originalPlanAmount || scheduledSubscription.amount || 999),
+            waivedAmount: Number(scheduledSubscription.waivedAmount || 0),
+            remainingSubscriptionValue: Number(scheduledSubscription.remainingSubscriptionValue || 0),
+            discountAmount: Number(scheduledSubscription.discountAmount || 0),
+            subtotal: Number(scheduledSubscription.subtotal || scheduledSubscription.amount || 999),
+            totalPayable: Number(scheduledSubscription.totalPayable || scheduledSubscription.amount || 999),
+            payableAmount: Number(scheduledSubscription.payableAmount || 0),
+            cgst: 0,
+            sgst: 0,
+            payments: {
+              wallet: Number(scheduledSubscription.walletAmount || 0),
+              upi: Number(scheduledSubscription.razorpayAmount || 0)
+            },
+            paymentMethod: scheduledSubscription.paymentMethod || "UPI",
+            transactionMethod: scheduledSubscription.paymentMethod || "UPI",
+            paymentId: scheduledSubscription.paymentId || "WALLET_FULL_PAYMENT",
+            razorpayOrderId: scheduledSubscription.razorpayOrderId || ""
+          };
+
+          const scheduledSyncPayload = {
+            createSellerInvoice: scheduledInvoiceData,
+            createSubscription: {
+              tableId: scheduledTableId,
+              planName: getSubscriptionPlanName(scheduledSubscription),
+              planId:
+                scheduledSubscription.planId ||
+                scheduledSubscription._id ||
+                scheduledSubscription.id ||
+                "",
+              status: "Scheduled",
+              email: sellerEmail,
+              sellerId: sellerId,
+              startedDate: newScheduledStartedDate,
+              endedDate: newScheduledEndedDate,
+              // "schedule" is the no-payment update action for Scheduled status.
+              schedulingAction: "schedule",
+              existingScheduledTableId: scheduledTableId,
+              cancelScheduledTableId: "",
+              // Preserve original billing and payment fields
+              phone: sPhone,
+              amount: scheduledSubscription.amount || scheduledSubscription.originalPlanAmount || 0,
+              originalPlanAmount: scheduledSubscription.originalPlanAmount || scheduledSubscription.amount || 0,
+              payableAmount: scheduledSubscription.payableAmount || 0,
+              waivedAmount: scheduledSubscription.waivedAmount || 0,
+              remainingSubscriptionValue: scheduledSubscription.remainingSubscriptionValue || 0,
+              subtotal: scheduledSubscription.subtotal || 0,
+              totalPayable: scheduledSubscription.totalPayable || 0,
+              walletAmount: scheduledSubscription.walletAmount || 0,
+              razorpayAmount: scheduledSubscription.razorpayAmount || 0,
+              paymentMethod: scheduledSubscription.paymentMethod || "UPI",
+              paidAmount: scheduledSubscription.paidAmount || 0,
+              paymentId: scheduledSubscription.paymentId || "WALLET_FULL_PAYMENT",
+              razorpayOrderId: scheduledSubscription.razorpayOrderId || ""
+            },
+            referralUpdate: null
+          };
+
+          console.log("[GrowPlan] Syncing scheduled subscription boundary dates:", scheduledSyncPayload);
+          try {
+            const syncRes = await sellerService.processSubscriptionOrder(scheduledSyncPayload);
+            console.log("[GrowPlan] Scheduled boundary sync result:", syncRes);
+          } catch (syncErr) {
+            console.error("[GrowPlan] Non-fatal: failed to sync scheduled subscription dates:", syncErr);
+          }
+        }
+      }
+
+      // ─── Trim active plan's end date to remove future-schedule overlap ─────
+      // After the new scheduled plan is confirmed in the database, update the
+      // current active subscription so its end date is exactly one day before
+      // the scheduled plan starts.  NON-FATAL: logged on failure, never rolls
+      // back the already-committed scheduled plan creation.
+      if (newActiveEndedDate && currentTableId && currentSubscription) {
+        const activeStartDate = toApiMidnightIso(
+          parseDateSafe(
+            currentSubscription.startedDate || currentSubscription.startDate
+          ) || new Date()
+        );
+
+        const activeInvoiceData = {
+          invoiceDate: new Date().toISOString(),
+          sellerName: sName,
+          sellerId: sellerId,
+          address: sAddress,
+          gstin: sGstin,
+          item: currentSubscription.planName || currentSubscription.plan || "Trimmed Plan",
+          qty: 1,
+          rate: Number(currentSubscription.amount || currentSubscription.originalPlanAmount || 999),
+          amount: Number(currentSubscription.amount || currentSubscription.originalPlanAmount || 999),
+          originalPlanAmount: Number(currentSubscription.originalPlanAmount || currentSubscription.amount || 999),
+          waivedAmount: Number(currentSubscription.waivedAmount || 0),
+          remainingSubscriptionValue: Number(currentSubscription.remainingSubscriptionValue || 0),
+          discountAmount: Number(currentSubscription.discountAmount || 0),
+          subtotal: Number(currentSubscription.subtotal || currentSubscription.amount || 999),
+          totalPayable: Number(currentSubscription.totalPayable || currentSubscription.amount || 999),
+          payableAmount: Number(currentSubscription.payableAmount || 0),
+          cgst: 0,
+          sgst: 0,
+          payments: {
+            wallet: Number(currentSubscription.walletAmount || 0),
+            upi: Number(currentSubscription.razorpayAmount || 0)
+          },
+          paymentMethod: currentSubscription.paymentMethod || "UPI",
+          transactionMethod: currentSubscription.paymentMethod || "UPI",
+          paymentId: currentSubscription.paymentId || "WALLET_FULL_PAYMENT",
+          razorpayOrderId: currentSubscription.razorpayOrderId || ""
+        };
+
+        const activeTrimPayload = {
+          createSellerInvoice: activeInvoiceData,
+          createSubscription: {
+            tableId: currentTableId,
+            planName:
+              currentSubscription.planName ||
+              currentSubscription.plan ||
+              currentSubscription.subscriptionPlan ||
+              "",
+            planId:
+              currentSubscription.planId ||
+              currentSubscription._id ||
+              currentSubscription.id ||
+              "",
+            status: "Active",
+            email: sellerEmail,
+            sellerId: sellerId,
+            startedDate: activeStartDate,
+            endedDate: newActiveEndedDate,
+            // "activate" updates the existing active record in-place.
+            schedulingAction: "activate",
+            existingScheduledTableId: "",
+            cancelScheduledTableId: "",
+            // Preserve original billing and payment fields
+            phone: sPhone,
+            amount: currentSubscription.amount || currentSubscription.originalPlanAmount || 0,
+            originalPlanAmount: currentSubscription.originalPlanAmount || currentSubscription.amount || 0,
+            payableAmount: currentSubscription.payableAmount || 0,
+            waivedAmount: currentSubscription.waivedAmount || 0,
+            remainingSubscriptionValue: currentSubscription.remainingSubscriptionValue || 0,
+            subtotal: currentSubscription.subtotal || 0,
+            totalPayable: currentSubscription.totalPayable || 0,
+            walletAmount: currentSubscription.walletAmount || 0,
+            razorpayAmount: currentSubscription.razorpayAmount || 0,
+            paymentMethod: currentSubscription.paymentMethod || "UPI",
+            paidAmount: currentSubscription.paidAmount || 0,
+            paymentId: currentSubscription.paymentId || "WALLET_FULL_PAYMENT",
+            razorpayOrderId: currentSubscription.razorpayOrderId || ""
+          },
+          referralUpdate: null
+        };
+
+        console.log("[GrowPlan] Trimming active plan end date to remove overlap:", activeTrimPayload);
+        try {
+          const trimRes = await sellerService.processSubscriptionOrder(activeTrimPayload);
+          console.log("[GrowPlan] Active plan trim result:", trimRes);
+        } catch (trimErr) {
+          console.error("[GrowPlan] Non-fatal: failed to trim active plan end date:", trimErr);
+        }
+      }
+
+      const selectedDisplayName = selectedPlan.name || selectedPlan.planName;
+      const scheduledDisplayName = getSubscriptionPlanName(scheduledSubscription);
+      const successToastMsg = isSameScheduledPlan
+        ? `Your scheduled ${selectedDisplayName} plan has been rescheduled successfully to ${startOfDay(finalStartedDate).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.`
+        : isScheduledReplacement
+          ? (finalRemainingAmount > 0
+              ? `Your scheduled ${scheduledDisplayName} plan has been replaced with the ${selectedDisplayName} plan. The unused value of your Active ${currentPlanName} plan and the amount already paid for the Scheduled ${scheduledDisplayName} plan have been applied as credits. You only need to pay the remaining balance.`
+              : `Your scheduled ${scheduledDisplayName} plan has been cancelled and replaced with the ${selectedDisplayName} plan.`
+            )
+          : scheduledSubscription && isFutureUpgrade
+            ? `Your scheduled ${scheduledDisplayName} plan has been cancelled and replaced with the ${selectedDisplayName} plan.`
+            : isDowngrade
+              ? "Downgrade scheduled successfully"
+              : isRenewal
+                ? "Plan renewed successfully"
+                : isUpgrade
+                  ? "Plan upgraded successfully"
+                  : "Subscription successful";
       showToast(successToastMsg);
 
       try {
@@ -808,14 +1303,188 @@ const PlanReviewPage = () => {
 
     if (paymentInProgressRef.current) return;
 
+    const sPhone = sellerProfile?.phone || sellerProfile?.phoneNo || resolveSellerPhone() || "";
+
     if (!selectedPlan || !sellerId || !sellerEmail) {
       setErrorMsg("Missing selectedPlan or seller account details.");
       return;
     }
 
+    const schedulingValidationMessage = getSchedulingValidationMessage();
+    if (schedulingValidationMessage) {
+      setErrorMsg(schedulingValidationMessage);
+      showToast(schedulingValidationMessage);
+      return;
+    }
+
+    if (isDowngrade && earliestDowngradeStart && startOfDay(startDate) < earliestDowngradeStart) {
+      const message = "A downgrade plan can only start after your current subscription ends. Please select a date after your current plan expiry.";
+      setErrorMsg(message);
+      showToast(message);
+      return;
+    }
+
+    // Rescheduling is a date-only update of an already paid record. This must
+    // return before pricing, wallet, invoice, Razorpay, or order processing.
+    if (isReschedule) {
+      paymentInProgressRef.current = true;
+      setIsProcessingPayment(true);
+      setProcessingMessage("Rescheduling subscription...");
+      setErrorMsg(null);
+
+      const oldStartedDate = parseLocalDate(
+        scheduledSubscription.startedDate || scheduledSubscription.startDate
+      );
+      const oldEndedDate = parseLocalDate(
+        scheduledSubscription.endedDate ||
+        scheduledSubscription.endDate ||
+        scheduledSubscription.expiryDate ||
+        scheduledSubscription.validTill
+      );
+      const newStartedDate = parseLocalDate(startDate);
+
+      try {
+        if (!oldStartedDate || !oldEndedDate || !newStartedDate) {
+          throw new Error("Scheduled subscription dates are invalid.");
+        }
+
+        const shiftInDays = daysBetween(oldStartedDate, newStartedDate);
+        const newEndedDate = new Date(oldEndedDate.getTime());
+        newEndedDate.setDate(newEndedDate.getDate() + shiftInDays);
+
+        const scheduledTableId = getSubscriptionTableId(scheduledSubscription);
+
+        const sName =
+          sellerProfile?.companyName ||
+          sellerProfile?.businessName ||
+          sellerProfile?.sellerName ||
+          sellerProfile?.nickname ||
+          sellerProfile?.name ||
+          sellerEmail ||
+          "Seller";
+
+        const sAddress = [
+          sellerProfile?.address,
+          sellerProfile?.city,
+          sellerProfile?.state,
+          sellerProfile?.pincode
+        ].filter(Boolean).map(s => String(s).trim()).filter(s => s.length > 0).join(", ") || "NA";
+
+        const sGstin = sellerProfile?.gstin || sellerProfile?.GSTIN || "NA";
+
+        const scheduledInvoiceData = {
+          invoiceDate: new Date().toISOString(),
+          sellerName: sName,
+          sellerId: sellerId || "",
+          address: sAddress,
+          gstin: sGstin,
+          item: getSubscriptionPlanName(scheduledSubscription) || "Scheduled Plan",
+          qty: 1,
+          rate: Number(scheduledSubscription.amount || scheduledSubscription.originalPlanAmount || 999),
+          amount: Number(scheduledSubscription.amount || scheduledSubscription.originalPlanAmount || 999),
+          originalPlanAmount: Number(scheduledSubscription.originalPlanAmount || scheduledSubscription.amount || 999),
+          waivedAmount: Number(scheduledSubscription.waivedAmount || 0),
+          remainingSubscriptionValue: Number(scheduledSubscription.remainingSubscriptionValue || 0),
+          discountAmount: Number(scheduledSubscription.discountAmount || 0),
+          subtotal: Number(scheduledSubscription.subtotal || scheduledSubscription.amount || 999),
+          totalPayable: Number(scheduledSubscription.totalPayable || scheduledSubscription.amount || 999),
+          payableAmount: Number(scheduledSubscription.payableAmount || 0),
+          cgst: 0,
+          sgst: 0,
+          payments: {
+            wallet: Number(scheduledSubscription.walletAmount || 0),
+            upi: Number(scheduledSubscription.razorpayAmount || 0)
+          },
+          paymentMethod: scheduledSubscription.paymentMethod || "UPI",
+          transactionMethod: scheduledSubscription.paymentMethod || "UPI",
+          paymentId: scheduledSubscription.paymentId || "WALLET_FULL_PAYMENT",
+          razorpayOrderId: scheduledSubscription.razorpayOrderId || ""
+        };
+
+        const reschedulePayload = {
+          createSellerInvoice: scheduledInvoiceData,
+          createSubscription: {
+            tableId: scheduledTableId,
+            planName: getSubscriptionPlanName(scheduledSubscription),
+            planId:
+              scheduledSubscription.planId ||
+              scheduledSubscription._id ||
+              scheduledSubscription.id ||
+              "",
+            status: "Scheduled",
+            email: sellerEmail,
+            sellerId: sellerId,
+            startedDate: toApiDateOnlyIso(newStartedDate),
+            endedDate: toApiDateOnlyIso(newEndedDate),
+            // "schedule" is the no-payment update action for Scheduled status.
+            schedulingAction: "schedule",
+            existingScheduledTableId: scheduledTableId,
+            cancelScheduledTableId: "",
+            // Preserve original billing and payment fields
+            phone: sPhone,
+            amount: scheduledSubscription.amount || scheduledSubscription.originalPlanAmount || 0,
+            originalPlanAmount: scheduledSubscription.originalPlanAmount || scheduledSubscription.amount || 0,
+            payableAmount: scheduledSubscription.payableAmount || 0,
+            waivedAmount: scheduledSubscription.waivedAmount || 0,
+            remainingSubscriptionValue: scheduledSubscription.remainingSubscriptionValue || 0,
+            subtotal: scheduledSubscription.subtotal || 0,
+            totalPayable: scheduledSubscription.totalPayable || 0,
+            walletAmount: scheduledSubscription.walletAmount || 0,
+            razorpayAmount: scheduledSubscription.razorpayAmount || 0,
+            paymentMethod: scheduledSubscription.paymentMethod || "UPI",
+            paidAmount: scheduledSubscription.paidAmount || 0,
+            paymentId: scheduledSubscription.paymentId || "WALLET_FULL_PAYMENT",
+            razorpayOrderId: scheduledSubscription.razorpayOrderId || ""
+          },
+          referralUpdate: null
+        };
+
+        console.log("[PlanReview] Rescheduling subscription payload:", reschedulePayload);
+        const syncRes = await sellerService.processSubscriptionOrder(reschedulePayload);
+        console.log("[PlanReview] Reschedule API result:", syncRes);
+
+        // Clear local storage override if any
+        const localScheduleKey = `growPlanScheduledOverride:${sellerId || sellerEmail}`;
+        window.localStorage.removeItem(localScheduleKey);
+
+        const oldDateText = oldStartedDate.toLocaleDateString("en-GB", {
+          day: "numeric", month: "long", year: "numeric"
+        });
+        const newDateText = newStartedDate.toLocaleDateString("en-GB", {
+          day: "numeric", month: "long", year: "numeric"
+        });
+        showToast(
+          `Your scheduled ${getSubscriptionPlanName(scheduledSubscription)} plan has been successfully rescheduled from ${oldDateText} to ${newDateText}. No additional payment was required.`
+        );
+
+        // Fetch latest subscriptions so GrowPlanPage displays the updated database values
+        try {
+          await sellerService.getSellerSubscription(sellerEmail);
+        } catch (subErr) {
+          console.error("[PlanReview] Failed to fetch subscription after rescheduling:", subErr);
+        }
+
+        setTimeout(() => navigate("/dashboard/growplan"), 2000);
+        return;
+      } catch (err) {
+        console.error("[PlanReview] Reschedule failed:", err);
+        setErrorMsg("Unable to reschedule your subscription. Your existing scheduled plan has not been modified.");
+        return;
+      } finally {
+        setIsProcessingPayment(false);
+        paymentInProgressRef.current = false;
+      }
+    }
+
     if (isRenewal && !renewalAllowed) {
       setErrorMsg("You can renew this plan only near expiry period");
       showToast("You can renew this plan only near expiry period");
+      return;
+    }
+
+    if (isUpgrade && !isDurationAllowedForUpgrade(planDuration)) {
+      setErrorMsg("Please select an eligible duration. Current plan remaining value is higher than this duration price.");
+      showToast("Please select an eligible duration. Current plan remaining value is higher than this duration price.");
       return;
     }
 
@@ -825,12 +1494,9 @@ const PlanReviewPage = () => {
     setErrorMsg(null);
 
     try {
-      // 0 payable bypass
-      if (!isGrowPlanTestPayment && payableAmount === 0 && walletUsedAmount > 0) {
-        await completeSubscriptionActivation(
-          "wallet_payment_" + Date.now(),
-          "wallet_order_" + Date.now()
-        );
+      // 0 payable bypass — wallet (and/or coupon) fully covers the payable amount.
+      if (payableAmount === 0) {
+        await completeSubscriptionActivation("WALLET_FULL_PAYMENT", null);
         return;
       }
 
@@ -949,9 +1615,8 @@ const PlanReviewPage = () => {
     return <Navigate to="/dashboard/growplan" replace />;
   }
 
-  // Features count limit
-  const featuresToShow = isFeaturesExpanded ? selectedPlan.features : selectedPlan.features?.slice(0, 6);
-  const hasMoreFeatures = selectedPlan.features?.length > 6;
+  // All plan features are always shown directly — no See More / See Less.
+  const featuresToShow = selectedPlan.features || selectedPlan.benefits || [];
 
   return (
     <>
@@ -967,387 +1632,511 @@ const PlanReviewPage = () => {
             aria-describedby="payment-progress-description"
           >
             <div className="grow-loading-spinner" />
-            <h2 id="payment-progress-title">Payment in Progress...</h2>
-            <p id="payment-progress-description">Please complete the payment in the Razorpay window.</p>
+            <h2 id="payment-progress-title">
+              {processingMessage === "Rescheduling subscription..." ? "Rescheduling Plan..." : "Payment in Progress..."}
+            </h2>
+            <p id="payment-progress-description">
+              {processingMessage === "Rescheduling subscription..."
+                ? "Please wait while your scheduled dates are updated."
+                : "Please complete the payment in the Razorpay window."}
+            </p>
             <p>Do not refresh or close this page.</p>
           </div>
         </>
       )}
 
-      <div className="grow-plan-container" inert={isProcessingPayment ? "" : undefined} aria-busy={isProcessingPayment}>
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="grow-success-banner" style={{ background: "#ecfdf5", borderColor: "#a7f3d0", color: "#065f46", padding: "12px", borderRadius: "8px", marginBottom: "20px", display: "flex", justifyContent: "space-between", border: "1px solid" }}>
-          <span>{toastMessage}</span>
-          <button onClick={() => setToastMessage(null)} style={{ background: "none", border: "none", color: "#047857", cursor: "pointer", fontWeight: "bold" }}>&times;</button>
-        </div>
-      )}
-
-      {/* breadcrumb */}
-      <div className="grow-plan-breadcrumb" style={{ textAlign: "left" }}>
-        <span>Dashboard</span> &gt; <span>Grow Plan</span> &gt; <span className="active">Plan Review</span>
-      </div>
-
-      {/* Header */}
-      <div className="review-header-row" style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px" }}>
-        <button className="btn-back-plans" onClick={() => navigate("/dashboard/growplan")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center" }}>
-          <ChevronLeft size={24} />
-        </button>
-        <h1 style={{ margin: 0, fontSize: "24px", fontWeight: "700" }}>Plan Review</h1>
-      </div>
-
-      {errorMsg && (
-        <div className="grow-error-banner" style={{ margin: "20px 0" }}>
-          <span>{errorMsg}</span>
-          <button onClick={() => setErrorMsg(null)}>&times;</button>
-        </div>
-      )}
-
-      {/* Desktop 2-column Container */}
-      <div className="plan-review-desktop-layout">
-        {/* Left Column: Plan Card with Features */}
-        <div className="plan-review-left-card">
-          <h2 style={{ fontSize: "20px", fontWeight: "700", margin: "0 0 8px 0" }}>{selectedPlan.name}</h2>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#1e293b", marginBottom: "16px" }}>
-            ₹{basePrice.toLocaleString("en-IN")} / month
-          </div>
-
-          <div className="review-divider" />
-
-          <h3 style={{ fontSize: "15px", fontWeight: "700", color: "#64748b", margin: "16px 0 10px 0" }}>What's included:</h3>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
-            {featuresToShow?.map((feature, i) => (
-              <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "14px", color: "#334155" }}>
-                <CheckCircle2 size={18} style={{ color: "#10b981", flexShrink: 0, marginTop: "2px" }} />
-                <span>{feature}</span>
-              </li>
-            ))}
-          </ul>
-
-          {hasMoreFeatures && (
+      {(errorMsg || toastMessage) && !isProcessingPayment && (
+        <div className="review-result-overlay" role="presentation">
+          <div
+            className={`review-result-modal ${errorMsg ? "is-error" : "is-success"}`}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="review-result-title"
+            aria-describedby="review-result-message"
+          >
+            <div className="review-result-icon" aria-hidden="true">
+              {errorMsg ? "!" : "✓"}
+            </div>
+            <h2 id="review-result-title">
+              {errorMsg ? "Plan update failed" : "Plan updated successfully"}
+            </h2>
+            <p id="review-result-message">{errorMsg || toastMessage}</p>
             <button
-              onClick={() => setIsFeaturesExpanded(!isFeaturesExpanded)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#2962ff",
-                fontWeight: "600",
-                fontSize: "14px",
-                cursor: "pointer",
-                marginTop: "14px",
-                padding: 0,
-                textAlign: "left"
+              type="button"
+              className="review-result-close"
+              onClick={() => {
+                setErrorMsg(null);
+                setToastMessage(null);
               }}
             >
-              {isFeaturesExpanded ? "See Less" : "See More"}
+              OK
             </button>
-          )}
+          </div>
+        </div>
+      )}
+
+      <div className="grow-plan-container" inert={isProcessingPayment ? "" : undefined} aria-busy={isProcessingPayment}>
+        {/* breadcrumb */}
+        <div className="grow-plan-breadcrumb" style={{ textAlign: "left" }}>
+          <span>Dashboard</span> &gt; <span>Grow Plan</span> &gt; <span className="active">Plan Review</span>
         </div>
 
-        {/* Right Column: Review Details & Summary Card */}
-        <div className="plan-review-right-card">
+        {/* Header */}
+        <div className="review-header-row" style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px" }}>
+          <button className="btn-back-plans" onClick={() => navigate("/dashboard/growplan")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center" }}>
+            <ChevronLeft size={24} />
+          </button>
+          <h1 style={{ margin: 0, fontSize: "24px", fontWeight: "700" }}>Plan Review</h1>
+        </div>
 
-          {isDowngrade && (
-            <div className="grow-plan-test-mode-note" style={{
-              background: "#eff6ff",
-              border: "1px solid #bfdbfe",
-              color: "#1d4ed8",
-              padding: "12px",
-              borderRadius: "8px",
-              fontSize: "13px",
-              fontWeight: "600",
-              marginBottom: "16px",
-              textAlign: "left"
-            }}>
-              Downgrade will start after your current plan ends.
+        {/* Desktop 2-column Container */}
+        <div className="plan-review-desktop-layout">
+          {/* Left Column: Plan Card with Features */}
+          <div className="plan-review-left-card">
+            <h2 style={{ fontSize: "20px", fontWeight: "700", margin: "0 0 8px 0" }}>{selectedPlan.name}</h2>
+            <div style={{ fontSize: "26px", fontWeight: "800", color: "#1e293b", marginBottom: "16px" }}>
+              ₹{basePrice.toLocaleString("en-IN")} / month
             </div>
-          )}
 
-          {isRenewal && !renewalAllowed && (
-            <div className="grow-plan-test-mode-note" style={{
-              background: "#fef2f2",
-              border: "1px solid #fecaca",
-              color: "#b91c1c",
-              padding: "12px",
-              borderRadius: "8px",
-              fontSize: "13px",
-              fontWeight: "600",
-              marginBottom: "16px",
-              textAlign: "left"
-            }}>
-              You can renew this plan only near expiry period.
-            </div>
-          )}
+            <div className="review-divider" />
 
-          {/* 1. Start Date selector (Custom Datepicker Popover) */}
-          <div className="start-date-block" ref={datePickerRef} style={{ textAlign: "left" }}>
-            <label className="start-date-label">
-              Start Date : {isScheduled && <span className="scheduled-badge" style={{ marginLeft: "8px" }}>Scheduled Plan</span>}
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                type="text"
-                readOnly
-                value={getFormattedStartDate()}
-                onClick={() => !isDatePickerLocked && setShowDatePicker(!showDatePicker)}
-                className="start-date-input"
-                style={isDatePickerLocked ? { cursor: "not-allowed", opacity: 0.75 } : undefined}
-              />
-              <svg
-                onClick={() => !isDatePickerLocked && setShowDatePicker(!showDatePicker)}
-                style={{
-                  position: "absolute",
-                  right: "16px",
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  width: "20px",
-                  height: "20px",
-                  cursor: isDatePickerLocked ? "not-allowed" : "pointer",
-                  color: "#64748b"
-                }}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-
-              {showDatePicker && !isDatePickerLocked && (
-                <div className="date-picker-popover">
-                  <div className="calendar-header">
-                    <button type="button" onClick={handlePrevMonth} className="calendar-nav-btn">&lt;</button>
-                    <span className="calendar-month-year">{MONTH_NAMES[viewMonth]} {viewYear}</span>
-                    <button type="button" onClick={handleNextMonth} className="calendar-nav-btn">&gt;</button>
-                  </div>
-                  <div className="calendar-weekdays">
-                    {WEEK_DAYS.map(day => (
-                      <div key={day} className="calendar-weekday">{day}</div>
-                    ))}
-                  </div>
-                  <div className="calendar-days-grid">
-                    {getCalendarDays().map((dayObj, index) => {
-                      const isDisabled = isDateDisabled(dayObj);
-                      const isSelected = startDate === `${dayObj.year}-${String(dayObj.month + 1).padStart(2, "0")}-${String(dayObj.day).padStart(2, "0")}`;
-                      const isCurrentDay = new Date().getDate() === dayObj.day && new Date().getMonth() === dayObj.month && new Date().getFullYear() === dayObj.year;
-
-                      return (
-                        <button
-                          key={index}
-                          type="button"
-                          disabled={isDisabled}
-                          onClick={() => handleSelectDate(dayObj)}
-                          className={`calendar-day-cell ${!dayObj.isCurrentMonth ? "other-month" : ""} ${isSelected ? "selected" : ""} ${isCurrentDay ? "today" : ""}`}
-                        >
-                          {dayObj.day}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+            <h3 style={{ fontSize: "15px", fontWeight: "700", color: "#64748b", margin: "16px 0 10px 0" }}>What's included:</h3>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
+              {featuresToShow?.map((feature, i) => (
+                <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "14px", color: "#334155" }}>
+                  <CheckCircle2 size={18} style={{ color: "#10b981", flexShrink: 0, marginTop: "2px" }} />
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
           </div>
 
-          {/* 2. Summary details list */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px", margin: "20px 0" }}>
-            <div className="plan-summary-row">
-              <span>Plan</span>
-              <span>{selectedPlan.name}</span>
-            </div>
+          {/* Right Column: Review Details & Summary Card */}
+          <div className="plan-review-right-card">
 
-            <div className="plan-summary-row">
-              <span>Plan Price</span>
-              <span>₹{basePrice.toLocaleString("en-IN")}</span>
-            </div>
+            {/* Current Plan card (mobile-app style) */}
+            {currentSubscription && (
+              <div style={{
+                border: "1px solid #e2e8f0",
+                borderRadius: "10px",
+                padding: "14px 16px",
+                marginBottom: "16px",
+                textAlign: "left"
+              }}>
+                <div style={{ fontSize: "13px", fontWeight: "700", color: "#64748b", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+                  Current Plan
+                </div>
+                <div className="plan-summary-row">
+                  <span>Plan Name</span>
+                  <span>{currentPlanName || "-"}</span>
+                </div>
+                <div className="plan-summary-row">
+                  <span>Start Date</span>
+                  <span>{formatDisplayDate(oldStart)}</span>
+                </div>
+                <div className="plan-summary-row">
+                  <span>End Date</span>
+                  <span>{formatCurrentPlanEndDate(currentSubscription)}</span>
+                </div>
+                <div className="plan-summary-row">
+                  <span>Status</span>
+                  <span>{currentSubscription.status || "-"}</span>
+                </div>
+              </div>
+            )}
 
-            <div className="plan-summary-row">
-              <span>Plan Duration</span>
-              <div className="duration-select-wrap" ref={durationRef}>
-                <button
-                  type="button"
-                  onClick={() => setShowDurationModal(!showDurationModal)}
-                  className="duration-select-button"
+            {/* Upcoming / Scheduled Plan card, if one exists in subscriptionList */}
+            {scheduledSubscription && (
+              <div style={{
+                border: "1px solid #bfdbfe",
+                borderRadius: "10px",
+                padding: "14px 16px",
+                marginBottom: "16px",
+                textAlign: "left",
+                background: "#f8fbff"
+              }}>
+                <div style={{ fontSize: "13px", fontWeight: "700", color: "#1d4ed8", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+                  Upcoming Plan
+                </div>
+                <div className="plan-summary-row">
+                  <span>Plan Name</span>
+                  <span>{scheduledSubscription.planName || scheduledSubscription.plan || "-"}</span>
+                </div>
+                <div className="plan-summary-row">
+                  <span>Start Date</span>
+                  <span>{formatDisplayDate(scheduledSubscription.startedDate || scheduledSubscription.startDate)}</span>
+                </div>
+                <div className="plan-summary-row">
+                  <span>End Date</span>
+                  <span>{formatCurrentPlanEndDate(scheduledSubscription)}</span>
+                </div>
+                <div className="plan-summary-row">
+                  <span>Status</span>
+                  <span>{scheduledSubscription.status || "-"}</span>
+                </div>
+              </div>
+            )}
+
+            {isDowngrade && (
+              <div className="grow-plan-test-mode-note" style={{
+                background: "#eff6ff",
+                border: "1px solid #bfdbfe",
+                color: "#1d4ed8",
+                padding: "12px",
+                borderRadius: "8px",
+                fontSize: "13px",
+                fontWeight: "600",
+                marginBottom: "16px",
+                textAlign: "left"
+              }}>
+                Downgrade will start after your current plan ends.
+              </div>
+            )}
+
+            {isRenewal && !renewalAllowed && (
+              <div className="grow-plan-test-mode-note" style={{
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                color: "#b91c1c",
+                padding: "12px",
+                borderRadius: "8px",
+                fontSize: "13px",
+                fontWeight: "600",
+                marginBottom: "16px",
+                textAlign: "left"
+              }}>
+                You can renew this plan only near expiry period.
+              </div>
+            )}
+
+            {/* 1. Start Date selector (Custom Datepicker Popover) */}
+            <div className="start-date-block" ref={datePickerRef} style={{ textAlign: "left" }}>
+              <label className="start-date-label">
+                Start Date : {isScheduled && <span className="scheduled-badge" style={{ marginLeft: "8px" }}>Scheduled Plan</span>}
+              </label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={getFormattedStartDate()}
+                  onClick={() => !isDatePickerLocked && setShowDatePicker(!showDatePicker)}
+                  className="start-date-input"
+                  style={isDatePickerLocked ? { cursor: "not-allowed", opacity: 0.75 } : undefined}
+                />
+                <svg
+                  onClick={() => !isDatePickerLocked && setShowDatePicker(!showDatePicker)}
+                  style={{
+                    position: "absolute",
+                    right: "16px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    width: "20px",
+                    height: "20px",
+                    cursor: isDatePickerLocked ? "not-allowed" : "pointer",
+                    color: "#64748b"
+                  }}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
                 >
-                  {planDuration}
-                </button>
-                {showDurationModal && (
-                  <div className="duration-dropdown">
-                    {["1 Month", "3 Months", "6 Months", "12 Months"].map((dur) => (
-                      <button
-                        key={dur}
-                        type="button"
-                        onClick={() => {
-                          setPlanDuration(dur);
-                          setShowDurationModal(false);
-                        }}
-                        className={`duration-dropdown-option ${planDuration === dur ? "active" : ""}`}
-                      >
-                        {dur}
-                      </button>
-                    ))}
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+
+                {showDatePicker && !isDatePickerLocked && (
+                  <div className="date-picker-popover">
+                    <div className="calendar-header">
+                      <button type="button" onClick={handlePrevMonth} className="calendar-nav-btn">&lt;</button>
+                      <span className="calendar-month-year">{MONTH_NAMES[viewMonth]} {viewYear}</span>
+                      <button type="button" onClick={handleNextMonth} className="calendar-nav-btn">&gt;</button>
+                    </div>
+                    <div className="calendar-weekdays">
+                      {WEEK_DAYS.map(day => (
+                        <div key={day} className="calendar-weekday">{day}</div>
+                      ))}
+                    </div>
+                    <div className="calendar-days-grid">
+                      {getCalendarDays().map((dayObj, index) => {
+                        const isDisabled = isDateDisabled(dayObj);
+                        const isSelected = startDate === `${dayObj.year}-${String(dayObj.month + 1).padStart(2, "0")}-${String(dayObj.day).padStart(2, "0")}`;
+                        const isCurrentDay = new Date().getDate() === dayObj.day && new Date().getMonth() === dayObj.month && new Date().getFullYear() === dayObj.year;
+
+                        return (
+                          <button
+                            key={index}
+                            type="button"
+                            disabled={isDisabled}
+                            onClick={() => handleSelectDate(dayObj)}
+                            className={`calendar-day-cell ${!dayObj.isCurrentMonth ? "other-month" : ""} ${isSelected ? "selected" : ""} ${isCurrentDay ? "today" : ""}`}
+                          >
+                            {dayObj.day}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="plan-summary-row">
-              <span>Total Price</span>
-              <span>₹{totalPrice.toLocaleString("en-IN")}</span>
+            {/* 2. Summary details list */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", margin: "20px 0" }}>
+              <div className="plan-summary-row">
+                <span>Plan</span>
+                <span>{selectedPlan.name}</span>
+              </div>
+
+              <div className="plan-summary-row">
+                <span>Plan Price</span>
+                <span>₹{basePrice.toLocaleString("en-IN")}</span>
+              </div>
+
+              <div className="plan-summary-row">
+                <span>Plan Duration</span>
+                <div className="duration-select-wrap" ref={durationRef}>
+                  <button
+                    type="button"
+                    onClick={() => !isSameScheduledPlan && setShowDurationModal(!showDurationModal)}
+                    disabled={isSameScheduledPlan}
+                    className="duration-select-button"
+                    style={isSameScheduledPlan ? { cursor: "not-allowed", opacity: 0.7 } : undefined}
+                  >
+                    {displayedPlanDuration}
+                  </button>
+                  {showDurationModal && (
+                    <div className="duration-dropdown">
+                      {DURATION_ORDER.map((dur) => {
+                        const durAllowed = isDurationAllowedForUpgrade(dur);
+                        return (
+                          <button
+                            key={dur}
+                            type="button"
+                            disabled={!durAllowed}
+                            onClick={() => {
+                              if (!durAllowed) return;
+                              setPlanDuration(dur);
+                              setShowDurationModal(false);
+                            }}
+                            className={`duration-dropdown-option ${planDuration === dur ? "active" : ""} ${!durAllowed ? "disabled-duration" : ""}`}
+                            style={!durAllowed ? { opacity: 0.45, pointerEvents: "none", cursor: "not-allowed" } : undefined}
+                          >
+                            {dur}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {isSameScheduledPlan && (
+                <div className="reschedule-no-payment-note">
+                  No additional payment is required because this subscription has already been purchased.
+                </div>
+              )}
+
+              <div className="plan-summary-row">
+                <span>Total Price</span>
+                <span>₹{totalPrice.toLocaleString("en-IN")}</span>
+              </div>
+
+              {/* Upgrade ongoing details — shown only for true upgrades */}
+              {isUpgrade && oldPlan && (!isScheduledReplacement || !shouldBypassActiveWaiveOff) && (
+                <>
+                  <div className="plan-summary-row">
+                    <span>Ongoing Plan</span>
+                    <span>{currentSubscription.planName || currentSubscription.plan}</span>
+                  </div>
+                  <div className="plan-summary-row">
+                    <span>Ongoing Plan Price</span>
+                    <span>₹{Number(oldPlan.price || 0).toLocaleString("en-IN")}</span>
+                  </div>
+                  <div className="plan-summary-row">
+                    <span>Ongoing Plan Spend Limit</span>
+                    <span>₹{oldEffectiveAmount.toLocaleString("en-IN")}</span>
+                  </div>
+                  <div className="plan-summary-row" style={{ color: "#dc2626" }}>
+                    <span>Ongoing Plan Used</span>
+                    <span>- ₹{usedAmount.toLocaleString("en-IN")}</span>
+                  </div>
+                  <div className="plan-summary-row">
+                    <span>Remaining Days</span>
+                    <span>{remainingDays} days</span>
+                  </div>
+                  <div className="plan-summary-row" style={{ color: "#059669" }}>
+                    <span>Remaining Adjustment / Waive-off</span>
+                    <span>- ₹{remainingAmount.toLocaleString("en-IN")}</span>
+                  </div>
+                </>
+              )}
+
+              {/* Scheduled replacement details — credit from previous scheduled plan */}
+              {isScheduledReplacement && scheduledSubscription && scheduledPaidAmount > 0 && (
+                <>
+                  <div className="plan-summary-row">
+                    <span>Cancelled Scheduled Plan</span>
+                    <span>{getSubscriptionPlanName(scheduledSubscription)}</span>
+                  </div>
+                  <div className="plan-summary-row" style={{ color: "#059669" }}>
+                    <span>Previous Payment Credit</span>
+                    <span>- ₹{scheduledPaidAmount.toLocaleString("en-IN")}</span>
+                  </div>
+                </>
+              )}
+
+              <div className="plan-summary-divider" style={{ borderTop: "1px solid #cbd5e1", margin: "12px 0" }} />
+
+              <div className="plan-summary-row payable-row" style={{ fontSize: "16px", fontWeight: "800" }}>
+                <span style={{ fontWeight: "700" }}>Payable Amount</span>
+                <span style={{ fontWeight: "800", color: "#1e293b" }}>₹{payableAmount.toLocaleString("en-IN")}</span>
+              </div>
             </div>
 
-            {/* Upgrade ongoing details — shown only for true upgrades */}
-            {isUpgrade && oldPlan && (
-              <>
-                <div className="plan-summary-row">
-                  <span>Ongoing Plan</span>
-                  <span>{currentSubscription.planName || currentSubscription.plan}</span>
-                </div>
-                <div className="plan-summary-row">
-                  <span>Ongoing Plan Price</span>
-                  <span>₹{Number(oldPlan.price || 0).toLocaleString("en-IN")}</span>
-                </div>
-                <div className="plan-summary-row">
-                  <span>Ongoing Plan Spend Limit</span>
-                  <span>₹{oldEffectiveAmount.toLocaleString("en-IN")}</span>
-                </div>
-                <div className="plan-summary-row" style={{ color: "#dc2626" }}>
-                  <span>Ongoing Plan Used</span>
-                  <span>- ₹{usedAmount.toLocaleString("en-IN")}</span>
-                </div>
-                <div className="plan-summary-row" style={{ color: "#059669" }}>
-                  <span>Remaining Adjustment / Waive-off</span>
-                  <span>- ₹{remainingAmount.toLocaleString("en-IN")}</span>
-                </div>
-              </>
+            {/* 3. Wallet Balance Section */}
+            <div className="wallet-redeem-box">
+              <input
+                type="checkbox"
+                id="walletRedeemCheck"
+                checked={useWallet}
+                onChange={(e) => setUseWallet(e.target.checked)}
+                disabled={walletBalance <= 0}
+                style={{ cursor: walletBalance <= 0 ? "not-allowed" : "pointer", width: "16px", height: "16px" }}
+              />
+              <label htmlFor="walletRedeemCheck" style={{ cursor: walletBalance <= 0 ? "not-allowed" : "pointer", fontSize: "14px", fontWeight: "600", color: "#334155", display: "flex", justifyContent: "space-between", width: "100%", margin: 0 }}>
+                <span>Redeem Wallet Balance?</span>
+                <span style={{ color: "#2962ff" }}>
+                  {useWallet ? (
+                    <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "4px" }}>
+                      <span>Remaining ₹{formatWalletCurrency(remainingWalletBalance)}</span>
+                    </span>
+                  ) : (
+                    `Available ₹${formatWalletCurrency(availableWalletBalance)}`
+                  )}
+                </span>
+              </label>
+            </div>
+
+            {/* 4. Referral Section */}
+            <div className="referral-box">
+              <input
+                type="text"
+                placeholder="Enter Referral Code"
+                value={couponCode}
+                onChange={(e) => setCouponCode(e.target.value)}
+                disabled={checkingReferral || appliedCouponCode !== ""}
+              />
+              <button
+                type="button"
+                onClick={handleApplyReferral}
+                disabled={checkingReferral || !couponCode.trim() || appliedCouponCode !== ""}
+              >
+                {checkingReferral ? "Applying..." : "Apply"}
+              </button>
+            </div>
+            {referralMessage.text && (
+              <div style={{
+                marginTop: "-16px",
+                marginBottom: "16px",
+                fontSize: "12px",
+                fontWeight: "600",
+                color: referralMessage.type === "success" ? "#059669" : "#dc2626",
+                textAlign: "left"
+              }}>
+                {referralMessage.text}
+              </div>
             )}
 
-            <div className="plan-summary-divider" style={{ borderTop: "1px solid #cbd5e1", margin: "12px 0" }} />
+            {/* Scheduled-higher-plan blocking banner — Rule 1 / Rule 4 */}
+            {scheduledSubscription && selectedRank < scheduledPlanRank && (
+              <div
+                id="scheduled-conflict-banner"
+                role="alert"
+                style={{
+                  background: "#fef2f2",
+                  border: "1.5px solid #fca5a5",
+                  borderRadius: "10px",
+                  padding: "14px 16px",
+                  marginBottom: "16px",
+                  textAlign: "left",
+                  display: "flex",
+                  gap: "12px",
+                  alignItems: "flex-start"
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    fontSize: "20px",
+                    lineHeight: "1",
+                    flexShrink: 0,
+                    color: "#dc2626"
+                  }}
+                >
+                  ⚠
+                </span>
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: "700", color: "#b91c1c", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                    Purchase Blocked
+                  </div>
+                  <p style={{ margin: "0 0 6px 0", fontSize: "13px", fontWeight: "600", color: "#7f1d1d", lineHeight: "1.5" }}>
+                    You already have a scheduled <strong>{getSubscriptionPlanName(scheduledSubscription)}</strong> plan.
+                  </p>
+                  <p style={{ margin: 0, fontSize: "13px", color: "#991b1b", lineHeight: "1.5" }}>
+                    A lower plan cannot be purchased because it would create an invalid subscription timeline.
+                    Please cancel your scheduled <strong>{getSubscriptionPlanName(scheduledSubscription)}</strong> plan before purchasing a lower plan.
+                  </p>
+                </div>
+              </div>
+            )}
 
-            <div className="plan-summary-row payable-row" style={{ fontSize: "16px", fontWeight: "800" }}>
-              <span style={{ fontWeight: "700" }}>Payable Amount</span>
-              <span style={{ fontWeight: "800", color: "#1e293b" }}>₹{payableAmount.toLocaleString("en-IN")}</span>
-            </div>
-          </div>
-
-          {/* 3. Wallet Balance Section */}
-          <div className="wallet-redeem-box">
-            <input
-              type="checkbox"
-              id="walletRedeemCheck"
-              checked={useWallet}
-              onChange={(e) => setUseWallet(e.target.checked)}
-              style={{ cursor: "pointer", width: "16px", height: "16px" }}
-            />
-            <label htmlFor="walletRedeemCheck" style={{ cursor: "pointer", fontSize: "14px", fontWeight: "600", color: "#334155", display: "flex", justifyContent: "space-between", width: "100%", margin: 0 }}>
-              <span>Redeem Wallet Balance?</span>
-              <span style={{ color: "#2962ff" }}>₹{walletBalance}</span>
-            </label>
-          </div>
-
-          {/* 4. Referral Section */}
-          <div className="referral-box">
-            <input
-              type="text"
-              placeholder="Enter Referral Code"
-              value={couponCode}
-              onChange={(e) => setCouponCode(e.target.value)}
-              disabled={checkingReferral || appliedCouponCode !== ""}
-            />
+            {/* 5. Upgrade Now / Submit Button */}
             <button
-              type="button"
-              onClick={handleApplyReferral}
-              disabled={checkingReferral || !couponCode.trim() || appliedCouponCode !== ""}
+              className="btn-review-upgrade-cta"
+              onClick={() => setShowConfirmModal(true)}
+              disabled={isCtaDisabled}
+              style={isCtaDisabled ? { opacity: 0.6, cursor: "not-allowed" } : undefined}
             >
-              {checkingReferral ? "Applying..." : "Apply"}
+              {getCtaButtonText()}
             </button>
           </div>
-          {referralMessage.text && (
-            <div style={{
-              marginTop: "-16px",
-              marginBottom: "16px",
-              fontSize: "12px",
-              fontWeight: "600",
-              color: referralMessage.type === "success" ? "#059669" : "#dc2626",
-              textAlign: "left"
-            }}>
-              {referralMessage.text}
-            </div>
-          )}
-
-          {isGrowPlanTestPayment && (
-            <div className="grow-plan-test-mode-note" style={{
-              background: "#fffbeb",
-              border: "1px solid #fef3c7",
-              color: "#b45309",
-              padding: "12px",
-              borderRadius: "8px",
-              fontSize: "13px",
-              fontWeight: "600",
-              marginBottom: "16px",
-              textAlign: "left"
-            }}>
-              Test mode enabled: You will be charged ₹{growPlanTestAmount}. Actual calculated payable after coupon/wallet/upgrade adjustment is ₹{payableAmount.toLocaleString("en-IN")}. Wallet selection is allowed for calculation testing, but real wallet debit is not sent in test mode.
-            </div>
-          )}
-
-          {/* 5. Upgrade Now / Submit Button */}
-          <button
-            className="btn-review-upgrade-cta"
-            onClick={() => setShowConfirmModal(true)}
-            disabled={isCtaDisabled}
-            style={isCtaDisabled ? { opacity: 0.6, cursor: "not-allowed" } : undefined}
-          >
-            {getCtaButtonText()}
-          </button>
         </div>
-      </div>
 
-      {/* Confirmation Modal */}
-      {showConfirmModal && (
-        <div className="review-confirm-modal-overlay" style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0, 0, 0, 0.4)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 2000 }}>
-          <div className="review-confirm-modal-container" style={{ background: "#ffffff", padding: "24px", borderRadius: "12px", width: "420px", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", textAlign: "center" }}>
-            <h3 style={{ fontSize: "16px", fontWeight: "700", color: "#1e293b", margin: "0 0 16px 0", lineHeight: "1.5" }}>
-              {getConfirmModalTitle()}
-            </h3>
-            <div style={{ color: "#10b981", fontSize: "18px", fontWeight: "800", marginBottom: "24px" }}>
-              Payable Amount ₹{(isGrowPlanTestPayment ? growPlanTestAmount : payableAmount).toLocaleString("en-IN")}
-            </div>
-            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-              <button
-                onClick={handleProceedSubscription}
-                style={{
-                  flex: 1,
-                  padding: "10px 16px",
-                  borderRadius: "6px",
-                  border: "none",
-                  backgroundColor: "#2962ff",
-                  color: "#ffffff",
-                  fontWeight: "bold",
-                  cursor: "pointer"
-                }}
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => setShowConfirmModal(false)}
-                style={{
-                  flex: 1,
-                  padding: "10px 16px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  backgroundColor: "#ffffff",
-                  color: "#475569",
-                  fontWeight: "bold",
-                  cursor: "pointer"
-                }}
-              >
-                No
-              </button>
+        {/* Confirmation Modal */}
+        {showConfirmModal && (
+          <div className="review-confirm-modal-overlay">
+            <div className="review-confirm-modal-container">
+              <div className="review-confirm-icon">✓</div>
+              <h3>{getConfirmModalTitle()}</h3>
+              <p className="review-confirm-subtitle">
+                Please confirm the selected plan before proceeding.
+              </p>
+
+              <div className="review-confirm-summary">
+                <div>
+                  <span>Plan</span>
+                  <strong>{selectedPlan.name}</strong>
+                </div>
+                <div>
+                  <span>Duration</span>
+                  <strong>{displayedPlanDuration}</strong>
+                </div>
+                <div>
+                  <span>Payable Amount</span>
+                  <strong>{isSameScheduledPlan ? "Already paid" : `₹${payableAmount.toLocaleString("en-IN")}`}</strong>
+                </div>
+              </div>
+
+              <div className="review-confirm-actions">
+                <button className="review-confirm-no" onClick={() => setShowConfirmModal(false)}>
+                  Cancel
+                </button>
+                <button className="review-confirm-yes" onClick={handleProceedSubscription}>
+                  Confirm
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
     </>
   );

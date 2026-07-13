@@ -38,8 +38,8 @@ const InventoryTableRow = ({ item, onQuantityChange, disabled = false }) => {
         <span className="inv-product-name" title={item.name}>
           {item.name}
         </span>
-        <span className="inv-product-meta" title={item.productId}>
-          Product ID: {item.productId}
+        <span className="inv-product-meta" title={item.variant || "Default"}>
+          Variant: {item.variant || "Default"}
         </span>
       </td>
       <td className="inv-stock-cell font-bold">{item.originalQuantity}</td>

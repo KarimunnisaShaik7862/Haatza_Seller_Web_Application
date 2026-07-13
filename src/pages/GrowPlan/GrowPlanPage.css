@@ -13,7 +13,7 @@
 
 .grow-plan-container {
   min-height: 100vh;
-  padding: 24px 24px 108px;
+  padding: 24px;
   background: var(--gp-bg);
   color: var(--gp-text);
   box-sizing: border-box;
@@ -21,7 +21,7 @@
 
 .grow-plan-container.has-sticky-action,
 .grow-plan-page-content.has-sticky-action {
-  padding-bottom: 140px !important;
+  padding-bottom: 104px !important;
 }
 
 .grow-plan-breadcrumb {
@@ -111,13 +111,13 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .plan-card {
   position: relative;
-  min-height: 520px;
-  height: 520px;
+  min-height: 720px;
+  height: 100%;
   background: var(--gp-card);
   border: 1px solid var(--gp-border);
   border-radius: 14px;
@@ -145,8 +145,16 @@
   position: absolute;
   inset: 0;
   border-radius: 14px;
-  border-top: 4px solid var(--gp-primary);
+  border-top: 3px solid #93b4ff;
   pointer-events: none;
+}
+
+.plan-card.current:not(.selected) {
+  border-color: #bbf7d0;
+}
+
+.plan-card.scheduled:not(.selected) {
+  border-color: #bfdbfe;
 }
 
 .plan-card-header,
@@ -295,8 +303,8 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  flex: 1;
-  overflow: hidden;
+  flex: 0;
+  overflow: visible;
 }
 
 .plan-feature-item {
@@ -367,15 +375,16 @@
   bottom: 0;
   z-index: 9999;
   background: #ffffff;
-  padding: 16px 32px;
+  min-height: 76px;
+  padding: 10px 28px;
   border-top: 1px solid #e5e7eb;
-  box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.10);
   box-sizing: border-box;
 }
 
 .grow-plan-sticky-action {
   width: 100%;
-  min-height: 76px;
+  min-height: 56px;
   background: #ffffff;
   border-radius: 14px;
   display: flex;
@@ -389,7 +398,7 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  padding: 20px 24px;
+  padding: 0;
 }
 
 .grow-plan-action-btn {
@@ -402,8 +411,8 @@
   justify-content: center;
   padding: 0 20px;
   border-radius: 10px;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 800;
   white-space: nowrap;
   box-sizing: border-box;
   flex-shrink: 0;
@@ -740,13 +749,13 @@
     left: 0 !important;
     right: 0 !important;
     bottom: 0 !important;
-    padding: 12px !important;
+    padding: 12px 16px !important;
   }
 
   .grow-plan-sticky-action {
     flex-direction: column !important;
     align-items: stretch !important;
-    gap: 12px !important;
+    gap: 10px !important;
   }
 
   .grow-plan-sticky-action button {
@@ -754,20 +763,20 @@
   }
 
   .grow-plan-sticky-action .grow-plan-action-btn {
-    width: 220px !important;
-    min-width: 220px;
-    max-width: 220px;
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
   }
 
   .grow-plan-container.has-sticky-action,
   .grow-plan-page-content.has-sticky-action {
-    padding-bottom: 190px !important;
+    padding-bottom: 160px !important;
   }
 }
 
 @media (max-width: 640px) {
   .grow-plan-container {
-    padding: 16px 16px 104px;
+    padding: 16px;
   }
 
   .grow-plan-header h1 {

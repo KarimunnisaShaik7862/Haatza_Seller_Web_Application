@@ -29,6 +29,7 @@ const HelpPage           = lazy(() => import("../pages/Help/HelpPage"));
 const AdvertisementPage  = lazy(() => import("../pages/Advertisement/AdvertisementPage"));
 const CreateCampaignPage = lazy(() => import("../pages/Advertisement/CreateCampaignPage"));
 const GrowPlanPage = lazy(() => import("../pages/GrowPlan/GrowPlanPage"));
+const PlanReviewPage = lazy(() => import("../pages/GrowPlan/PlanReviewPage"));
 const HaatzaUpPage       = lazy(() => import("../pages/HaatzUp/HaatzUpPage"));
 const UploadReelPage     = lazy(() => import("../pages/HaatzUp/UploadReelPage"));
 
@@ -212,7 +213,9 @@ function AppRoutes() {
           <Route path="/return-exchange"            element={<ReturnExchange />} />
           <Route path="/return-exchange/details/:tableId"   element={<ReturnDetailsPage />} />
           <Route path="/dashboard/growplan"         element={<GrowPlanPage />} />
+          <Route path="/dashboard/growplan/review"  element={<PlanReviewPage />} />
           <Route path="/growplan"                   element={<GrowPlanPage />} />
+          <Route path="/growplan/review"            element={<PlanReviewPage />} />
           <Route path="/dashboard/productinsight"   element={<ProductInsightsList />} />
           <Route path="/productinsight"             element={<ProductInsightsList />} />
           <Route path="/product-insight/:tableId"   element={<ProductInsightDetails />} />

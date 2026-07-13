@@ -67,9 +67,9 @@ const normalizeSettlementPayments = (apiResponse) => {
 
     const breakupKey = Array.isArray(payout.settlementBreakup)
       ? payout.settlementBreakup
-          .map((b) => b.orderId || b.order_id || "")
-          .filter(Boolean)
-          .join("_")
+        .map((b) => b.orderId || b.order_id || "")
+        .filter(Boolean)
+        .join("_")
       : "";
 
     const uniqueId = [
@@ -121,9 +121,9 @@ const normalizeSettlementPayments = (apiResponse) => {
   };
 };
 
-const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const WEEK_DAYS   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEK_DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 const formatApiDate = (date) => {
   if (!date) return "";
@@ -182,8 +182,8 @@ const isSameDay = (a, b) => {
   if (!a || !b) return false;
   return (
     a.getFullYear() === b.getFullYear() &&
-    a.getMonth()    === b.getMonth()    &&
-    a.getDate()     === b.getDate()
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
   );
 };
 
@@ -194,9 +194,9 @@ const isBetween = (date, from, to) => {
 
 /** Build a flat array of 7×N date cells for a given year/month */
 const buildCalendarGrid = (year, month) => {
-  const firstDay    = new Date(year, month, 1).getDay();
+  const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells       = [];
+  const cells = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
   while (cells.length % 7 !== 0) cells.push(null);
@@ -209,8 +209,8 @@ const CalendarGrid = ({ year, month, from, to, hoverDate, today, onDayClick, onD
 
   // Effective range endpoints (includes hover preview when only one date picked)
   const effectiveTo = to || hoverDate;
-  const rangeFrom   = from && effectiveTo ? (from <= effectiveTo ? from : effectiveTo) : from;
-  const rangeTo     = from && effectiveTo ? (from <= effectiveTo ? effectiveTo : from)  : null;
+  const rangeFrom = from && effectiveTo ? (from <= effectiveTo ? from : effectiveTo) : from;
+  const rangeTo = from && effectiveTo ? (from <= effectiveTo ? effectiveTo : from) : null;
 
   return (
     <div className="cdrp-grid">
@@ -225,33 +225,33 @@ const CalendarGrid = ({ year, month, from, to, hoverDate, today, onDayClick, onD
           return <div key={`e${idx}`} className="cdrp-cell cdrp-cell--empty" />;
         }
 
-        const isToday    = isSameDay(date, today);
-        const isStart    = isSameDay(date, from);
-        const isEnd      = to ? isSameDay(date, to) : (hoverDate ? isSameDay(date, hoverDate) : false);
-        const inRange    = rangeFrom && rangeTo ? isBetween(date, rangeFrom, rangeTo) : false;
+        const isToday = isSameDay(date, today);
+        const isStart = isSameDay(date, from);
+        const isEnd = to ? isSameDay(date, to) : (hoverDate ? isSameDay(date, hoverDate) : false);
+        const inRange = rangeFrom && rangeTo ? isBetween(date, rangeFrom, rangeTo) : false;
         const isSelected = isStart || (to && isEnd);
         const isHoverEnd = !to && hoverDate && isSameDay(date, hoverDate) && from && !isSameDay(date, from);
         const isDisabled = maxDate ? date > maxDate : false;
-        const isOutside  = date.getMonth() !== month;
-        const isWeekend  = date.getDay() === 0 || date.getDay() === 6;
+        const isOutside = date.getMonth() !== month;
+        const isWeekend = date.getDay() === 0 || date.getDay() === 6;
         const isRangeEnd = to ? isEnd : isHoverEnd;
 
         // Cell wrapper classes (for half-pill backgrounds on range edges)
         let cellCls = "cdrp-cell";
-        if (isOutside)  cellCls += " cdrp-cell--outside";
+        if (isOutside) cellCls += " cdrp-cell--outside";
         if (isDisabled) cellCls += " cdrp-cell--disabled";
         if (isStart && (to || isHoverEnd)) cellCls += " cdrp-cell--range-start-cap";
-        if (isRangeEnd && from)            cellCls += " cdrp-cell--range-end-cap";
-        if (inRange)    cellCls += " cdrp-cell--in-range";
+        if (isRangeEnd && from) cellCls += " cdrp-cell--range-end-cap";
+        if (inRange) cellCls += " cdrp-cell--in-range";
 
         // Button classes
         let btnCls = "cdrp-day-btn";
-        if (isSelected)               btnCls += " cdrp-day-btn--selected";
-        if (isHoverEnd && !to)        btnCls += " cdrp-day-btn--hover-end";
-        if (isToday && !isSelected)   btnCls += " cdrp-day-btn--today";
+        if (isSelected) btnCls += " cdrp-day-btn--selected";
+        if (isHoverEnd && !to) btnCls += " cdrp-day-btn--hover-end";
+        if (isToday && !isSelected) btnCls += " cdrp-day-btn--today";
         if (isWeekend && !isSelected && !inRange) btnCls += " cdrp-day-btn--weekend";
-        if (isDisabled)               btnCls += " cdrp-day-btn--disabled";
-        if (isOutside)                btnCls += " cdrp-day-btn--outside";
+        if (isDisabled) btnCls += " cdrp-day-btn--disabled";
+        if (isOutside) btnCls += " cdrp-day-btn--outside";
 
         return (
           <div key={date.getTime()} className={cellCls}>
@@ -279,9 +279,9 @@ const CalendarGrid = ({ year, month, from, to, hoverDate, today, onDayClick, onD
 
 // ─── ModernDateRangePicker ────────────────────────────────────────────────────
 const ModernDateRangePicker = ({ fromDate, toDate, onChange, maxDate, label }) => {
-  const [open, setOpen]           = useState(false);
-  const [tempFrom, setTempFrom]   = useState(null);
-  const [tempTo, setTempTo]       = useState(null);
+  const [open, setOpen] = useState(false);
+  const [tempFrom, setTempFrom] = useState(null);
+  const [tempTo, setTempTo] = useState(null);
   const [hoverDate, setHoverDate] = useState(null);
 
   const today = useMemo(() => {
@@ -290,7 +290,7 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange, maxDate, label }) =
     return d;
   }, []);
 
-  const [visibleYear,  setVisibleYear]  = useState(() => (fromDate || new Date()).getFullYear());
+  const [visibleYear, setVisibleYear] = useState(() => (fromDate || new Date()).getFullYear());
   const [visibleMonth, setVisibleMonth] = useState(() => (fromDate || new Date()).getMonth());
 
   const triggerRef = useRef(null);
@@ -309,10 +309,10 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange, maxDate, label }) =
       if (e.key === "Escape") { setOpen(false); triggerRef.current?.focus(); }
     };
     document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown",   handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown",   handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
 
@@ -347,7 +347,7 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange, maxDate, label }) =
   const handleApply = useCallback(() => {
     if (!tempFrom) return;
     const from = startOfDay(tempFrom);
-    const to   = new Date(tempTo || tempFrom);
+    const to = new Date(tempTo || tempFrom);
     to.setHours(23, 59, 59, 999);
     onChange({ from, to });
     setOpen(false);
@@ -371,7 +371,7 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange, maxDate, label }) =
   };
 
   const years = useMemo(() => {
-    const cur  = new Date().getFullYear();
+    const cur = new Date().getFullYear();
     const list = [];
     for (let y = cur - 10; y <= cur + 2; y++) list.push(y);
     return list;
@@ -380,7 +380,7 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange, maxDate, label }) =
   const triggerLabel = label || "This Month";
 
   const selectionLabel = useMemo(() => {
-    if (!tempFrom)           return "Select start date";
+    if (!tempFrom) return "Select start date";
     if (tempFrom && !tempTo) return `${formatTriggerDate(tempFrom)}  →  Select end date`;
     return `${formatTriggerDate(tempFrom)}  –  ${formatTriggerDate(tempTo)}`;
   }, [tempFrom, tempTo]);
@@ -569,14 +569,14 @@ const SettlementsPage = () => {
   }, []);
 
   const loadSettlements = useCallback(async (force = false) => {
-    const email   = (resolveSellerEmail() || "").trim();
+    const email = (resolveSellerEmail() || "").trim();
     if (!email) {
       setError("Seller email not found. Please login again.");
       setLoading(false);
       return;
     }
     const fromStr = formatDateForApi(appliedFromDate);
-    const toStr   = formatDateForApi(appliedToDate);
+    const toStr = formatDateForApi(appliedToDate);
     const paramKey = `${email}_${fromStr}_${toStr}_50_0`;
 
     if (!force && lastFetchedParams.key === paramKey) return;
@@ -605,16 +605,16 @@ const SettlementsPage = () => {
     try {
       const response = await sellerService.getSellerPayments(fetchParams, { signal: controller.signal });
       lastFetchedParams.key = paramKey;
-      
+
       console.log("Settlement API Params:", { email, fromDate: fromStr, toDate: toStr });
       console.log("Settlement API Response:", response);
-      
+
       const payments = extractPaymentsFromResponse(response);
       setRawTransactions(payments);
     } catch (err) {
       if (
         err.name === "CanceledError" || err.name === "AbortError" ||
-        err.message === "canceled"   || err.code  === "ERR_CANCELED"
+        err.message === "canceled" || err.code === "ERR_CANCELED"
       ) return;
 
       console.error("[SettlementsPage] Load Error", err);
@@ -632,7 +632,13 @@ const SettlementsPage = () => {
   }, [appliedFromDate, appliedToDate]);
 
   useEffect(() => {
-    loadSettlements();
+    loadSettlements(true);
+
+    const intervalId = setInterval(() => {
+      loadSettlements(true);
+    }, 30000);
+
+    return () => clearInterval(intervalId);
   }, [loadSettlements]);
 
   const formatDate = (dateStr) => {
@@ -728,7 +734,7 @@ const SettlementsPage = () => {
   }, [mappedTransactions]);
 
   const filteredTransactions = useMemo(() => {
-    const prev     = uniqueMappedTransactions.filter((tx) => isPaidStatus(tx.status)    && matchesSearch(tx));
+    const prev = uniqueMappedTransactions.filter((tx) => isPaidStatus(tx.status) && matchesSearch(tx));
     const upcoming = uniqueMappedTransactions.filter((tx) => isUpcomingStatus(tx.status) && matchesSearch(tx));
     if (process.env.NODE_ENV !== "production") {
       console.log("[Settlements] Upcoming rows:", upcoming.length, "Previous rows:", prev.length);
@@ -896,13 +902,13 @@ const SettlementsPage = () => {
                 <div className={`settlement-breakup-list${selectedTx.settlementBreakup.length === 1 ? " single-item" : ""}`}>
                   {selectedTx.settlementBreakup.map((item, idx) => {
                     const breakupOrderId = item.orderId ?? item.orderID ?? item.id ?? "-";
-                    const orderAmount    = safeNumber(item.orderAmount ?? item.amount ?? 0);
-                    const productGST     = safeNumber(item.productGST ?? item.productGst ?? item.productGstAmount ?? 0);
-                    const shippingFee    = safeNumber(item.shippingFee ?? 0);
-                    const shippingGST    = safeNumber(item.shippingGST ?? item.shippingGst ?? 0);
-                    const totalDebit     = safeNumber(item.totalDebit ?? 0);
-                    const settlementAmt  = safeNumber(item.settlementAmount ?? item.settlementAmt ?? 0);
-                    const rtoPenaltyVal  = item.rtopenalty ?? item.rtoPenalty;
+                    const orderAmount = safeNumber(item.orderAmount ?? item.amount ?? 0);
+                    const productGST = safeNumber(item.productGST ?? item.productGst ?? item.productGstAmount ?? 0);
+                    const shippingFee = safeNumber(item.shippingFee ?? 0);
+                    const shippingGST = safeNumber(item.shippingGST ?? item.shippingGst ?? 0);
+                    const totalDebit = safeNumber(item.totalDebit ?? 0);
+                    const settlementAmt = safeNumber(item.settlementAmount ?? item.settlementAmt ?? 0);
+                    const rtoPenaltyVal = item.rtopenalty ?? item.rtoPenalty;
 
                     return (
                       <div key={idx} className="settlement-breakup-card">
@@ -911,11 +917,11 @@ const SettlementsPage = () => {
                           <span className="info-value value font-semibold text-gray-800">#{breakupOrderId}</span>
                         </div>
                         {[
-                          ["Order Amount",  formatCurrency(orderAmount)],
-                          ["Product GST",   formatCurrency(productGST)],
-                          ["Shipping Fee",  formatCurrency(shippingFee)],
-                          ["Shipping GST",  formatCurrency(shippingGST)],
-                          ["Total Debit",   formatCurrency(totalDebit)],
+                          ["Order Amount", formatCurrency(orderAmount)],
+                          ["Product GST", formatCurrency(productGST)],
+                          ["Shipping Fee", formatCurrency(shippingFee)],
+                          ["Shipping GST", formatCurrency(shippingGST)],
+                          ["Total Debit", formatCurrency(totalDebit)],
                         ].map(([label, val]) => (
                           <div key={label} className="payment-detail-row" style={{ marginBottom: "6px", fontSize: "13.5px" }}>
                             <span className="info-label">{label}:</span>

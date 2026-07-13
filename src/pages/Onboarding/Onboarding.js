@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './Onboarding.css';
 import { checkOnboardStatus } from '../../services/sellerService';
+import { useAuth } from '../../context/AuthContext';
+import LogoutConfirmModal from '../../components/common/LogoutConfirmModal/LogoutConfirmModal';
 /* ─── Fetch Bank List from Backend API ─────────────────────────── */
 async function fetchBankList() {
   try {
@@ -295,14 +297,34 @@ async function checkGSTINExists(gstin) {
   throw new Error('UNKNOWN_GSTIN_RESPONSE_SHAPE');
 }
 
+/* ─── Nominatim rate limiter — max 1 request/sec across ALL Nominatim
+   calls (search, reverse, pincode). Nominatim returns 429 without CORS
+   headers when this limit is exceeded, which the browser reports as a
+   misleading "CORS" error. Retries once on 429. ─────────────────── */
+let nominatimQueue = Promise.resolve();
+function throttledNominatimFetch(url, options = {}) {
+  const run = nominatimQueue.then(async () => {
+    let res = await fetch(url, options);
+    if (res.status === 429) {
+      await new Promise((r) => setTimeout(r, 1500));
+      res = await fetch(url, options);
+    }
+    return res;
+  });
+  nominatimQueue = run.then(
+    () => new Promise((r) => setTimeout(r, 1100)),
+    () => new Promise((r) => setTimeout(r, 1100))
+  );
+  return run;
+}
+
 /* ─── Pincode API (Nominatim — no expired SSL issues) ────────── */
 async function fetchPincodeData(pincode) {
-  const res = await fetch(
+  const res = await throttledNominatimFetch(
     `https://nominatim.openstreetmap.org/search?postalcode=${pincode}&country=India&format=jsonv2&addressdetails=1&limit=1&accept-language=en`,
     {
       headers: {
         'Accept-Language': 'en',
-        'User-Agent': 'HaatzaSellerOnboarding/1.0 (contact@haatza.com)',
       },
     }
   );
@@ -371,6 +393,7 @@ function loadLeaflet() {
     }
     const script = document.createElement('script');
     script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.crossOrigin = 'anonymous';
     script.onload = () => resolve(window.L);
     script.onerror = () => { leafletLoadPromise = null; reject(new Error('Failed to load Leaflet.')); };
     document.head.appendChild(script);
@@ -378,18 +401,38 @@ function loadLeaflet() {
   return leafletLoadPromise;
 }
 
+/* ─── Tile error retry — OSM's free tile servers occasionally return
+   503 under burst load (e.g. flyTo animating across many zoom levels).
+   Retry a failed tile once after a short backoff instead of leaving a
+   permanently blank/broken tile square. ─────────────────────────── */
+function attachTileRetry(layer) {
+  const retried = new WeakSet();
+  layer.on('tileerror', (e) => {
+    const tile = e.tile;
+    if (!tile || retried.has(tile)) return;
+    retried.add(tile);
+    const originalSrc = tile.src;
+    setTimeout(() => {
+      // cache-bust so the browser doesn't just replay the failed response
+      const sep = originalSrc.includes('?') ? '&' : '?';
+      tile.src = `${originalSrc}${sep}retry=${Date.now()}`;
+    }, 800 + Math.random() * 800);
+  });
+}
+
 /* ─── Reverse geocoding ───────────────────────────────────────── */
 async function reverseGeocode(lat, lng) {
-  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=en`;
-  const res = await fetch(url, {
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&namedetails=1&extratags=1&accept-language=en`;
+  const res = await throttledNominatimFetch(url, {
+    cache: 'no-store',
     headers: {
       'Accept-Language': 'en',
-      'User-Agent': 'HaatzaSellerOnboarding/1.0 (contact@haatza.com)',
     },
   });
   if (!res.ok) throw new Error('Geocoding failed');
   return res.json();
 }
+
 
 function parseNominatimAddress(data) {
   const a = data.address || {};
@@ -411,15 +454,36 @@ function parseNominatimAddress(data) {
   const roadName = roadParts.join(', ');
 
   const pinCode = a.postcode || '';
-  const city = a.city || a.town || a.village || a.county || a.state_district || '';
+  const village = a.village || a.hamlet || '';
+  const town = a.town || '';
+  const district = a.state_district || a.county || a.city_district || '';
+  const city = a.city || town || village || district || '';
   const state = a.state || '';
   const country = a.country || '';
-  const landmark = a.leisure || a.tourism || a.historic || '';
-  const displayAddress = data.display_name || '';
+  const landmark = a.tourism || a.historic || a.leisure || '';
 
-  return { houseNo, roadName, pinCode, city, state, country, landmark, displayAddress };
+  // Fallback: build a complete address from individual components in case
+  // Nominatim's display_name omits details, so the address shown always
+  // reflects everything known about the exact marker position.
+  const componentAddress = [
+    houseNo,
+    roadName,
+    landmark,
+    village || town,
+    district,
+    city,
+    state,
+    pinCode,
+    country,
+  ].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i).join(', ');
+
+  const displayAddress = data.display_name || componentAddress;
+
+  return {
+    houseNo, roadName, pinCode, city, state, country, landmark, displayAddress,
+    district, village: village || town,
+  };
 }
-
 /* ─── Map tile layers ─────────────────────────────────────────── */
 const TILE_LAYERS = {
   map: {
@@ -458,85 +522,238 @@ function MapModal({ onClose, onSelectAddress }) {
   const baseLayerRef = useRef(null);
   const overlayLayerRef = useRef(null);
   const timerRef = useRef(null);
+  const doReverseGeocodeRef = useRef(null);
+ const isAnimatingRef = useRef(false);
   const crosshairRef = useRef(null);
+  const userLocationSetRef = useRef(false);        // true once the user explicitly sets a location
+  const suppressNextMoveEndGeocodeRef = useRef(false); // avoid duplicate geocode after programmatic flyTo
 
   const [addressText, setAddressText] = useState('');
   const [parsedAddr, setParsedAddr] = useState(null);
   const [geocoding, setGeocoding] = useState(false);
   const [loading, setLoading] = useState(true);
   const [mapError, setMapError] = useState('');
-  const [locating, setLocating] = useState(false);
+ const [locating, setLocating] = useState(false);
   const [activeLayer, setActiveLayer] = useState('map');
   const [dragging, setDragging] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const [accuracyWarning, setAccuracyWarning] = useState('');
+  const [showLocationPrompt, setShowLocationPrompt] = useState(false);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const isSelectingRef = useRef(false);
+  const searchSeqRef = useRef(0);
+  const reverseGeocodeSeqRef = useRef(0);
+
+  const performSearch = async (queryVal) => {
+    const q = typeof queryVal === 'string' ? queryVal : searchQuery;
+    if (!q.trim()) return;
+    const seq = ++searchSeqRef.current;
+    setSearchLoading(true);
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=in&addressdetails=1&limit=5&accept-language=en`;
+      const res = await throttledNominatimFetch(url, {
+        headers: {
+          'Accept-Language': 'en',
+        },
+      });
+      if (!res.ok) throw new Error('Search failed');
+      const data = await res.json();
+      if (seq !== searchSeqRef.current) return; // a newer search superseded this one
+      const sorted = Array.isArray(data)
+        ? [...data].sort((a, b) => (b.importance || 0) - (a.importance || 0))
+        : [];
+      setSearchResults(sorted);
+      if (sorted.length === 0) {
+        setLocationError('No results found for that search. Try a different city, area, or PIN code.');
+      } else {
+        setLocationError('');
+      }
+    } catch (e) {
+      console.warn("Search geocoding error:", e);
+      if (seq === searchSeqRef.current) {
+        setSearchResults([]);
+        setLocationError('Search failed. Please check your connection and try again.');
+      }
+    } finally {
+      if (seq === searchSeqRef.current) setSearchLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isSelectingRef.current) {
+      isSelectingRef.current = false;
+      return;
+    }
+    if (!searchQuery.trim() || searchQuery.length < 3) {
+      setSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      performSearch(searchQuery);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      performSearch();
+    }
+  };
+
+  const selectSearchResult = (result) => {
+    isSelectingRef.current = true;
+    userLocationSetRef.current = true;
+    setSearchResults([]);
+    setSearchQuery(result.display_name);
+    const lat = parseFloat(result.lat);
+    const lng = parseFloat(result.lon);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      if (mapRef.current) {
+        suppressNextMoveEndGeocodeRef.current = true;
+        mapRef.current.flyTo([lat, lng], 17, { duration: 1.5 });
+      }
+      doReverseGeocode(lat, lng);
+    }
+  };
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+  };
 
   const DEFAULT_CENTER = [20.5937, 78.9629];
 
   const doReverseGeocode = useCallback(async (lat, lng) => {
+    const seq = ++reverseGeocodeSeqRef.current;
     setGeocoding(true);
     try {
       const data = await reverseGeocode(lat, lng);
+      if (seq !== reverseGeocodeSeqRef.current) return; // a newer position superseded this lookup — discard stale result
       const parsed = parseNominatimAddress(data);
+      parsed.latitude = lat;
+      parsed.longitude = lng;
+      parsed.formattedAddress = parsed.displayAddress;
       setParsedAddr(parsed);
       setAddressText(parsed.displayAddress || 'Address found');
     } catch {
+      if (seq !== reverseGeocodeSeqRef.current) return;
       setParsedAddr(null);
       setAddressText('Could not fetch address — try moving the map.');
     } finally {
-      setGeocoding(false);
+      if (seq === reverseGeocodeSeqRef.current) setGeocoding(false);
     }
   }, []);
 
   const onMoveStart = useCallback(() => {
+    isAnimatingRef.current = true;
     setDragging(true);
     setParsedAddr(null);
     setAddressText('');
+    setLocationError('');
   }, []);
 
   const onMoveEnd = useCallback(() => {
     setDragging(false);
     if (!mapRef.current) return;
     clearTimeout(timerRef.current);
+    if (suppressNextMoveEndGeocodeRef.current) {
+      suppressNextMoveEndGeocodeRef.current = false;
+      return;
+    }
     const c = mapRef.current.getCenter();
     doReverseGeocode(c.lat, c.lng);
   }, [doReverseGeocode]);
 
+  const onMapClick = useCallback((e) => {
+    if (!mapRef.current) return;
+    userLocationSetRef.current = true;
+    mapRef.current.flyTo([e.latlng.lat, e.latlng.lng], 18, { duration: 0.8 });
+  }, []);
   const applyLayer = useCallback((layerKey) => {
     const map = mapRef.current;
     if (!map || !window.L) return;
     const L = window.L;
     const cfg = TILE_LAYERS[layerKey];
 
+    // Shared options that cut down on tile-request bursts:
+    // - updateWhenZooming:false waits until a zoom finishes instead of
+    //   requesting tiles at every intermediate animation frame.
+    // - keepBuffer keeps recently-seen tiles cached so panning/zooming
+    //   back doesn't immediately re-request them.
+    const throttledTileOptions = {
+      updateWhenZooming: false,
+      updateWhenIdle: true,
+      keepBuffer: 4,
+    };
+
     if (baseLayerRef.current) { map.removeLayer(baseLayerRef.current); baseLayerRef.current = null; }
     if (overlayLayerRef.current) { map.removeLayer(overlayLayerRef.current); overlayLayerRef.current = null; }
 
     if (cfg.isOverlay) {
       baseLayerRef.current = L.tileLayer(cfg.baseUrl, {
-        attribution: cfg.attribution, maxZoom: cfg.maxZoom,
+        attribution: cfg.attribution, maxZoom: cfg.maxZoom, ...throttledTileOptions,
       }).addTo(map);
       overlayLayerRef.current = L.tileLayer(cfg.url, {
-        attribution: '', maxZoom: cfg.maxZoom, opacity: 0.85,
+        attribution: '', maxZoom: cfg.maxZoom, opacity: 0.85, ...throttledTileOptions,
       }).addTo(map);
+      attachTileRetry(baseLayerRef.current);
+      attachTileRetry(overlayLayerRef.current);
     } else {
-      const options = { attribution: cfg.attribution, maxZoom: cfg.maxZoom };
+      const options = { attribution: cfg.attribution, maxZoom: cfg.maxZoom, ...throttledTileOptions };
       if (cfg.subdomains === false) options.subdomains = '';
       baseLayerRef.current = L.tileLayer(cfg.url, options).addTo(map);
+      attachTileRetry(baseLayerRef.current);
     }
     setActiveLayer(layerKey);
   }, []);
-
   const goToCurrentLocation = useCallback(() => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      setLocationError('Your browser does not support location detection.');
+      return;
+    }
+    setShowLocationPrompt(true);
+  }, []);
+
+  const confirmLocationAccess = useCallback(() => {
+    setShowLocationPrompt(false);
+    userLocationSetRef.current = true;
+    setLocationError('');
+    setAccuracyWarning('');
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         setLocating(false);
+        console.log('[Geolocation] accuracy (meters):', coords.accuracy);
+        if (coords.accuracy > 100) {
+          setAccuracyWarning(`GPS accuracy is low (±${Math.round(coords.accuracy)}m). Please verify the pinned location.`);
+        }
         if (mapRef.current) {
-          mapRef.current.flyTo([coords.latitude, coords.longitude], 17, { duration: 1.2 });
+          suppressNextMoveEndGeocodeRef.current = true;
+          mapRef.current.flyTo([coords.latitude, coords.longitude], 18, { duration: 1.2 });
+        }
+        doReverseGeocode(coords.latitude, coords.longitude);
+      },
+      (err) => {
+        setLocating(false);
+        if (err.code === err.PERMISSION_DENIED) {
+          setLocationError('Location permission denied. Please enable location access in your browser settings.');
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          setLocationError('Unable to determine your location right now. Please try again.');
+        } else if (err.code === err.TIMEOUT) {
+          setLocationError('Location request timed out. Please try again.');
+        } else {
+          setLocationError('Something went wrong while detecting your location.');
         }
       },
-      () => setLocating(false),
-      { timeout: 10000, maximumAge: 0, enableHighAccuracy: true },
+    { timeout: 15000, maximumAge: 0, enableHighAccuracy: true },
     );
+  }, [doReverseGeocode]);
+
+  const declineLocationAccess = useCallback(() => {
+    setShowLocationPrompt(false);
   }, []);
 
   useEffect(() => {
@@ -552,11 +769,17 @@ function MapModal({ onClose, onSelectAddress }) {
 
       const cfg = TILE_LAYERS['map'];
       baseLayerRef.current = L.tileLayer(cfg.url, {
-        attribution: cfg.attribution, maxZoom: cfg.maxZoom,
+        attribution: cfg.attribution,
+        maxZoom: cfg.maxZoom,
+        updateWhenZooming: false,
+        updateWhenIdle: true,
+        keepBuffer: 4,
       }).addTo(map);
+      attachTileRetry(baseLayerRef.current);
 
       map.on('movestart', onMoveStart);
       map.on('moveend', onMoveEnd);
+      map.on('click', onMapClick);
       mapRef.current = map;
       if (!cancelled) setLoading(false);
 
@@ -564,18 +787,33 @@ function MapModal({ onClose, onSelectAddress }) {
         setLocating(true);
         navigator.geolocation.getCurrentPosition(
           ({ coords }) => {
-            if (cancelled) return;
+            // Bail out if the user already searched/clicked/used-location
+            // while this GPS lookup was still in flight — never let a
+            // late-arriving initial fix clobber the user's own choice.
+            if (cancelled || userLocationSetRef.current) { setLocating(false); return; }
             setLocating(false);
-            map.flyTo([coords.latitude, coords.longitude], 17, { duration: 1.5 });
+            console.log('[Geolocation] initial accuracy (meters):', coords.accuracy);
+            if (coords.accuracy > 100) {
+              setAccuracyWarning(`GPS accuracy is low (±${Math.round(coords.accuracy)}m). Please verify the pinned location.`);
+            }
+            suppressNextMoveEndGeocodeRef.current = true;
+            map.flyTo([coords.latitude, coords.longitude], 18, { duration: 1.5, easeLinearity: 0.3 });
+            doReverseGeocode(coords.latitude, coords.longitude);
           },
-          () => {
-            if (cancelled) return;
+          (err) => {
+            if (cancelled || userLocationSetRef.current) { setLocating(false); return; }
             setLocating(false);
+            if (err.code === err.PERMISSION_DENIED) {
+              setLocationError('Location permission denied. You can search or move the map manually.');
+            } else if (err.code === err.TIMEOUT) {
+              setLocationError('Location request timed out. You can search or move the map manually.');
+            }
             doReverseGeocode(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
           },
-          { timeout: 10000, maximumAge: 30000, enableHighAccuracy: true },
+          { timeout: 15000, maximumAge: 0, enableHighAccuracy: true },
         );
       } else {
+        setLocationError('Your browser does not support location detection.');
         doReverseGeocode(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
       }
     }).catch((err) => {
@@ -588,6 +826,7 @@ function MapModal({ onClose, onSelectAddress }) {
       if (mapRef.current) {
         mapRef.current.off('movestart', onMoveStart);
         mapRef.current.off('moveend', onMoveEnd);
+        mapRef.current.off('click', onMapClick);
         mapRef.current.remove();
         mapRef.current = null;
       }
@@ -605,6 +844,41 @@ function MapModal({ onClose, onSelectAddress }) {
         <div className="map-wrap">
           {loading && !mapError && <div className="map-loading">Loading map…</div>}
           {mapError && <div className="map-error">⚠️ {mapError}</div>}
+
+          {!loading && !mapError && (
+            <div className="map-search-container" onClick={(e) => e.stopPropagation()}>
+              <div className="map-search-input-wrapper">
+                <input
+                  type="text"
+                  className="map-search-input"
+                  placeholder="Search Bangalore, Hyderabad, MG Road, PIN code..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                />
+                {searchQuery && (
+                  <button className="map-search-clear-btn" onClick={clearSearch}>✕</button>
+                )}
+                <button className="map-search-btn" onClick={performSearch} disabled={searchLoading}>
+                  {searchLoading ? <div className="map-search-spinner" /> : '🔍'}
+                </button>
+              </div>
+              {searchResults.length > 0 && (
+                <ul className="map-search-results">
+                  {searchResults.map((res, idx) => (
+                    <li
+                      key={idx}
+                      className="map-search-result-item"
+                      onClick={() => selectSearchResult(res)}
+                    >
+                      <span className="map-result-icon">📍</span>
+                      <span className="map-result-text">{res.display_name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           <div ref={mapDivRef} className="map-container" />
 
@@ -665,6 +939,16 @@ function MapModal({ onClose, onSelectAddress }) {
           )}
         </div>
 
+        {locationError && (
+          <div className="map-address-bar" style={{ background: '#fff1f2', color: '#dc2626' }}>
+            <span className="map-address-text">⚠️ {locationError}</span>
+          </div>
+        )}
+        {accuracyWarning && !locationError && (
+          <div className="map-address-bar" style={{ background: '#fffbeb', color: '#b45309' }}>
+            <span className="map-address-text">⚠️ {accuracyWarning}</span>
+          </div>
+        )}
         <div className="map-address-bar">
           <LocationIcon />
           <span className="map-address-text">
@@ -679,6 +963,20 @@ function MapModal({ onClose, onSelectAddress }) {
         >
           {geocoding ? 'Finding address…' : 'Confirm Location'}
         </button>
+
+        {showLocationPrompt && (
+          <div className="location-permission-overlay" onClick={declineLocationAccess}>
+            <div className="location-permission-dialog" onClick={(e) => e.stopPropagation()}>
+              <LocationIcon />
+              <h3>Allow location access?</h3>
+              <p>Haatza would like to use your current location to fill in your pickup address automatically. Your browser will also ask you to confirm this.</p>
+              <div className="location-permission-actions">
+                <button className="location-permission-deny" onClick={declineLocationAccess}>Not now</button>
+                <button className="location-permission-allow" onClick={confirmLocationAccess}>Allow</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -822,6 +1120,22 @@ function FaqAccordion() {
 export default function OnboardingPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { logout } = useAuth();
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  const handleLogoutClick = () => {
+    setShowLogoutModal(true);
+  };
+
+  const handleLogoutConfirm = () => {
+    setShowLogoutModal(false);
+    logout();
+    navigate("/signin", { replace: true });
+  };
+
+  const handleLogoutCancel = () => {
+    setShowLogoutModal(false);
+  };
 
   useEffect(() => {
     const checkActiveStatus = async () => {
@@ -848,6 +1162,7 @@ export default function OnboardingPage() {
   const [form, setForm] = useState({
     gstin: '', noGstin: false, tradeName: '', panCard: '',
     houseNo: '', roadName: '', pinCode: '', city: '', state: '', country: '', landmark: '',
+    latitude: '', longitude: '', formattedAddress: '',
     bankName: '', accountHolderName: '', accountNumber: '', reAccountNumber: '', ifscCode: '',
   });
   const [errors, setErrors] = useState({});
@@ -1217,6 +1532,9 @@ export default function OnboardingPage() {
         state: form.state.trim(),
         country: form.country.trim(),
         pincode: form.pinCode.trim(),
+        latitude: form.latitude ? parseFloat(form.latitude) : undefined,
+        longitude: form.longitude ? parseFloat(form.longitude) : undefined,
+        formattedAddress: form.formattedAddress || undefined,
         status: 'Active',
         onboardDateTime: new Date().toISOString(),
         accountManager: 'Haatza Support Team',
@@ -1365,6 +1683,7 @@ export default function OnboardingPage() {
           console.log("[Onboarding] ✅ companyName saved to storage:", companyName);
         }
 
+        localStorage.setItem("__haatza_just_onboarded", "true");
         navigate('/dashboard');
       } else {
         setSubmitError(data?.message || 'Submission failed. Please try again.');
@@ -1391,6 +1710,9 @@ export default function OnboardingPage() {
       state: parsed.state || prev.state,
       country: parsed.country || prev.country,
       landmark: parsed.landmark || prev.landmark,
+      latitude: parsed.latitude,
+      longitude: parsed.longitude,
+      formattedAddress: parsed.formattedAddress,
     }));
     setErrors((prev) => {
       const next = { ...prev };
@@ -1781,6 +2103,10 @@ export default function OnboardingPage() {
                         placeholder="Account Number"
                         value={form.accountNumber} maxLength={18}
                         onChange={(e) => handleChange('accountNumber', e.target.value.replace(/\D/g, ''))}
+                        onCopy={(e) => e.preventDefault()}
+                        onPaste={(e) => e.preventDefault()}
+                        onCut={(e) => e.preventDefault()}
+                        onDrop={(e) => e.preventDefault()}
                       />
                       <button type="button" className="eye-toggle-btn" onClick={() => setShowAccountNumber((v) => !v)}>
                         {showAccountNumber ? <EyeOffIcon /> : <EyeIcon />}
@@ -1805,6 +2131,10 @@ export default function OnboardingPage() {
                         placeholder="Re-enter Account Number"
                         value={form.reAccountNumber} maxLength={18}
                         onChange={(e) => handleChange('reAccountNumber', e.target.value.replace(/\D/g, ''))}
+                        onCopy={(e) => e.preventDefault()}
+                        onPaste={(e) => e.preventDefault()}
+                        onCut={(e) => e.preventDefault()}
+                        onDrop={(e) => e.preventDefault()}
                       />
                       <button type="button" className="eye-toggle-btn" onClick={() => setShowReAccountNumber((v) => !v)}>
                         {showReAccountNumber ? <EyeOffIcon /> : <EyeIcon />}
@@ -1861,9 +2191,12 @@ export default function OnboardingPage() {
             ) : (
               <div className="btn-spacer" />
             )}
-            <button className="btn-continue" onClick={handleContinue} disabled={submitLoading}>
-              {step < 2 ? 'Continue' : 'Submit'}
-            </button>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <button className="btn-logout" type="button" onClick={handleLogoutClick}>Logout</button>
+              <button className="btn-continue" onClick={handleContinue} disabled={submitLoading}>
+                {step < 2 ? 'Continue' : 'Submit'}
+              </button>
+            </div>
           </div>
 
         </div>
@@ -1876,6 +2209,12 @@ export default function OnboardingPage() {
       {showToast && (
         <div className="location-toast"><span>✓</span> Address filled from map</div>
       )}
+
+      <LogoutConfirmModal
+        isOpen={showLogoutModal}
+        onYes={handleLogoutConfirm}
+        onNo={handleLogoutCancel}
+      />
     </>
   );
 }

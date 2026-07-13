@@ -484,7 +484,36 @@
   color: white;
   background: linear-gradient(135deg, var(--pi-primary) 0%, #4f7fff 100%);
   border-radius: 4px;
+  z-index: 2;
 }
+.pi-uploaded-img--front {
+  border-color: var(--pi-primary) !important;
+  box-shadow: 0 0 0 2.5px rgba(41, 98, 255, 0.35);
+}
+.pi-img-set-primary-hover {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: 11px;
+  z-index: 1;
+}
+.pi-uploaded-img:hover .pi-img-set-primary-hover {
+  opacity: 1;
+}
+.pi-img-set-primary-hover span {
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+
 
 /* Guidelines Container for relative positioning */
 .pi-guidelines-container {

@@ -11,6 +11,7 @@ const InventoryPage = () => {
 
   const {
     filteredItems,
+    paginatedItems,
     loading,
     error,
     setError,
@@ -23,10 +24,10 @@ const InventoryPage = () => {
     handleIncrement,
     handleRefresh,
     refreshing,
-    page,
-    setPage,
-    totalPages,
-    totalItems,
+    page: apiPage,
+    setPage: setApiPage,
+    totalPages: apiTotalPages,
+    totalItems: apiTotalItems,
     limit,
     // Batch updates
     changedRows,
@@ -43,11 +44,23 @@ const InventoryPage = () => {
   // Switch status tab and reset pagination.
   const setViewStateAndResetPage = (status) => {
     setStatusFilter(status);
-    setPage(1);
+    setApiPage(1);
   };
 
-  const fromItem = totalItems === 0 ? 0 : (page - 1) * limit + 1;
-  const toItem = Math.min(page * limit, totalItems);
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const pageSize = 15;
+  const totalVariants = filteredItems.length;
+  const totalPages = Math.ceil(totalVariants / pageSize);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchRaw, statusFilter]);
+
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalVariants);
+  const paginatedVariants = filteredItems.slice(startIndex, endIndex);
+
+  const fromItem = totalVariants === 0 ? 0 : startIndex + 1;
 
   return (
     <div className={`inv-page-root ${changedRows.length > 0 ? "has-update-bar" : ""}`}>
@@ -132,33 +145,33 @@ const InventoryPage = () => {
           ) : (
             <>
               <InventoryTable
-                items={filteredItems}
+                items={paginatedVariants}
                 onQuantityChange={handleIncrement}
                 disabled={updating}
               />
 
-              {!error && filteredItems.length > 0 && (
+              {!error && totalVariants > 0 && (
                 <div className="inv-pagination">
                   <div className="inv-pagination-info">
-                    Showing <span>{fromItem}–{toItem}</span> of <span>{totalItems}</span> products
+                    Showing <span>{fromItem}–{endIndex}</span> of <span>{totalVariants}</span> variants
                   </div>
                   <div className="inv-pagination-controls">
                     <button
                       type="button"
                       className="inv-page-btn"
-                      disabled={page <= 1 || updating}
-                      onClick={() => setPage((p) => p - 1)}
+                      disabled={currentPage === 1 || updating}
+                      onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                     >
                       <ChevronLeft size={14} /> Previous
                     </button>
                     <span className="inv-page-indicator">
-                      Page <span>{page}</span> of <span>{totalPages}</span>
+                      Page <span>{currentPage}</span> of <span>{totalPages}</span>
                     </span>
                     <button
                       type="button"
                       className="inv-page-btn"
-                      disabled={page >= totalPages || updating}
-                      onClick={() => setPage((p) => p + 1)}
+                      disabled={currentPage === totalPages || updating}
+                      onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                     >
                       Next <ChevronRight size={14} />
                     </button>

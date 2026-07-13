@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Info, Clock, MapPin, Circle, PackageSearch } from "lucide-react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { ArrowLeft, Info, Clock, MapPin, Circle, PackageSearch, X, FileText } from "lucide-react";
 import axios from "axios";
+import { fetchPackingSlip } from "../../../services/sellerService";
 import "../theme.css";
 import "./TrackingPage.css";
 
@@ -54,9 +55,22 @@ const formatScanDate = (dateTimeStr) => {
 const TrackingPage = () => {
   const { waybill } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [trackingData, setTrackingData] = useState(null);
 
+ const [showSlipPopup, setShowSlipPopup] = useState(false);
+  const [pdfDownloadLink, setPdfDownloadLink] = useState(location.state?.pdfDownloadLink || "");
+  const [slipLoading, setSlipLoading] = useState(false);
+  const [slipError, setSlipError] = useState("");
+  // Button stays hidden until the popup has been shown & closed once
+  // (or immediately visible if the user didn't arrive via a fresh shipment creation)
+  const [slipButtonVisible, setSlipButtonVisible] = useState(!location.state?.shipmentJustCreated);
+
+  const closeSlipPopup = () => {
+    setShowSlipPopup(false);
+    setSlipButtonVisible(true);
+  };
   const fetchTrackingDetails = async () => {
     try {
       setLoading(true);
@@ -81,6 +95,65 @@ const TrackingPage = () => {
     fetchTrackingDetails();
   }, []);
 
+  useEffect(() => {
+    if (!loading && location.state?.shipmentJustCreated) {
+      setShowSlipPopup(true);
+      // Clear the flag so a manual refresh or back/forward doesn't reopen the popup
+      window.history.replaceState({}, document.title);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
+  const handleOpenPackageSlip = async () => {
+    if (pdfDownloadLink) {
+      setSlipError("");
+      setShowSlipPopup(true);
+      return;
+    }
+    setSlipLoading(true);
+    try {
+      const res = await fetchPackingSlip(waybill);
+      if (res?.pdf_download_link) {
+        setPdfDownloadLink(res.pdf_download_link);
+        setSlipError("");
+      } else {
+        setSlipError("Packing slip is not available yet. Please try again shortly.");
+      }
+      setShowSlipPopup(true);
+    } catch (err) {
+      console.error("[TrackingPage] Failed to fetch packing slip:", err);
+      setSlipError("Failed to load packing slip. Please try again.");
+      setShowSlipPopup(true);
+    } finally {
+      setSlipLoading(false);
+    }
+  };
+
+  const handleDownloadSlip = async () => {
+    if (!pdfDownloadLink) {
+      console.error("[TrackingPage] No pdf_download_link available.");
+      setSlipError("Packing slip link is not available yet.");
+      return;
+    }
+    try {
+      const response = await fetch(pdfDownloadLink);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `PackingSlip-${waybill}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error("[TrackingPage] Blob download failed, falling back to opening in browser:", err);
+      window.open(pdfDownloadLink, "_blank");
+      setSlipError("Couldn't force download — opened the PDF instead.");
+    }
+  };
+
   const handleBack = () => {
     navigate(-1);
   };
@@ -97,9 +170,16 @@ const TrackingPage = () => {
   );
 
   // Expected Delivery format
+  // Expected Delivery format
   const expectedDeliveryText = shipment?.ExpectedDeliveryDate
     ? formatExpectedDelivery(shipment.ExpectedDeliveryDate)
     : "Not Available";
+
+  // Detect a cancelled shipment from its scan history (e.g. "Seller cancelled the order").
+  // Package Slip should never be offered for a cancelled shipment.
+  const isCancelledShipment = sortedScans.some((scan) =>
+    /cancel/i.test(scan?.ScanDetail?.Instructions || "")
+  );
 
   // Loading skeleton state
   if (loading) {
@@ -176,6 +256,17 @@ const TrackingPage = () => {
             <ArrowLeft size={20} />
           </button>
           <h1 className="tracking-main-title">Order Tracking</h1>
+          {waybill && slipButtonVisible && !isCancelledShipment && (
+            <button
+              className="back-button-circle"
+              style={{ marginLeft: "auto", width: "auto", padding: "0 14px", display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: 600 }}
+              onClick={handleOpenPackageSlip}
+              disabled={slipLoading}
+            >
+              <FileText size={16} />
+              {slipLoading ? "Loading..." : "Download Package Slip"}
+            </button>
+          )}
         </div>
 
         {/* Top Summary Card */}
@@ -245,6 +336,65 @@ const TrackingPage = () => {
         </div>
 
       </div>
+
+      {/* Package Slip Popup */}
+      {showSlipPopup && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: "16px"
+          }}
+          onClick={() => setShowSlipPopup(false)}
+        >
+          <div
+            style={{
+              background: "#fff", borderRadius: "16px", padding: "28px",
+              maxWidth: "380px", width: "100%", position: "relative",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.2)"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowSlipPopup(false)}
+              style={{
+                position: "absolute", top: "14px", right: "14px", background: "transparent",
+                border: "none", cursor: "pointer", color: "#64748B", padding: "4px"
+              }}
+              aria-label="Close"
+            >
+              <X size={20} />
+            </button>
+
+            <h3 style={{ margin: "0 0 8px", fontSize: "18px", fontWeight: 800, color: "#1E293B" }}>
+              Shipment Created Successfully
+            </h3>
+            <p style={{ margin: "0 0 4px", fontSize: "14px", color: "#475569" }}>
+              Waybill Number: <strong>{waybill}</strong>
+            </p>
+            {pdfDownloadLink ? (
+              <p style={{ margin: "0 0 20px", fontSize: "14px", color: "#16A34A", fontWeight: 600 }}>
+                Package Slip Ready
+              </p>
+            ) : (
+              <p style={{ margin: "0 0 20px", fontSize: "14px", color: "#DC2626", fontWeight: 600 }}>
+                {slipError || "Packing slip not available yet."}
+              </p>
+            )}
+
+            <button
+              onClick={handleDownloadSlip}
+              disabled={!pdfDownloadLink}
+              style={{
+                width: "100%", padding: "12px 16px", borderRadius: "10px", border: "none",
+                background: pdfDownloadLink ? "#2962FF" : "#94A3B8", color: "#fff", fontWeight: 700,
+                fontSize: "14px", cursor: pdfDownloadLink ? "pointer" : "not-allowed"
+              }}
+            >
+              Download Package Slip
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

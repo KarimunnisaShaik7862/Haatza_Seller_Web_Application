@@ -418,6 +418,110 @@ html, body {
 }
 .map-error { padding: 24px 20px; text-align: center; color: var(--error); font-size: 13.5px; }
 .map-wrap { position: relative; width: 100%; height: 360px; flex-shrink: 1; min-height: 200px; overflow: hidden; }
+
+/* Map location search box styles */
+.map-search-container {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 60%;
+  max-width: 320px;
+  z-index: 1010;
+  display: flex;
+  flex-direction: column;
+}
+.map-search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+.map-search-input {
+  flex: 1;
+  border: none;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  background: transparent;
+}
+.map-search-clear-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 8px;
+  height: 100%;
+}
+.map-search-btn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 0 16px;
+  height: 38px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: opacity 0.15s;
+}
+.map-search-btn:hover {
+  opacity: 0.9;
+}
+.map-search-btn:disabled {
+  background: var(--bg);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+.map-search-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-top-color: var(--text-secondary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.map-search-results {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-top: 6px;
+  padding: 6px 0;
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  list-style: none;
+}
+.map-search-result-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.map-search-result-item:hover {
+  background: var(--bg);
+}
+.map-result-icon {
+  font-size: 14px;
+  margin-top: 1px;
+}
+.map-result-text {
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  text-align: left;
+}
 .map-container { width: 100%; height: 100%; }
 .map-crosshair {
   position: absolute;
@@ -556,6 +660,82 @@ html, body {
 }
 @keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
 
+/* ── Location permission pre-prompt ── */
+.location-permission-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.2s ease;
+}
+.location-permission-dialog {
+  background: var(--white);
+  border-radius: 16px;
+  padding: 26px 24px 22px;
+  max-width: 320px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  animation: slideUp 0.25s ease;
+}
+.location-permission-dialog svg {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 4px;
+}
+.location-permission-dialog h3 {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 10px 0 8px;
+}
+.location-permission-dialog p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-bottom: 20px;
+}
+.location-permission-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.location-permission-deny,
+.location-permission-allow {
+  flex: 1;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.location-permission-deny {
+  background: none;
+  border: 1.5px solid var(--border);
+  color: var(--text-secondary);
+}
+.location-permission-deny:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.location-permission-allow {
+  background: var(--primary);
+  border: 1.5px solid var(--primary);
+  color: #fff;
+}
+.location-permission-allow:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+
+/* ── Location button ── */
+
 /* ── Location button ── */
 .address-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .location-btn {
@@ -689,4 +869,21 @@ html, body {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
+}
+
+.btn-logout {
+  background: none;
+  border: 1.5px solid var(--border);
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  font-family: inherit;
+}
+.btn-logout:hover {
+  border-color: #dc2626;
+  background: #fef2f2;
 }

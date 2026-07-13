@@ -261,7 +261,7 @@ const compressImage = (file) =>
       }
 
       if (exceeded) {
-        onUpload(null, "You can't upload more than 5 images.");
+        onUpload(null, "You can upload a maximum of 5 promotion images.");
       }
 
       if (filesToProcess.length === 0) return;
@@ -388,7 +388,7 @@ const compressImage = (file) =>
                     <span className="pp-format-badge">PNG</span>
                     <span className="pp-format-badge">JPG/JPEG</span>
                     <span className="pp-format-badge">WEBP</span>
-                    <span className="pp-format-size">Max 5 images · ~150KB each</span>
+                    <span className="pp-format-size">Max 5 images</span>
                   </div>
                 </>
               )}
@@ -421,6 +421,11 @@ const compressImage = (file) =>
     const addKeyword = () => {
       const trimmed = inputVal.trim();
       if (!trimmed) return;
+      const alphanumericOnly = /^[a-zA-Z0-9 ]+$/;
+      if (!alphanumericOnly.test(trimmed)) {
+        if (setError) setError("Keywords can only contain letters, numbers, and spaces.");
+        return;
+      }
       if (keywords.includes(trimmed)) return;
       if (keywords.length >= 5) {
         if (setError) setError("Maximum of 5 keywords allowed.");
@@ -430,7 +435,6 @@ const compressImage = (file) =>
       setInputVal("");
       if (setError) setError("");
     };
-
     const handleKeyDown = (e) => {
       if (e.key === "Enter" || e.key === ",") {
         e.preventDefault();
@@ -487,7 +491,7 @@ const compressImage = (file) =>
             ref={inputRef}
             className="pp-keywords-inner-input"
             value={inputVal}
-            onChange={e => setInputVal(e.target.value)}
+            onChange={e => setInputVal(e.target.value.replace(/[^a-zA-Z0-9 ]/g, ""))}
             onKeyDown={handleKeyDown}
             onBlur={addKeyword}
             placeholder={keywords.length === 0 ? "Type keyword and press Enter…" : keywords.length >= 5 ? "Max keywords reached" : "Add another…"}
@@ -569,11 +573,20 @@ const compressImage = (file) =>
     const handleImageUpload = (img, err) => {
       if (err) {
         setImageError(err);
+        if (err.includes("maximum of 5 promotion images") || err.includes("more than 5 images")) {
+          setTimeout(() => {
+            setImageError(prev => (prev === err ? "" : prev));
+          }, 7000);
+        }
       } else if (img) {
         setPromotionImage(prev => {
           const current = Array.isArray(prev) ? prev : (prev ? [prev] : []);
           if (current.length >= 5) {
-            setImageError("You can't upload more than 5 images.");
+            const errMsg = "You can upload a maximum of 5 promotion images.";
+            setImageError(errMsg);
+            setTimeout(() => {
+              setImageError(prev => (prev === errMsg ? "" : prev));
+            }, 7000);
             return current;
           }
           setImageError("");
