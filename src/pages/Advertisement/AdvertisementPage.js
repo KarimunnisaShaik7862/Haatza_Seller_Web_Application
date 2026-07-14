@@ -1031,13 +1031,18 @@ const AdvertisementPage = () => {
     }
   };
 
-  const openEditCampaign = useCallback(() => {
+  const openEditCampaign = useCallback((startOnOpen = false) => {
     if (!selectedCampaign) {
       showToast("Please select a campaign to edit.", "error");
       return;
     }
 
-    const isCampaignActive = resolveIsCampaignActive();
+    // If explicitly starting the campaign from the details modal, force Active/true.
+    const forceActive = startOnOpen === true;
+    const isCampaignActive = forceActive ? true : resolveIsCampaignActive();
+    const resolvedStatus = forceActive ? "Active" : (campaignDetailInfo?.status || selectedCampaign.status || selectedCampaign.campaignstatus || "Inactive");
+
+    console.log("[CampaignEdit] Navigating to edit with resolved status:", { forceActive, isCampaignActive, resolvedStatus });
 
     const resolvedTableId =
       selectedCampaign.tableId ||
@@ -1085,9 +1090,9 @@ const AdvertisementPage = () => {
           dailyBudget: campaignDetailInfo?.dailyBudget || campaignDetailInfo?.budget || selectedCampaign.dailyBudget,
           productIds: productIdsForEdit,
           currentCampaignProducts: campaignProducts,
-          status: campaignDetailInfo?.status || selectedCampaign.status || selectedCampaign.campaignstatus || "Inactive",
-          campaignstatus: campaignDetailInfo?.status || selectedCampaign.status || selectedCampaign.campaignstatus || "Inactive",
-          adstatus: selectedCampaign.adstatus ?? selectedCampaign.adStatus ?? isCampaignActive,
+          status: resolvedStatus,
+          campaignstatus: resolvedStatus,
+          adstatus: forceActive ? true : (selectedCampaign.adstatus ?? selectedCampaign.adStatus ?? isCampaignActive),
           active: isCampaignActive,
           cpcGoal: campaignDetailInfo?.cpcGoal || selectedCampaign.cpcGoal || selectedCampaign.averageCPC || ""
         }
@@ -1928,7 +1933,7 @@ const AdvertisementPage = () => {
                       return;
                     }
 
-                    openEditCampaign();
+                    openEditCampaign(confirmModalType === "start");
                   }}
                   style={{
                     flex: 1,

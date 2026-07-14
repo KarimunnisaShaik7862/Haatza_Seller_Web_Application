@@ -1241,3 +1241,16 @@
   width: 100%;
   min-height: 44px;
 }
+/* Responsive page-width overrides */
+.ad-page-root { width: 100%; min-width: 0; max-width: 100%; overflow-x: clip; container-type: inline-size; }
+@container (max-width: 900px) {
+  .ad-content-grid, .details-section-grid { grid-template-columns: minmax(0, 1fr); }
+  .results-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 620px) {
+  .ad-page-root { padding: 16px; }
+  .ad-page-header, .details-header-row, .date-selector-row, .details-delete-row { align-items: stretch; flex-direction: column; }
+  .header-navigation-icons, .btn-create-campaign-main, .btn-delete-campaign-details { width: 100%; }
+  .btn-create-campaign-main, .btn-delete-campaign-details { justify-content: center; }
+  .ad-overview-section, .results-metrics-grid { grid-template-columns: minmax(0, 1fr); }
+}

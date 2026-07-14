@@ -160,7 +160,7 @@ const formatPlanDate = (dateValue) => {
   return date.toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
-    year: "2-digit",
+    year: "numeric",
   }).replace(/ /g, " ");
 };
 
@@ -186,7 +186,7 @@ const formatCurrentPlanActiveTill = (subscription, scheduledSub) => {
   return effectiveEnd.toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
-    year: "2-digit",
+    year: "numeric",
   }).replace(/ /g, " ");
 };
 
@@ -531,9 +531,13 @@ const GrowPlanPage = () => {
     const activeSub = subscriptionList.find(
       (s) => String(s?.status || "").toLowerCase() === "active"
     );
-    const scheduledSub = subscriptionList.find(
-      (s) => String(s?.status || "").toLowerCase() === "scheduled"
-    );
+    const scheduledSub = subscriptionList.find((s) => {
+      const status = String(s?.status || "").toLowerCase();
+      const start = parseDateSafe(s?.startedDate || s?.startDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return (status === "active" || status === "scheduled") && start && start > today;
+    });
 
     if (!activeSub || !scheduledSub) return;
 
@@ -668,6 +672,12 @@ const GrowPlanPage = () => {
 
   const expiryDateObj = parseDateSafe(expiryDate);
   const isExpired = expiryDateObj ? expiryDateObj < new Date() : false;
+
+  const isCurrentActive = Boolean(
+    currentSubscription &&
+    String(currentSubscription.status || "").toLowerCase() === "active" &&
+    !isExpired
+  );
 
   const scheduledSubscription = subscriptionList.find(
     (s) => String(s?.status || "").toLowerCase() === "scheduled"
@@ -1183,7 +1193,11 @@ const GrowPlanPage = () => {
         apiEndedDate: finalEndedDate
       });
 
-      const subStatus = isDowngradePlan ? "Scheduled" : "Active";
+      const parsedStart = parseDateSafe(finalStartedDate);
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const isSubScheduled = parsedStart ? parsedStart > today : false;
+      const subStatus = isSubScheduled ? "Scheduled" : "Active";
 
       const tableIdToUse =
         (isUpgradePlan || isRenewPlan)
@@ -1375,6 +1389,45 @@ const GrowPlanPage = () => {
         <div className="grow-error-banner">
           <span>{errorMsg}</span>
           <button onClick={() => setErrorMsg(null)}>&times;</button>
+        </div>
+      )}
+
+
+      {/* Subscription Summary Card */}
+      {(isCurrentActive || scheduledSubscription) && (
+        <div 
+          className="subscription-summary-card glass-card"
+          style={{
+            background: "var(--card-bg, #ffffff)",
+            border: "1px solid var(--border-color, #e2e8f0)",
+            borderRadius: "12px",
+            padding: "20px",
+            marginBottom: "24px",
+            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.025)",
+            textAlign: "left"
+          }}
+        >
+          <h3 style={{ fontSize: "14px", fontWeight: "700", color: "#64748b", marginBottom: "16px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Subscription Summary
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            {isCurrentActive && (
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <span style={{ fontSize: "13px", fontWeight: "600", color: "#64748b" }}>Current Plan Active Till:</span>
+                <span style={{ fontSize: "16px", fontWeight: "700", color: "#0f172a", marginTop: "4px" }}>
+                  {formatCurrentPlanActiveTill(currentSubscription, scheduledSubscription)}
+                </span>
+              </div>
+            )}
+            {scheduledSubscription && (
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <span style={{ fontSize: "13px", fontWeight: "600", color: "#64748b" }}>Scheduled Plan Starts On:</span>
+                <span style={{ fontSize: "16px", fontWeight: "700", color: "#0f172a", marginTop: "4px" }}>
+                  {formatPlanDate(scheduledSubscription.startedDate || scheduledSubscription.startDate)}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

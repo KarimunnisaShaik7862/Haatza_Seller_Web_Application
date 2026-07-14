@@ -132,6 +132,8 @@ const formatDisplayDate = (dateVal) => {
   });
 };
 
+
+
 // Current Plan card End Date display — always shows the corrected inclusive
 // end date, regardless of whether the backend record was saved exclusively
 // (legacy) or inclusively (correct). Never subtracts twice.
@@ -193,8 +195,32 @@ const getSubscriptionPaidAmount = (sub, plans) => {
   return getScheduledPlanPrice(sub, plans) || 0;
 };
 
+const calculateScheduledWaiveOff = (scheduledSubscription, plans, startDate) => {
+  if (!scheduledSubscription) return 0;
+  const proStart = parseLocalDate(scheduledSubscription.startedDate || scheduledSubscription.startDate);
+  const proEnd = getInclusiveEffectiveEndDate(scheduledSubscription);
+  const upgradeStart = parseLocalDate(startDate) || new Date();
 
+  if (!proStart || !proEnd) return 0;
 
+  const fullProPaidAmount = getSubscriptionPaidAmount(scheduledSubscription, plans);
+
+  // Scenario 1: Enterprise starts before (or on) the scheduled Pro start date
+  if (upgradeStart <= proStart) {
+    return fullProPaidAmount;
+  }
+
+  // Scenario 2: Enterprise starts after the scheduled Pro start date
+  if (upgradeStart > proEnd) {
+    return 0;
+  }
+
+  // Otherwise, it starts during the Pro subscription period.
+  const totalDays = daysBetween(proStart, proEnd) + 1;
+  const unusedDays = daysBetween(upgradeStart, proEnd) + 1;
+  const dailyRate = totalDays > 0 ? (fullProPaidAmount / totalDays) : 0;
+  return totalDays > 0 ? Math.max(0, Math.round(unusedDays * dailyRate)) : 0;
+};
 
 const PlanReviewPage = () => {
   const location = useLocation();
@@ -488,7 +514,7 @@ const PlanReviewPage = () => {
   const remainingAmount = safeNum(pricing.remainingAmount);
 
   const scheduledPaidAmount = isScheduledReplacement
-    ? getSubscriptionPaidAmount(scheduledSubscription, plans)
+    ? calculateScheduledWaiveOff(scheduledSubscription, plans, startDate)
     : 0;
 
 
@@ -825,7 +851,7 @@ const PlanReviewPage = () => {
         apiEndedDate: finalEndedDate
       });
 
-      const statusStr = (isDowngrade || isFutureUpgrade || isScheduledReplacement) ? "Scheduled" : "Active";
+      const statusStr = isScheduled ? "Scheduled" : "Active";
 
       const tableIdToUse = (isDowngrade || isFutureUpgrade) && scheduledSubscription && !isScheduledReplacement
         ? getSubscriptionTableId(scheduledSubscription)
@@ -884,7 +910,7 @@ const PlanReviewPage = () => {
       // when a real active subscription exists and there is an actual overlap.
       let newActiveEndedDate = null;
 
-      if (statusStr === "Scheduled" && currentSubscription && currentTableId) {
+      if (isScheduled && currentSubscription && currentTableId) {
         const activeExpiry = getInclusiveEffectiveEndDate(currentSubscription);
         const scheduledStartObj = parseDateSafe(finalStartedDate) || new Date(finalStartedDate);
 
@@ -908,7 +934,7 @@ const PlanReviewPage = () => {
 
 
       const scheduledPaidAmount = isScheduledReplacement
-        ? getSubscriptionPaidAmount(scheduledSubscription, plans)
+        ? calculateScheduledWaiveOff(scheduledSubscription, plans, startDate)
         : 0;
 
       const finalRemainingAmount = safeNum(remainingAmount);
@@ -992,7 +1018,7 @@ const PlanReviewPage = () => {
         ? "reschedule"
         : (scheduledSubscription && (isFutureUpgrade || isImmediateUpgrade || isScheduledReplacement))
           ? "replace"
-          : statusStr === "Scheduled"
+          : isScheduled
             ? "schedule"
             : "activate";
       subPayload.existingScheduledTableId = getSubscriptionTableId(scheduledSubscription);
@@ -1034,6 +1060,17 @@ const PlanReviewPage = () => {
         : "";
 
       if (cancelScheduledTableId && scheduledSubscription) {
+        const proStart = parseLocalDate(scheduledSubscription.startedDate || scheduledSubscription.startDate);
+        const upgradeStart = parseLocalDate(startDate) || new Date();
+        
+        let cancelEndedDate = scheduledSubscription.endedDate || scheduledSubscription.endDate;
+        if (proStart && upgradeStart && upgradeStart > proStart) {
+          const dayBeforeUpgrade = new Date(upgradeStart.getFullYear(), upgradeStart.getMonth(), upgradeStart.getDate() - 1);
+          cancelEndedDate = toApiMidnightIso(dayBeforeUpgrade);
+        } else {
+          cancelEndedDate = toApiMidnightIso(cancelEndedDate);
+        }
+
         const cancelScheduledPayload = {
           createSellerInvoice: null,
           createSubscription: {
@@ -1048,7 +1085,7 @@ const PlanReviewPage = () => {
             email: sellerEmail,
             sellerId: sellerId,
             startedDate: toApiMidnightIso(scheduledSubscription.startedDate || scheduledSubscription.startDate),
-            endedDate: toApiMidnightIso(scheduledSubscription.endedDate || scheduledSubscription.endDate),
+            endedDate: cancelEndedDate,
             schedulingAction: "schedule",
             existingScheduledTableId: cancelScheduledTableId,
             cancelScheduledTableId: "",
@@ -1714,65 +1751,37 @@ const PlanReviewPage = () => {
           {/* Right Column: Review Details & Summary Card */}
           <div className="plan-review-right-card">
 
-            {/* Current Plan card (mobile-app style) */}
-            {currentSubscription && (
+            {/* Subscription Summary Card */}
+            {(currentSubscription || scheduledSubscription) && (
               <div style={{
+                background: "#ffffff",
                 border: "1px solid #e2e8f0",
-                borderRadius: "10px",
-                padding: "14px 16px",
-                marginBottom: "16px",
+                borderRadius: "12px",
+                padding: "20px",
+                marginBottom: "24px",
+                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
                 textAlign: "left"
               }}>
-                <div style={{ fontSize: "13px", fontWeight: "700", color: "#64748b", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.02em" }}>
-                  Current Plan
-                </div>
-                <div className="plan-summary-row">
-                  <span>Plan Name</span>
-                  <span>{currentPlanName || "-"}</span>
-                </div>
-                <div className="plan-summary-row">
-                  <span>Start Date</span>
-                  <span>{formatDisplayDate(oldStart)}</span>
-                </div>
-                <div className="plan-summary-row">
-                  <span>End Date</span>
-                  <span>{formatCurrentPlanEndDate(currentSubscription)}</span>
-                </div>
-                <div className="plan-summary-row">
-                  <span>Status</span>
-                  <span>{currentSubscription.status || "-"}</span>
-                </div>
-              </div>
-            )}
-
-            {/* Upcoming / Scheduled Plan card, if one exists in subscriptionList */}
-            {scheduledSubscription && (
-              <div style={{
-                border: "1px solid #bfdbfe",
-                borderRadius: "10px",
-                padding: "14px 16px",
-                marginBottom: "16px",
-                textAlign: "left",
-                background: "#f8fbff"
-              }}>
-                <div style={{ fontSize: "13px", fontWeight: "700", color: "#1d4ed8", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.02em" }}>
-                  Upcoming Plan
-                </div>
-                <div className="plan-summary-row">
-                  <span>Plan Name</span>
-                  <span>{scheduledSubscription.planName || scheduledSubscription.plan || "-"}</span>
-                </div>
-                <div className="plan-summary-row">
-                  <span>Start Date</span>
-                  <span>{formatDisplayDate(scheduledSubscription.startedDate || scheduledSubscription.startDate)}</span>
-                </div>
-                <div className="plan-summary-row">
-                  <span>End Date</span>
-                  <span>{formatCurrentPlanEndDate(scheduledSubscription)}</span>
-                </div>
-                <div className="plan-summary-row">
-                  <span>Status</span>
-                  <span>{scheduledSubscription.status || "-"}</span>
+                <h3 style={{ fontSize: "14px", fontWeight: "700", color: "#64748b", marginBottom: "16px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Subscription Summary
+                </h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  {currentSubscription && String(currentSubscription.status || "").toLowerCase() === "active" && (
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span style={{ fontSize: "13px", fontWeight: "600", color: "#64748b" }}>Current Plan Active Till:</span>
+                      <span style={{ fontSize: "16px", fontWeight: "700", color: "#0f172a", marginTop: "4px" }}>
+                        {formatCurrentPlanEndDate(currentSubscription)}
+                      </span>
+                    </div>
+                  )}
+                  {scheduledSubscription && (
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span style={{ fontSize: "13px", fontWeight: "600", color: "#64748b" }}>Scheduled Plan Starts On:</span>
+                      <span style={{ fontSize: "16px", fontWeight: "700", color: "#0f172a", marginTop: "4px" }}>
+                        {formatDisplayDate(scheduledSubscription.startedDate || scheduledSubscription.startDate)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1928,6 +1937,8 @@ const PlanReviewPage = () => {
                   )}
                 </div>
               </div>
+
+
 
               {isSameScheduledPlan && (
                 <div className="reschedule-no-payment-note">

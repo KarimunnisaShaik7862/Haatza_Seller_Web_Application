@@ -5,7 +5,6 @@ import { ArrowLeft, CheckCircle, AlertOctagon, XCircle, Download, Truck } from "
 import { sellerService } from "../../services/sellerService";
 import {
   ReturnDetails,
-  ReturnExchangeActionButtons,
   ExchangeShipmentModal,
   RejectReturnModal,
   TrackShipmentModal
@@ -344,19 +343,7 @@ const ReturnDetailsPage = () => {
       {/* Render modular ReturnDetails component */}
       <ReturnDetails item={selectedReturn} />
 
-      {/* Centralized Action Buttons */}
-      <ReturnExchangeActionButtons
-        onTrack={() => {
-          const tid = trackingId || awbNumber || selectedReturn?.trackingId || selectedReturn?.waybill || selectedReturn?.awb;
-          const trimmedId = String(tid || "").trim();
-          if (trimmedId) {
-            navigate(`/dashboard/orders/tracking/${trimmedId}`);
-          } else {
-            showToast("Tracking ID is not available.", "error");
-          }
-        }}
-        loading={loading}
-      />
+
 
       {/* Modals */}
       <ExchangeShipmentModal 

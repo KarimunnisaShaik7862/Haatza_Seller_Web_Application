@@ -8,7 +8,7 @@ const ReturnExchangeFilters = ({ searchQuery, setSearchQuery }) => {
       <input
         type="text"
         className="ret-search-input"
-        placeholder="Search by Order ID or Customer Name..."
+        placeholder="Search by Product ID or Product Name..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
       />

@@ -377,25 +377,25 @@
 .inventory-update-bar {
   position: fixed;
   bottom: 0;
-  left: var(--sidebar-collapsed-width, 76px);
-  right: 0;
-  z-index: 1999;
+  left: calc(var(--sidebar-width-mini, 76px) + 24px);
+  right: 24px;
+  z-index: 99;
   box-sizing: border-box;
   padding: 16px 48px 24px;
   background: #f5f7ff;
   box-shadow: 0 -10px 24px rgba(15, 23, 42, 0.08);
   display: flex;
   justify-content: center;
-  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .app-container.sidebar-open:not(.sidebar-collapsed) .inventory-update-bar {
-  left: var(--sidebar-expanded-width, 280px);
+  left: calc(var(--sidebar-width, 380px) + 24px);
 }
 
 .app-container.sidebar-collapsed .inventory-update-bar,
 .app-container.sidebar-open.sidebar-collapsed .inventory-update-bar {
-  left: var(--sidebar-collapsed-width, 76px);
+  left: calc(var(--sidebar-width-mini, 76px) + 24px);
 }
 
 .inventory-update-bar button {
@@ -587,8 +587,8 @@
   }
 
   .inventory-update-bar {
-    left: 0;
-    right: 0;
+    left: 16px;
+    right: 16px;
     padding: 12px 16px 18px;
     border-radius: 0;
     box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);

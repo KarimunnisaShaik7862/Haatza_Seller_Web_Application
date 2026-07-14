@@ -1466,11 +1466,11 @@ export const createListing = async (payload) => {
     10
   ) || 0;
   safePayload.inventory = syncedInventory;
-safePayload.totalQuantity = syncedInventory;
-safePayload.TotalQuantity = syncedInventory;
-delete safePayload.stock;
-delete safePayload.availableStock;
-delete safePayload.quantity;
+  safePayload.totalQuantity = syncedInventory;
+  safePayload.TotalQuantity = syncedInventory;
+  delete safePayload.stock;
+  delete safePayload.availableStock;
+  delete safePayload.quantity;
   if (!Array.isArray(safePayload.additionalInfoSections)) {
     safePayload.additionalInfoSections = [];
   }
@@ -1558,19 +1558,19 @@ export const updateListing = async (payload) => {
   // field name the backend reads as authoritative always carries the latest value.
   // NOTE: only totalQuantity is sent to the backend; inventory/stock are NOT
   // valid backend fields and were causing 400 Bad Request errors on update.
- const syncedInventory = parseInt(
+  const syncedInventory = parseInt(
     safePayload.inventory ?? safePayload.TotalQuantity ?? safePayload.totalQuantity ?? safePayload.stock ?? safePayload.availableStock ?? 0,
     10
   ) || 0;
- safePayload.inventory = syncedInventory;
-safePayload.totalQuantity = syncedInventory;
-safePayload.TotalQuantity = syncedInventory;
-delete safePayload.stock;
-delete safePayload.availableStock;
+  safePayload.inventory = syncedInventory;
+  safePayload.totalQuantity = syncedInventory;
+  safePayload.TotalQuantity = syncedInventory;
+  delete safePayload.stock;
+  delete safePayload.availableStock;
 
   // Force-sync Price the same way as SKU — whichever field name the backend
   // reads as authoritative always carries the latest value.
- // Force-sync Price the same way as SKU — whichever field name the backend
+  // Force-sync Price the same way as SKU — whichever field name the backend
   // reads as authoritative always carries the latest value.
   const syncedPrice = parseFloat(safePayload.price ?? 0) || 0;
   safePayload.price = syncedPrice;
@@ -1755,7 +1755,7 @@ export const buildCreatePayload = ({
     subCategory: subcategory?.name || "",
     subCategoryId: subCatId,
     promotionPhotos,
-    paymentType: formData.acceptCOD === "yes" ? "Cash on Delivery Available" : "prepaid",
+    paymentType: formData.acceptCOD === "yes" ? "Cash on Delivery Available" : " No Cash on Delivery Available",
     productReturn: resolveProductReturn(formData.productReturn),
     deliveryCharges: formData.deliveryCharge === "yes",
     shippingWeight: parseFloat(formData.shippingWeight) || 0,
@@ -1889,7 +1889,7 @@ export const buildUpdatePayload = ({
     ribbon: editData?.ribbon || "",
     varientPrice,
     additionalInfoSections,
-    paymentType: formData.acceptCOD === "yes" ? "Cash on Delivery Available" : "prepaid",
+    paymentType: formData.acceptCOD === "yes" ? "Cash on Delivery Available" : "No Cash on Delivery Available",
     productReturn: resolveProductReturn(formData.productReturn),
     deliveryCharges: formData.deliveryCharge === "yes",
     inventory: (() => {
@@ -2156,7 +2156,7 @@ const mergeCachedProductDetails = (normalised, tableId) => {
   if (!cachedStr) return normalised;
   try {
     const cached = JSON.parse(cachedStr);
-    
+
     if (cached.name !== undefined) normalised.name = cached.name;
     if (cached.sku !== undefined) {
       normalised.sku = cached.sku;
@@ -2168,20 +2168,20 @@ const mergeCachedProductDetails = (normalised, tableId) => {
     if (cached.price !== undefined) normalised.price = cached.price;
     if (cached.brand !== undefined) normalised.brand = cached.brand;
     if (cached.description !== undefined) normalised.description = cached.description;
-    
+
     if (cached.resellingProfit !== undefined) {
       normalised.resellingProfit = cached.resellingProfit;
       normalised.sellAndEarnCommission = cached.resellingProfit;
       normalised.sellAndEarn = cached.resellingProfit > 0;
     }
-    
+
     if (cached.inventory !== undefined || cached.totalQuantity !== undefined) {
       const cachedInv = cached.inventory !== undefined ? cached.inventory : cached.totalQuantity;
       normalised.inventory = cachedInv;
       normalised.totalQuantity = cachedInv;
       normalised.stock = cachedInv;
     }
-    
+
     if (cached.mainmedia !== undefined) normalised.mainmedia = cached.mainmedia;
     if (cached.productImages !== undefined) normalised.productImages = cached.productImages;
     if (cached.mediaItems !== undefined) normalised.mediaItems = cached.mediaItems;
@@ -2270,13 +2270,13 @@ export const fetchProductDetails = async (tableId) => {
     // already used for SKU and Reselling Profit above. This guarantees
     // Available Stock never reverts to a stale server value if the backend
     // hasn't finished propagating the update by the time this fetch runs.
-   const lastSavedStock = sessionStorage.getItem(`__haatza_lastStock_${normalised.Table_ID || tableId || ""}`);
+    const lastSavedStock = sessionStorage.getItem(`__haatza_lastStock_${normalised.Table_ID || tableId || ""}`);
     const serverStockRaw = details.inventory ?? details.totalQuantity ?? details.stock ?? null;
     normalised.inventory = (lastSavedStock !== null && lastSavedStock !== "")
       ? Number(lastSavedStock)
       : (serverStockRaw !== null && serverStockRaw !== undefined && serverStockRaw !== ""
-          ? Number(serverStockRaw)
-          : 0);
+        ? Number(serverStockRaw)
+        : 0);
     normalised.totalQuantity = normalised.inventory;
     normalised.stock = normalised.inventory;
 
@@ -2540,8 +2540,8 @@ export const fetchInProgressProductDetails = async (tableId) => {
     normalised.inventory = (lastSavedStock !== null && lastSavedStock !== "")
       ? Number(lastSavedStock)
       : (serverStockRaw !== null && serverStockRaw !== undefined && serverStockRaw !== ""
-          ? Number(serverStockRaw)
-          : 0);
+        ? Number(serverStockRaw)
+        : 0);
     normalised.totalQuantity = normalised.inventory;
     normalised.stock = normalised.inventory;
     const rawSizeChart = normalised.sizeChart || normalised.size_chart
@@ -2788,7 +2788,7 @@ export const verifyOtp = async (phone, otp) => {
     throw new Error("Verification failed. Please try again.");
   }
 
- const data = await res.json();
+  const data = await res.json();
 
   if (data?.status !== "success") {
     throw new Error(
@@ -3141,7 +3141,7 @@ export const registerUser = async ({ fullName, phone, email, password }) => {
   const messageStr = typeof data?.message === "string"
     ? data.message.toLowerCase()
     : "";
- // Only a genuine backend "success" status counts. Silently treating
+  // Only a genuine backend "success" status counts. Silently treating
   // "already exists"/"duplicate" errors as success let registration
   // complete even when it shouldn't have — remove that override so a
   // failed /registeruser call is never masked as a success.
@@ -3935,25 +3935,210 @@ export const getCampaignProductPerformance = async (arg, prodId) => {
   return response.data;
 };
 
-export const createSellerCampaign = async (payload) => {
-  if (payload && payload.sellerId) {
-    payload.sellerId = getOrResolveSellerId(payload.sellerId);
+
+const buildCampaignApiPayload = (payload = {}) => {
+  const averageCPCSource =
+    payload.averageCPC !== undefined && payload.averageCPC !== null && payload.averageCPC !== ""
+      ? payload.averageCPC
+      : payload.cpcGoal;
+
+  const averageCPCNumber = Number(averageCPCSource);
+  const averageCPC =
+    Number.isFinite(averageCPCNumber) && averageCPCNumber > 0
+      ? averageCPCNumber
+      : 5;
+
+  const dailyBudgetNumber = Number(payload.dailyBudget);
+
+  const productId = Array.isArray(payload.productId)
+    ? payload.productId.map(String).map((id) => id.trim()).filter(Boolean).join(",")
+    : String(payload.productId || payload.productIds || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .join(",");
+
+  const priorityScoreNumber = Number(payload.priorityScore);
+
+  const finalPayload = {
+    sellerId: getOrResolveSellerId(payload.sellerId),
+    campaignType: payload.campaignType || "Smart",
+    productId,
+    dailyBudget: dailyBudgetNumber,
+    startDateTime: payload.startDateTime,
+    endDateTime: payload.endDateTime,
+    title: String(payload.title || payload.campaignName || "").trim(),
+    priorityScore:
+      Number.isFinite(priorityScoreNumber) && priorityScoreNumber > 0
+        ? priorityScoreNumber
+        : Math.round((dailyBudgetNumber * 50) + (averageCPC * 2)),
+    averageCPC,
+    campaignstatus: payload.campaignstatus || payload.status || "Active"
+  };
+
+  const resolvedId = payload._id || payload.tableId || payload.TableID || payload.rowId || "";
+  const resolvedTableId = payload.tableId || payload.TableID || payload._id || payload.rowId || "";
+  const resolvedCampaignId = payload.campaignId || payload.CampaignID || payload.campaignID || "";
+
+  if (resolvedId) finalPayload._id = resolvedId;
+  if (resolvedTableId) finalPayload.tableId = resolvedTableId;
+  if (resolvedCampaignId) finalPayload.campaignId = resolvedCampaignId;
+
+  delete finalPayload.cpcGoal;
+  delete finalPayload.productIds;
+  delete finalPayload.status;
+  delete finalPayload.active;
+
+  const missingFields = Object.entries(finalPayload)
+    .filter(([key, value]) => {
+      if (["dailyBudget", "priorityScore", "averageCPC"].includes(key)) {
+        const num = Number(value);
+        return !Number.isFinite(num) || num <= 0;
+      }
+      if (["_id", "tableId", "campaignId"].includes(key)) {
+        return false;
+      }
+      return value === undefined || value === null || value === "";
+    })
+    .map(([key]) => key);
+
+  if (missingFields.length) {
+    throw new Error(`Missing required campaign fields: ${missingFields.join(", ")}`);
   }
-  const response = await axios.post(`${API_BASE_URL}/newSellerCampaign`, payload, {
+
+  return finalPayload;
+};
+
+export const createSellerCampaign = async (payload = {}) => {
+  const finalPayload = buildCampaignApiPayload(payload);
+
+  _svcLog("[CampaignCreate] final newSellerCampaign payload:", finalPayload);
+
+  const response = await axios.post(NEW_SELLER_CAMPAIGN_API, finalPayload, {
     headers: { "Content-Type": "application/json" },
     timeout: 15000,
   });
+
+  _svcLog("[CampaignCreate] response:", response.data);
+
+  const statusStr = String(response.data?.status || "").trim().toLowerCase();
+  const FAILURE_STATUSES = new Set(["failed", "fail", "error"]);
+
+  if (FAILURE_STATUSES.has(statusStr)) {
+    const backendMessage =
+      response.data?.message?.message ||
+      response.data?.message?.error ||
+      response.data?.message ||
+      "Failed to create campaign.";
+    const errorText = typeof backendMessage === "string" ? backendMessage : JSON.stringify(backendMessage);
+    _svcErr("[CampaignCreate] failed:", errorText, response.data);
+    throw new Error(errorText);
+  }
+
   return response.data;
 };
 
-export const updateSellerCampaign = async (payload) => {
-  if (payload && payload.sellerId) {
-    payload.sellerId = getOrResolveSellerId(payload.sellerId);
+export const updateSellerCampaign = async (payload = {}) => {
+  const tableId = String(
+    payload.TableId ||
+    payload.tableId ||
+    payload.TableID ||
+    payload._id ||
+    payload.rowId ||
+    ""
+  ).trim();
+
+  const averageCPCSource =
+    payload.averageCPC !== undefined &&
+      payload.averageCPC !== null &&
+      payload.averageCPC !== ""
+      ? payload.averageCPC
+      : payload.cpcGoal;
+
+  const averageCPCNumber = Number(averageCPCSource);
+  const averageCPC =
+    Number.isFinite(averageCPCNumber) && averageCPCNumber > 0
+      ? averageCPCNumber
+      : 5;
+
+  const dailyBudgetNumber = Number(payload.dailyBudget);
+  const priorityScoreNumber = Number(payload.priorityScore);
+
+  const productId = Array.isArray(payload.productId)
+    ? payload.productId
+      .map(String)
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .join(",")
+    : String(payload.productId || payload.productIds || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .join(",");
+
+  const finalPayload = {
+    TableId: tableId,
+    sellerId: getOrResolveSellerId(payload.sellerId),
+    campaignType: payload.campaignType || "Smart",
+    productId,
+    dailyBudget: dailyBudgetNumber,
+    startDateTime: payload.startDateTime,
+    endDateTime: payload.endDateTime,
+    title: String(payload.title || payload.campaignName || "").trim(),
+    averageCPC,
+    priorityScore:
+      Number.isFinite(priorityScoreNumber) && priorityScoreNumber > 0
+        ? priorityScoreNumber
+        : Math.round((dailyBudgetNumber * 50) + (averageCPC * 2))
+  };
+
+  delete finalPayload._id;
+  delete finalPayload.tableId;
+  delete finalPayload.TableID;
+  delete finalPayload.campaignId;
+  delete finalPayload.cpcGoal;
+  delete finalPayload.status;
+  delete finalPayload.active;
+  delete finalPayload.productIds;
+  delete finalPayload.campaignstatus;
+
+  const missingFields = Object.entries(finalPayload)
+    .filter(([key, value]) => {
+      if (["dailyBudget", "priorityScore", "averageCPC"].includes(key)) {
+        const num = Number(value);
+        return !Number.isFinite(num) || num <= 0;
+      }
+      return value === undefined || value === null || value === "";
+    })
+    .map(([key]) => key);
+
+  if (missingFields.length) {
+    throw new Error(`Missing required campaign update fields: ${missingFields.join(", ")}`);
   }
-  const response = await axios.post(`${API_BASE_URL}/updateSellerCampaign`, payload, {
+
+  _svcLog("[CampaignUpdate] final updateSellerCampaign payload:", finalPayload);
+
+  const response = await axios.post(UPDATE_SELLER_CAMPAIGN_API, finalPayload, {
     headers: { "Content-Type": "application/json" },
     timeout: 15000,
   });
+
+  _svcLog("[CampaignUpdate] response:", response.data);
+
+  const statusStr = String(response.data?.status || "").trim().toLowerCase();
+  const FAILURE_STATUSES = new Set(["failed", "fail", "error"]);
+
+  if (FAILURE_STATUSES.has(statusStr)) {
+    const backendMessage =
+      response.data?.message?.message ||
+      response.data?.message?.error ||
+      response.data?.message ||
+      "Failed to update campaign.";
+    const errorText = typeof backendMessage === "string" ? backendMessage : JSON.stringify(backendMessage);
+    _svcErr("[CampaignUpdate] failed:", errorText, response.data);
+    throw new Error(errorText);
+  }
+
   return response.data;
 };
 
@@ -3978,7 +4163,6 @@ export const deleteSellerCampaign = async (payload) => {
   });
   return response.data;
 };
-
 export const getCampaigns = async (sellerId) => {
   return getSellerCampaigns(sellerId);
 };
@@ -5016,7 +5200,7 @@ export const sellerService = {
   handleTrackShipment,
   handleDownloadPackingSlip,
   fetchPackingSlip,
- submitWarehouseRequest,
+  submitWarehouseRequest,
   updateSellerOnboarding,
   forgotPassword,
   loginUser,
@@ -5064,7 +5248,7 @@ export const resolveAuthenticatedUserId = () => {
         if (uid && typeof uid === "string" && uid.length > 5) {
           return uid.trim();
         }
-      } catch {}
+      } catch { }
     }
   }
   return "";
@@ -5080,7 +5264,7 @@ export const walletService = {
     const resolvedSellerId = resolveWalletSellerId(sellerId);
     const resolvedEmail = resolveSellerEmailForApi();
     const resolvedUserId = resolveAuthenticatedUserId();
-    const params = { 
+    const params = {
       sellerId: resolvedSellerId,
       userId: resolvedUserId,
       user_id: resolvedUserId,
@@ -5109,7 +5293,7 @@ export const walletService = {
     const resolvedSellerId = resolveWalletSellerId(sellerId);
     const resolvedEmail = resolveSellerEmailForApi();
     const resolvedUserId = resolveAuthenticatedUserId();
-    const params = { 
+    const params = {
       sellerId: resolvedSellerId,
       userId: resolvedUserId,
       user_id: resolvedUserId,

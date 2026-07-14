@@ -129,8 +129,11 @@ const [decadeStart, setDecadeStart] = useState(Math.floor(today.getFullYear() / 
     let list = [...orders];
 
     if (search.trim()) {
+      const q = search.trim().toLowerCase();
       list = list.filter((o) =>
-        String(o.orderId || "").toLowerCase().includes(search.trim().toLowerCase())
+        String(o.orderId || "").toLowerCase().includes(q) ||
+        String(o.items || "").toLowerCase().includes(q) ||
+        String(o.productId || o.productID || "").toLowerCase().includes(q)
       );
     }
 
@@ -372,7 +375,7 @@ const handleMonthSelect = (monthIndex) => {
             <Search size={18} />
             <input
               type="text"
-              placeholder="Search by Order ID"
+              placeholder="Search by Product ID or Product Name..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />

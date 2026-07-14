@@ -1345,22 +1345,36 @@ const CreateCampaignPage = () => {
         return;
       }
 
+      const resolvedActiveFlag = editCampaign.active ?? editCampaign.adstatus ?? editCampaign.adStatus ?? false;
+
+      // Handle numeric campaignId coercion for backend type-safety (Wix collections query type-sensitivity)
+      const numericCampaignId = Number(resolvedCampaignId);
+      const campaignIdToSubmit = (resolvedCampaignId !== "" && !isNaN(numericCampaignId))
+        ? numericCampaignId
+        : resolvedCampaignId;
+
       const payload = {
         _id: resolvedTableId,
         tableId: resolvedTableId,
-        campaignId: resolvedCampaignId,
+        id: resolvedTableId, // Fallback database ID key
+        campaignId: campaignIdToSubmit,
+        campaignID: campaignIdToSubmit,
         sellerId,
         campaignType: campaignType || "Smart",
         title: campaignName.trim(),
         startDateTime,
         endDateTime,
         dailyBudget: Number(dailyBudget),
-        cpcGoal: averageCPCValue,
         averageCPC: averageCPCValue ?? undefined,
         productId: selectedProductIdString,
         campaignstatus: editCampaign.campaignstatus || editCampaign.status || "Inactive",
         status: editCampaign.status || editCampaign.campaignstatus || "Inactive",
-        active: editCampaign.active ?? editCampaign.adstatus ?? editCampaign.adStatus ?? false
+        active: resolvedActiveFlag,
+        // Backend reads the active flag from "Adstatus" (capital A) on
+        // read — see normalizeCampaign() in AdvertisementPage.jsx. Include
+        // it explicitly on update so the flag isn't silently dropped/reset.
+        Adstatus: resolvedActiveFlag,
+        adstatus: resolvedActiveFlag
       };
 
       console.log("[CampaignUpdate] final payload:", payload);
@@ -1375,11 +1389,10 @@ const CreateCampaignPage = () => {
             ? response.message
             : response?.message?.message || response?.message?.error || response?.data?.message || "";
 
-        const isNotFoundError =
-          response?.status === "error" &&
-          String(responseMessageText).includes("Campaign not found for given ID");
+        const isFailedResponse = response?.status === "error" || response?.status === "Failed" || response?.status === "failed";
+        const isNotFoundError = isFailedResponse && String(responseMessageText).includes("Campaign not found for given ID");
 
-        if (isNotFoundError || response?.status === "error") {
+        if (isFailedResponse) {
           if (isNotFoundError) {
             console.log("[Advertisement] Campaign not found for given ID. Info:", {
               sellerId,

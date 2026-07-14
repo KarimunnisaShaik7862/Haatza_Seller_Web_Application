@@ -311,14 +311,14 @@ const handleMonthSelect = (monthIndex) => {
   const filteredItems = useMemo(() => {
     let result = [...returnsList];
 
-    // 1. Search Query Filter (Searches by Order ID, Customer Name, or Product Name)
+    // 1. Search Query Filter (Searches by Order ID, Product ID, or Product Name)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter(
         (item) =>
           String(item.orderId || "").toLowerCase().includes(q) ||
-          String(item.customerName || "").toLowerCase().includes(q) ||
-          String(item.items || "").toLowerCase().includes(q)
+          String(item.items || "").toLowerCase().includes(q) ||
+          String(item.productId || item.productIdString || item.productID || "").toLowerCase().includes(q)
       );
     }
 
