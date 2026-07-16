@@ -102,13 +102,13 @@ const NAV_SECTIONS = [
           React.createElement("path", { d: "M15.54 8.46a5 5 0 010 7.07" })
         ),
       },
-     {
-        key: "growplan", label: "Grow Plan",
-        icon: React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
-          React.createElement("circle", { cx: "12", cy: "12", r: "10" }),
-          React.createElement("path", { d: "M12 8l4 4-4 4-4-4 4-4z" })
-        ),
-      },
+//      {
+//         key: "growplan", label: "Grow Plan",
+//         icon: React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+//           React.createElement("circle", { cx: "12", cy: "12", r: "10" }),
+//           React.createElement("path", { d: "M12 8l4 4-4 4-4-4 4-4z" })
+//         ),
+//       },
       {
         key: "productinsight", label: "Product Insight",
         icon: React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
@@ -570,6 +570,13 @@ function Sidebar({
       setTooltip({ label: "", anchorRect: null, visible: false, activeKey: null });
     }
   }, [isCollapsed]);
+
+  useEffect(() => {
+    setTooltip({ label: "", anchorRect: null, visible: false, activeKey: null });
+    if (window.innerWidth <= 768) {
+      setIsCollapsed(true);
+    }
+  }, [location.pathname]);
 
   /* ── Breakpoint listener ──────────────────────────────────── */
   useEffect(() => {

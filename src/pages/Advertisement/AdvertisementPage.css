@@ -886,10 +886,9 @@
 }
 
 .details-section-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  display: flex;
+  flex-direction: column;
   gap: 24px;
-  align-items: start;
 }
 
 .results-metrics-grid {
@@ -1253,4 +1252,128 @@
   .header-navigation-icons, .btn-create-campaign-main, .btn-delete-campaign-details { width: 100%; }
   .btn-create-campaign-main, .btn-delete-campaign-details { justify-content: center; }
   .ad-overview-section, .results-metrics-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .ad-page-root {
+    padding: 10px !important;
+  }
+  .ad-campaigns-list-card {
+    padding: 12px !important;
+  }
+  .table-wrapper-horizontal {
+    overflow-x: visible !important;
+  }
+  .campaigns-desktop-table {
+    display: block !important;
+    width: 100% !important;
+  }
+  .campaigns-desktop-table thead {
+    display: none !important;
+  }
+  .campaigns-desktop-table tbody {
+    display: block !important;
+    width: 100% !important;
+  }
+  .campaigns-desktop-table tr {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: auto auto auto auto !important;
+    grid-template-areas:
+      "name name"
+      "id type"
+      "status budget"
+      "date date" !important;
+    gap: 12px !important;
+    background: #ffffff !important;
+    border: 1.5px solid #f1f5f9 !important;
+    border-radius: 12px !important;
+    padding: 16px !important;
+    margin-bottom: 16px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+  }
+  .campaigns-desktop-table td {
+    display: block !important;
+    padding: 0 !important;
+    border-bottom: none !important;
+    font-size: 13.5px !important;
+    color: #4b5563 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .campaigns-desktop-table td:nth-child(1) {
+    grid-area: name;
+  }
+  .campaigns-desktop-table td:nth-child(2) {
+    grid-area: id;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+  }
+  .campaigns-desktop-table td:nth-child(2)::before {
+    content: "Campaign ID";
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+  }
+  .campaigns-desktop-table td:nth-child(3) {
+    grid-area: type;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 4px !important;
+  }
+  .campaigns-desktop-table td:nth-child(3)::before {
+    content: "Type";
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+  }
+  .campaigns-desktop-table td:nth-child(4) {
+    grid-area: status;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+  }
+  .campaigns-desktop-table td:nth-child(4)::before {
+    content: "Status";
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+  }
+  .campaigns-desktop-table td:nth-child(5) {
+    grid-area: date;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    border-top: 1px solid #f1f5f9 !important;
+    padding-top: 10px !important;
+    margin-top: 4px !important;
+  }
+  .campaigns-desktop-table td:nth-child(5)::before {
+    content: "Start Date/Time";
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+  }
+  .campaigns-desktop-table td:nth-child(6) {
+    grid-area: budget;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 4px !important;
+  }
+  .campaigns-desktop-table td:nth-child(6)::before {
+    content: "Budget";
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+  }
 }

@@ -1,4 +1,4 @@
-﻿.settlements-page-root {
+.settlements-page-root {
   padding: 24px;
   min-height: 100vh;
   background: #f5f6fa;
@@ -1031,5 +1031,159 @@
   .settlements-table td:nth-child(2) {
     font-weight: 600;
     color: #059669;
+  }
+}
+
+.cdrp-overlay {
+  display: none;
+}
+.cdrp-close-btn {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .settlements-page-root {
+    padding: 10px !important;
+  }
+  .settlements-card-body {
+    padding: 12px !important;
+  }
+  .settlements-filters-row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .settlements-filters-row > .search-bar-wrapper {
+    width: 100%;
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
+  }
+  .cdrp-root {
+    flex: 1;
+  }
+  .cdrp-trigger {
+    width: 100%;
+    box-sizing: border-box;
+    justify-content: space-between;
+  }
+  .btn-refresh {
+    flex-shrink: 0;
+  }
+  
+  /* Centered modal background overlay (leaving sidebar uncovered) */
+  .cdrp-overlay {
+    display: block !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 72px !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+    z-index: 9998 !important;
+    backdrop-filter: blur(1.5px) !important;
+  }
+
+  /* Centered calendar popup modal with auto/reduced height */
+  .cdrp-popover {
+    position: fixed !important;
+    top: 50% !important;
+    bottom: auto !important; /* Overrides bottom: 0 from other media query */
+    left: calc(72px + (100vw - 72px) / 2) !important;
+    transform: translate(-50%, -50%) !important;
+    width: 290px !important;
+    max-width: calc(100vw - 88px) !important;
+    box-sizing: border-box !important;
+    z-index: 9999 !important;
+    padding: 14px 16px 16px !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15) !important;
+  }
+
+  /* Calendar modal close button */
+  .cdrp-close-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+    z-index: 10;
+  }
+  .cdrp-close-btn:hover {
+    background-color: #f3f4f6;
+    color: #111827;
+  }
+
+  /* Spacing adjust for close button */
+  .cdrp-selection-row {
+    padding-right: 28px !important;
+    margin-bottom: 10px !important;
+  }
+
+  /* Scaled-down calendar elements to fit comfortably on mobile viewport */
+  .cdrp-cell {
+    height: 32px !important;
+  }
+  .cdrp-day-btn {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 12px !important;
+  }
+  .cdrp-weekday {
+    height: 24px !important;
+    font-size: 10px !important;
+  }
+  .cdrp-grid {
+    margin-bottom: 8px !important;
+    row-gap: 2px !important;
+  }
+  .cdrp-nav-header {
+    margin-bottom: 8px !important;
+    padding: 0 4px !important;
+  }
+  .cdrp-footer {
+    padding-top: 8px !important;
+  }
+  .cdrp-selection-label {
+    font-size: 12px !important;
+  }
+  
+  .settlements-modal-overlay {
+    left: 72px !important;
+    width: calc(100vw - 72px) !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 16px !important;
+    box-sizing: border-box !important;
+  }
+  .settlements-modal-card {
+    border-radius: 16px !important;
+    max-width: 320px !important;
+    width: 100% !important;
+    max-height: 85vh !important;
+    transform: none !important;
+    animation: settlements-zoom-in 0.2s ease-out both !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15) !important;
+  }
+  @keyframes settlements-zoom-in {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .settlements-modal-card .modal-header {
+    padding: 16px 20px;
+  }
+  .settlements-modal-card .modal-body {
+    padding: 16px 20px;
+    max-height: calc(85vh - 68px) !important;
   }
 }

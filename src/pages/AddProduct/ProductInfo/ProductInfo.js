@@ -790,6 +790,7 @@ const CODLikeMatch = (val) => {
   if (val === false || val === undefined || val === null) return false;
   const normalized = String(val).toLowerCase().trim();
   if (!normalized) return false;
+  if (normalized.startsWith("no") || normalized.includes("not available") || normalized.includes("no cash")) return false;
   const CODIndicators = ["yes", "true", "1", "cod", "cash on delivery", "cash on delivery available", "delivery available"];
   return CODIndicators.some(ind => normalized === ind || normalized.includes(ind));
 };

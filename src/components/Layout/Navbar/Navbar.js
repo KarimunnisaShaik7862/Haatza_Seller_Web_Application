@@ -162,7 +162,7 @@ const greeting = getGreeting();
     { label: "Help", route: "/dashboard/help" },
     { label: "Advertisement", route: "/dashboard/advertisement" },
     { label: "Campaign", route: "/dashboard/advertisement" },
-    { label: "Group Plan", route: "/dashboard/growplan" },
+//    { label: "Group Plan", route: "/dashboard/growplan" },
     { label: "Product Insight", route: "/dashboard/productinsight" },
     { label: "Warehouse", route: "/dashboard/warehouse" },
     { label: "Influencer Branding", route: "/dashboard/influencer" },

@@ -1,5 +1,7 @@
-import axios from "axios";
+import apiClient from "../api/apiClient";
 import { resolveSellerId as sessionResolveSellerId, getSellerId as sessionGetSellerId, resolveSellerEmail, resolveSellerPhone, resolveSellerName } from "../utils/sellerSession";
+
+const axios = apiClient;
 
 export const resolveSellerId = sessionResolveSellerId;
 const getSellerId = sessionGetSellerId;
@@ -1755,7 +1757,7 @@ export const buildCreatePayload = ({
     subCategory: subcategory?.name || "",
     subCategoryId: subCatId,
     promotionPhotos,
-    paymentType: formData.acceptCOD === "yes" ? "Cash on Delivery Available" : " No Cash on Delivery Available",
+    paymentType: formData.acceptCOD === "yes" ? "Cash on Delivery Available" : "No Cash on Delivery Available",
     productReturn: resolveProductReturn(formData.productReturn),
     deliveryCharges: formData.deliveryCharge === "yes",
     shippingWeight: parseFloat(formData.shippingWeight) || 0,
@@ -4869,7 +4871,7 @@ export const getDashboardDrawerMenu = async () => {
         items: [
           { key: "advertisement", label: "Advertisement", route: "/advertisement" },
           { key: "haatzup", label: "HaatzUp", route: "/haatzup" },
-          { key: "growplan", label: "Grow Plan", route: "/growplan" },
+//          { key: "growplan", label: "Grow Plan", route: "/growplan" },
           { key: "productinsight", label: "Product Insight", route: "/productinsight" },
           { key: "warehouse", label: "Warehouse", route: "/warehouse" },
           { key: "influencer", label: "Influencer Branding", route: "/influencer" },

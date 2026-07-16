@@ -1325,9 +1325,13 @@ const MyListings = ({ embedded = false }) => {
                           <div className="ml-modal-field">
                             <span className="ml-modal-label">Payment Type</span>
                             <span className="ml-modal-value">
-                              {d.paymentType === "Cash on Delivery Available"
+                              {d.paymentType && 
+                               (String(d.paymentType).toLowerCase().includes("cash on delivery") || 
+                                String(d.paymentType).toLowerCase().trim() === "yes") && 
+                               !String(d.paymentType).toLowerCase().includes("no") &&
+                               !String(d.paymentType).toLowerCase().includes("not")
                                 ? "Cash on Delivery Available"
-                                : "Cash on Delivery Not Available"}
+                                : "No Cash on Delivery Available"}
                             </span>
                           </div>
                         </div>

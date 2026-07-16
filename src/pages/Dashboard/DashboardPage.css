@@ -942,3 +942,40 @@
     transform: translateY(0) scale(1);
   }
 }
+
+@media (max-width: 480px) {
+  .scratch-modal-content {
+    width: 92%;
+    padding: 24px 16px 20px;
+    border-radius: 20px;
+    box-sizing: border-box;
+  }
+  .scratch-card-header h2 {
+    font-size: 20px;
+  }
+  .scratch-card-header p {
+    font-size: 12.5px;
+    margin-bottom: 16px;
+  }
+  .scratch-card-main-container {
+    width: 100%;
+    max-width: 300px;
+    height: 180px;
+    margin-bottom: 16px;
+  }
+  .reward-congrats {
+    font-size: 11px;
+  }
+  .reward-cashback-value {
+    font-size: 40px;
+    margin: 4px 0;
+  }
+  .reward-cashback-label {
+    font-size: 13px;
+  }
+  .claim-reward-btn {
+    padding: 12px 24px;
+    font-size: 15px;
+    border-radius: 12px;
+  }
+}

@@ -421,13 +421,23 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange, maxDate, label }) =
 
       {/* Popover */}
       {open && (
-        <div
-          ref={popoverRef}
-          className="cdrp-popover"
-          role="dialog"
-          aria-label="Select settlement date range"
-          aria-modal="true"
-        >
+        <>
+          <div className="cdrp-overlay" onClick={() => setOpen(false)} />
+          <div
+            ref={popoverRef}
+            className="cdrp-popover"
+            role="dialog"
+            aria-label="Select settlement date range"
+            aria-modal="true"
+          >
+            <button
+              type="button"
+              className="cdrp-close-btn"
+              onClick={() => setOpen(false)}
+              aria-label="Close calendar"
+            >
+              <X size={16} />
+            </button>
           {/* Selected range status label */}
           <div className="cdrp-selection-row">
             <span className="cdrp-selection-label">{selectionLabel}</span>
@@ -510,6 +520,7 @@ const ModernDateRangePicker = ({ fromDate, toDate, onChange, maxDate, label }) =
             </button>
           </div>
         </div>
+        </>
       )}
     </div>
   );

@@ -6,6 +6,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   AlertCircle,
   CheckCircle2,
   MessageSquare,
@@ -61,6 +62,9 @@ const HelpPage = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sortBy, setSortBy] = useState("date-desc");
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [priorityOpen, setPriorityOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -84,6 +88,16 @@ const HelpPage = () => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
+
+  useEffect(() => {
+    const closeAll = () => {
+      setStatusOpen(false);
+      setPriorityOpen(false);
+      setSortOpen(false);
+    };
+    document.addEventListener("click", closeAll);
+    return () => document.removeEventListener("click", closeAll);
+  }, []);
 
   // Fetch Tickets
   const fetchTickets = useCallback(async () => {
@@ -295,21 +309,21 @@ const HelpPage = () => {
 
       {/* Top Breadcrumb & Page title header */}
       <div className="help-page-header-v2">
-        <div className="header-info-left">
-          <nav className="help-breadcrumb" aria-label="breadcrumb">
-            <span>Dashboard</span> &gt; <span>Support</span> &gt; <span className="active">{activeTab === "tickets" ? "Tickets" : "Help & Tutorials"}</span>
-          </nav>
+        <nav className="help-breadcrumb" aria-label="breadcrumb">
+          <span>Dashboard</span> &gt; <span>Support</span> &gt; <span className="active">{activeTab === "tickets" ? "Tickets" : "Help & Tutorials"}</span>
+        </nav>
+        <div className="help-title-row">
           <h1 className="help-page-title">{activeTab === "tickets" ? "My Tickets" : "Help & Tutorials"}</h1>
+          {activeTab === "tickets" && (
+            <button
+              className="btn-create-ticket-main"
+              onClick={() => setIsCreateModalOpen(true)}
+            >
+              <Plus size={16} />
+              <span>Create Ticket</span>
+            </button>
+          )}
         </div>
-        {activeTab === "tickets" && (
-          <button
-            className="btn-create-ticket-main"
-            onClick={() => setIsCreateModalOpen(true)}
-          >
-            <Plus size={16} />
-            <span>Create Ticket</span>
-          </button>
-        )}
       </div>
 
       {/* Tabs for Tickets vs Tutorials */}
@@ -388,52 +402,88 @@ const HelpPage = () => {
                   </div>
 
                   <div className="toolbar-filters-wrap">
-                    <div className="filter-select-wrapper">
-                      <span className="filter-label">Status</span>
-                      <select
-                        value={statusFilter}
-                        onChange={(e) => {
-                          setStatusFilter(e.target.value);
-                          setCurrentPage(1);
+                    {/* Status Dropdown */}
+                    <div className="custom-dropdown-container" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className={`custom-dropdown-trigger ${statusOpen ? "active" : ""}`}
+                        onClick={() => {
+                          setStatusOpen(!statusOpen);
+                          setPriorityOpen(false);
+                          setSortOpen(false);
                         }}
-                        className="filter-select"
                       >
-                        <option value="all">All Statuses</option>
-                        <option value="open">Open</option>
-                        <option value="in progress">In Progress</option>
-                        <option value="resolved">Resolved</option>
-                        <option value="closed">Closed</option>
-                      </select>
+                        <span className="dropdown-lbl">STATUS</span>
+                        <span className="dropdown-val">
+                          {statusFilter === "all" ? "All Statuses" : 
+                           statusFilter === "open" ? "Open" : 
+                           statusFilter === "in progress" ? "In Progress" : 
+                           statusFilter === "resolved" ? "Resolved" : "Closed"}
+                        </span>
+                        <ChevronDown size={14} className="dropdown-icon" />
+                      </div>
+                      {statusOpen && (
+                        <div className="custom-dropdown-menu">
+                          <div className={`custom-dropdown-item ${statusFilter === "all" ? "selected" : ""}`} onClick={() => { setStatusFilter("all"); setCurrentPage(1); setStatusOpen(false); }}>All Statuses</div>
+                          <div className={`custom-dropdown-item ${statusFilter === "open" ? "selected" : ""}`} onClick={() => { setStatusFilter("open"); setCurrentPage(1); setStatusOpen(false); }}>Open</div>
+                          <div className={`custom-dropdown-item ${statusFilter === "in progress" ? "selected" : ""}`} onClick={() => { setStatusFilter("in progress"); setCurrentPage(1); setStatusOpen(false); }}>In Progress</div>
+                          <div className={`custom-dropdown-item ${statusFilter === "resolved" ? "selected" : ""}`} onClick={() => { setStatusFilter("resolved"); setCurrentPage(1); setStatusOpen(false); }}>Resolved</div>
+                          <div className={`custom-dropdown-item ${statusFilter === "closed" ? "selected" : ""}`} onClick={() => { setStatusFilter("closed"); setCurrentPage(1); setStatusOpen(false); }}>Closed</div>
+                        </div>
+                      )}
                     </div>
 
-                    <div className="filter-select-wrapper">
-                      <span className="filter-label">Priority</span>
-                      <select
-                        value={priorityFilter}
-                        onChange={(e) => {
-                          setPriorityFilter(e.target.value);
-                          setCurrentPage(1);
+                    {/* Priority Dropdown */}
+                    <div className="custom-dropdown-container" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className={`custom-dropdown-trigger ${priorityOpen ? "active" : ""}`}
+                        onClick={() => {
+                          setPriorityOpen(!priorityOpen);
+                          setStatusOpen(false);
+                          setSortOpen(false);
                         }}
-                        className="filter-select"
                       >
-                        <option value="all">All Priorities</option>
-                        <option value="high">High</option>
-                        <option value="medium">Medium</option>
-                        <option value="low">Low</option>
-                      </select>
+                        <span className="dropdown-lbl">PRIORITY</span>
+                        <span className="dropdown-val">
+                          {priorityFilter === "all" ? "All Priorities" : 
+                           priorityFilter === "high" ? "High" : 
+                           priorityFilter === "medium" ? "Medium" : "Low"}
+                        </span>
+                        <ChevronDown size={14} className="dropdown-icon" />
+                      </div>
+                      {priorityOpen && (
+                        <div className="custom-dropdown-menu">
+                          <div className={`custom-dropdown-item ${priorityFilter === "all" ? "selected" : ""}`} onClick={() => { setPriorityFilter("all"); setCurrentPage(1); setPriorityOpen(false); }}>All Priorities</div>
+                          <div className={`custom-dropdown-item ${priorityFilter === "high" ? "selected" : ""}`} onClick={() => { setPriorityFilter("high"); setCurrentPage(1); setPriorityOpen(false); }}>High</div>
+                          <div className={`custom-dropdown-item ${priorityFilter === "medium" ? "selected" : ""}`} onClick={() => { setPriorityFilter("medium"); setCurrentPage(1); setPriorityOpen(false); }}>Medium</div>
+                          <div className={`custom-dropdown-item ${priorityFilter === "low" ? "selected" : ""}`} onClick={() => { setPriorityFilter("low"); setCurrentPage(1); setPriorityOpen(false); }}>Low</div>
+                        </div>
+                      )}
                     </div>
 
-                    <div className="filter-select-wrapper">
-                      <span className="filter-label">Sort By</span>
-                      <select
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value)}
-                        className="filter-select"
+                    {/* Sort By Dropdown */}
+                    <div className="custom-dropdown-container" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className={`custom-dropdown-trigger ${sortOpen ? "active" : ""}`}
+                        onClick={() => {
+                          setSortOpen(!sortOpen);
+                          setStatusOpen(false);
+                          setPriorityOpen(false);
+                        }}
                       >
-                        <option value="date-desc">Newest First</option>
-                        <option value="date-asc">Oldest First</option>
-                        <option value="priority-high">Highest Priority</option>
-                      </select>
+                        <span className="dropdown-lbl">SORT BY</span>
+                        <span className="dropdown-val">
+                          {sortBy === "date-desc" ? "Newest First" : 
+                           sortBy === "date-asc" ? "Oldest First" : "Highest Priority"}
+                        </span>
+                        <ChevronDown size={14} className="dropdown-icon" />
+                      </div>
+                      {sortOpen && (
+                        <div className="custom-dropdown-menu">
+                          <div className={`custom-dropdown-item ${sortBy === "date-desc" ? "selected" : ""}`} onClick={() => { setSortBy("date-desc"); setSortOpen(false); }}>Newest First</div>
+                          <div className={`custom-dropdown-item ${sortBy === "date-asc" ? "selected" : ""}`} onClick={() => { setSortBy("date-asc"); setSortOpen(false); }}>Oldest First</div>
+                          <div className={`custom-dropdown-item ${sortBy === "priority-high" ? "selected" : ""}`} onClick={() => { setSortBy("priority-high"); setSortOpen(false); }}>Highest Priority</div>
+                        </div>
+                      )}
                     </div>
 
                     <button
