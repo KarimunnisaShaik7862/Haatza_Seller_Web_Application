@@ -5,6 +5,13 @@
   min-height: 100vh;
   width: 100%;
   font-family: 'Plus Jakarta Sans', 'Poppins', sans-serif;
+  box-sizing: border-box !important;
+}
+
+.tracking-page *,
+.tracking-page *::before,
+.tracking-page *::after {
+  box-sizing: border-box !important;
 }
 
 .tracking-container {
@@ -233,6 +240,9 @@
 .timeline-details-col {
   padding-left: 8px;
   padding-bottom: 26px;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .status-text {
@@ -241,15 +251,20 @@
   color: #1A1F36;
   margin-bottom: 6px;
   line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .location-text {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
   gap: 6px;
   font-size: 13px;
   font-weight: 500;
   color: #6B7280;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 /* Empty State Styling */

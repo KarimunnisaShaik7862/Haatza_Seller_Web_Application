@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   Search,
   RefreshCw,
@@ -96,7 +96,9 @@ const normalizeCampaign = (item, index) => {
     dailyBudget,
     productId,
     productIds: productId,
-    plan: item.plan || item.planName || ""
+    plan: item.plan || item.planName || "",
+    createdAt: item.createdAt || item.createdDate || item.created_at || item.startDateTime || 0,
+    updatedAt: item.updatedAt || item.updatedDate || item.updated_at || item.lastModified || 0
   };
 };
 
@@ -718,6 +720,7 @@ const AdvertisementPage = () => {
   const sellerId = resolveSellerId();
   console.log("[Advertisement] resolved sellerId:", sellerId);
   const navigate = useNavigate();
+  const location = useLocation();
 
   // API Data States
   const [campaigns, setCampaigns] = useState([]);
@@ -782,6 +785,39 @@ const AdvertisementPage = () => {
 
       console.log("[Advertisement] campaigns raw response:", response);
       const parsedCampaigns = extractSellerCampaigns(response).map((c, idx) => normalizeCampaign(c, idx));
+
+      // Check if a campaign was just created or updated
+      const justCreatedRaw = location.state?.justCreated;
+      if (justCreatedRaw) {
+        const justCreated = normalizeCampaign(justCreatedRaw, 9999);
+        const matchIndex = parsedCampaigns.findIndex(c => 
+          (c.campaignId && justCreated.campaignId && c.campaignId === justCreated.campaignId) ||
+          (c.tableId && justCreated.tableId && c.tableId === justCreated.tableId) ||
+          (c.id && justCreated.id && c.id === justCreated.id)
+        );
+        if (matchIndex !== -1) {
+          parsedCampaigns[matchIndex] = {
+            ...parsedCampaigns[matchIndex],
+            ...justCreated,
+            updatedAt: new Date().toISOString(),
+            createdAt: parsedCampaigns[matchIndex].createdAt || new Date().toISOString()
+          };
+        } else {
+          parsedCampaigns.unshift({
+            ...justCreated,
+            updatedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString()
+          });
+        }
+      }
+
+      // Sort campaigns by modification/creation date descending
+      parsedCampaigns.sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+
       console.log("[Advertisement] normalized campaigns:", parsedCampaigns);
       setCampaigns(parsedCampaigns);
     } catch (err) {

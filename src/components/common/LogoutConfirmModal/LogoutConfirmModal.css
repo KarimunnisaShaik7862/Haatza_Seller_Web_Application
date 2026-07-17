@@ -14,9 +14,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
-  /* No background color — page stays fully visible */
-  pointer-events: none; /* let clicks through the transparent area */
+  z-index: 9999999 !important;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: auto !important;
 }
 
 /* The actual card */
@@ -168,35 +168,22 @@
   }
 }
 
-/* Mobile: full-width bottom sheet feel */
+/* Mobile: centered modal dialog */
 @media (max-width: 480px) {
   .lcm-positioner {
-    align-items: flex-end;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    align-items: center;
+    padding-bottom: 0;
   }
 
   .lcm-card {
-    width: 100%;
-    max-width: 100%;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    border-radius: 16px 16px 0 0;
-    padding: 1.25rem 1.25rem calc(1rem + env(safe-area-inset-bottom, 0px));
-    animation: lcm-slide-up 0.22s ease-out both;
+    width: 310px;
+    max-width: calc(100vw - 2rem);
+    border-radius: 14px;
+    padding: 1.5rem 1.5rem 1.25rem;
+    animation: lcm-pop-in 0.18s ease-out both;
     box-shadow:
-      0 -2px 8px rgba(0, 0, 0, 0.06),
-      0 -8px 24px rgba(0, 0, 0, 0.1);
-  }
-
-  @keyframes lcm-slide-up {
-    from {
-      opacity: 0;
-      transform: translateY(100%);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+      0 4px 6px rgba(0, 0, 0, 0.04),
+      0 12px 28px rgba(0, 0, 0, 0.1);
   }
 
   .lcm-actions {

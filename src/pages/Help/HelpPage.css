@@ -272,6 +272,9 @@
   font-weight: 600;
   color: #1e293b;
   margin-right: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .custom-dropdown-trigger:hover .dropdown-val,
@@ -1343,6 +1346,10 @@
   .custom-dropdown-trigger {
     width: 100%;
     justify-content: space-between;
+    min-width: 0 !important;
+  }
+  .dropdown-lbl {
+    display: none !important;
   }
   .custom-dropdown-menu {
     width: 100%;

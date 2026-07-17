@@ -188,6 +188,10 @@ const ReturnDetailsPage = () => {
         setTrackingId(tid);
         setAwbNumber(tid);
         
+        // Store local update timestamp to sort return request to top
+        if (tableId) localStorage.setItem(`haatza_return_updated_${tableId}`, String(Date.now()));
+        if (selectedReturn?.TableID) localStorage.setItem(`haatza_return_updated_${selectedReturn.TableID}`, String(Date.now()));
+
         showToast("Exchange shipment created successfully!");
         setShowApproveModal(false);
         
@@ -254,6 +258,11 @@ const ReturnDetailsPage = () => {
     // TODO:
     // Integrate reject return API when backend is available
     console.log("handleRejectReturn Placeholder triggered for tableId:", tableId);
+    
+    // Store local update timestamp to sort return request to top
+    if (tableId) localStorage.setItem(`haatza_return_updated_${tableId}`, String(Date.now()));
+    if (selectedReturn?.TableID) localStorage.setItem(`haatza_return_updated_${selectedReturn.TableID}`, String(Date.now()));
+
     showToast("Return request has been rejected successfully.");
     setShowRejectModal(false);
     

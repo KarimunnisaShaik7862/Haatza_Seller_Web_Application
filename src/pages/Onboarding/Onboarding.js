@@ -765,7 +765,7 @@ function MapModal({ onClose, onSelectAddress }) {
         center: DEFAULT_CENTER, zoom: 5,
         zoomControl: false, attributionControl: true,
       });
-      L.control.zoom({ position: 'bottomright' }).addTo(map);
+      L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
       const cfg = TILE_LAYERS['map'];
       baseLayerRef.current = L.tileLayer(cfg.url, {
@@ -1039,11 +1039,20 @@ function GstinStatusBadge({ status }) {
 
 /* ─── Stepper ─────────────────────────────────────────────────── */
 const STEPS = ['Business Details', 'Pickup Address', 'Bank Details'];
-function Stepper({ current }) {
+function Stepper({ current, completed }) {
   return (
     <div className="ob-stepper">
       {STEPS.map((label, i) => {
-        const state = i < current ? 'done' : i === current ? 'active' : 'pending';
+        let state = 'pending';
+        const isDone = completed && completed[i];
+        if (isDone) {
+          state = 'done';
+        } else if (i === current) {
+          state = 'active';
+        } else {
+          state = 'pending';
+        }
+
         return (
           <React.Fragment key={label}>
             <div className={`ob-step ${state}`}>
@@ -1053,7 +1062,7 @@ function Stepper({ current }) {
               <span className="ob-step-label">{label}</span>
             </div>
             {i < STEPS.length - 1 && (
-              <div className={`ob-step-line${i < current ? ' filled' : ''}`} />
+              <div className={`ob-step-line${(completed && completed[i]) ? ' filled' : ''}`} />
             )}
           </React.Fragment>
         );
@@ -1080,7 +1089,7 @@ const FAQ_ITEMS = [
 ];
 
 function FaqAccordion() {
-  const [openIndex, setOpenIndex] = useState(0);
+  const [openIndex, setOpenIndex] = useState(-1);
   return (
     <div className="faq-section">
       <h3 className="faq-title">Frequently Asked Questions</h3>
@@ -1153,6 +1162,49 @@ export default function OnboardingPage() {
     };
     checkActiveStatus();
   }, [location.state?.email, navigate]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const isMobile = window.innerWidth <= 480;
+      if (!isMobile) return;
+
+      const section0 = document.getElementById('ob-section-0');
+      const section1 = document.getElementById('ob-section-1');
+      const section2 = document.getElementById('ob-section-2');
+
+      if (!section0 || !section1 || !section2) return;
+
+      const rect0 = section0.getBoundingClientRect();
+      const rect1 = section1.getBoundingClientRect();
+      const rect2 = section2.getBoundingClientRect();
+
+      const viewportMid = window.innerHeight / 2.5;
+
+      if (rect2.top < viewportMid) {
+        setStep(2);
+      } else if (rect1.top < viewportMid) {
+        setStep(1);
+      } else {
+        setStep(0);
+      }
+    };
+
+    const shell = document.querySelector('.ob-shell');
+    if (shell) {
+      shell.addEventListener('scroll', handleScroll);
+    }
+    window.addEventListener('scroll', handleScroll);
+
+    // Initial check
+    handleScroll();
+
+    return () => {
+      if (shell) {
+        shell.removeEventListener('scroll', handleScroll);
+      }
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
 
   const [step, setStep] = useState(0);
   const [submitLoading, setSubmitLoading] = useState(false);
@@ -1491,21 +1543,10 @@ export default function OnboardingPage() {
     return e;
   };
 
-  /* ── Continue / Submit ── */
-  const handleContinue = async () => {
-    const e = validateStep(step);
-    if (Object.keys(e).length > 0) { setErrors(e); return; }
-
-    if (step < 2) {
-      setStep((s) => s + 1);
-      setErrors({});
-      return;
-    }
-
-    /* ── Final step: call Seller Onboarding API ── */
+  /* ── Final Onboarding Submission API Helper ── */
+  const submitOnboarding = async () => {
     setSubmitLoading(true);
     setSubmitError('');
-    // ── Retrieve the logged-in user's email (adjust the key to match your auth storage)
     const userEmail =
       location.state?.email ||
       sessionStorage.getItem('pendingEmail') ||
@@ -1516,7 +1557,9 @@ export default function OnboardingPage() {
       setSubmitError('Session expired — your email could not be found. Please sign in again.');
       setSubmitLoading(false);
       return;
-    } const payload = {
+    }
+
+    const payload = {
       email: userEmail,
       updateFields: {
         gstin: form.noGstin ? 'optional' : form.gstin.trim().toUpperCase(),
@@ -1564,9 +1607,6 @@ export default function OnboardingPage() {
         return;
       }
 
-      // Backend can return `message` as an array of records rather than a
-      // single object — unwrap it first so field lookups below don't
-      // silently fail against an array.
       let messageRoot = data?.message;
       if (Array.isArray(messageRoot)) messageRoot = messageRoot[0] || {};
       if (typeof messageRoot !== 'object' || messageRoot === null) messageRoot = {};
@@ -1576,7 +1616,6 @@ export default function OnboardingPage() {
         (typeof data?.message?.message === 'string' && data.message.message.toLowerCase().includes('success'));
 
       if (isSuccess) {
-        // Extract sellerId from onboarding response
         const sellerId =
           messageRoot.sellerId ||
           messageRoot.body?.sellerId ||
@@ -1602,7 +1641,6 @@ export default function OnboardingPage() {
           console.warn("[Onboarding] ⚠️ sellerId not in response — check above log for correct path");
         }
 
-        // ── Capture sellerPinCode from onboarding response ──────────────────
         const sellerPinCodeFromApi =
           messageRoot.sellerPinCode ||
           messageRoot.body?.sellerPinCode ||
@@ -1621,7 +1659,6 @@ export default function OnboardingPage() {
           localStorage.setItem("sellerPinCode", pin);
           console.log("[Onboarding] ✅ Stored sellerPinCode from API:", pin);
         } else {
-          // Fallback: use the pinCode the seller entered in the form
           const formPin = form.pinCode.trim();
           if (formPin && /^\d{6}$/.test(formPin)) {
             sessionStorage.setItem("__haatza_sellerPinCode", formPin);
@@ -1632,7 +1669,6 @@ export default function OnboardingPage() {
           }
         }
 
-        // Store pinCode so settlement + listing payload can find it
         const pinCode = form.pinCode.trim();
         if (pinCode) {
           localStorage.setItem("sellerPinCode", pinCode);
@@ -1645,30 +1681,22 @@ export default function OnboardingPage() {
         if (pinCode) {
           sessionStorage.setItem(CANONICAL_PIN_KEY, pinCode);
           localStorage.setItem(CANONICAL_PIN_KEY, pinCode);
-          // Also write to legacy keys so any fallback reads still work
           sessionStorage.setItem("sellerPinCode", pinCode);
           localStorage.setItem("sellerPinCode", pinCode);
           console.log("[Onboarding] ✅ Wrote pinCode to canonical + legacy keys:", pinCode);
         }
 
-        // If the onboarding response included a sellerId, write it to canonical key too
         if (sellerId) {
           sessionStorage.setItem(CANONICAL_SELLER_KEY, String(sellerId));
           localStorage.setItem(CANONICAL_SELLER_KEY, String(sellerId));
           console.log("[Onboarding] ✅ Wrote sellerId to canonical key:", sellerId);
         }
 
-        // Re-fetch profile so canonical cache is authoritative for QC payload
-
-        // ✅ ADD THIS: cache under the canonical key and re-fetch full profile
-
-        // Store email under all keys the listing flow checks
         if (userEmail) {
           localStorage.setItem("userEmail", userEmail);
           sessionStorage.setItem("userEmail", userEmail);
         }
 
-        // Cache tradeName as companyName
         const companyName = form.tradeName.trim();
         if (companyName) {
           localStorage.setItem("companyName", companyName);
@@ -1694,6 +1722,50 @@ export default function OnboardingPage() {
     } finally {
       setSubmitLoading(false);
     }
+  };
+
+  /* ── Continue / Submit ── */
+  const handleContinue = async () => {
+    const e = validateStep(step);
+    if (Object.keys(e).length > 0) { setErrors(e); return; }
+
+    if (step < 2) {
+      setStep((s) => s + 1);
+      setErrors({});
+      const isMobile = window.innerWidth <= 480;
+      if (isMobile) {
+        const nextSection = document.getElementById(`ob-section-${step + 1}`);
+        if (nextSection) {
+          setTimeout(() => {
+            nextSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 100);
+        }
+      }
+      return;
+    }
+
+    await submitOnboarding();
+  };
+
+  /* ── Mobile-only Submit ── */
+  const handleMobileSubmit = async () => {
+    const e0 = validateStep(0);
+    const e1 = validateStep(1);
+    const e2 = validateStep(2);
+    const mergedErrors = { ...e0, ...e1, ...e2 };
+
+    if (Object.keys(mergedErrors).length > 0) {
+      setErrors(mergedErrors);
+      const firstErrorKey = Object.keys(mergedErrors)[0];
+      const errorEl = document.getElementsByName(firstErrorKey)[0] || document.getElementById(firstErrorKey);
+      if (errorEl) {
+        errorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+
+    setStep(2);
+    await submitOnboarding();
   };
 
   const handleBack = () => {
@@ -1759,16 +1831,27 @@ export default function OnboardingPage() {
     </div>
   );
 
+  const isStep0Done = Object.keys(validateStep(0)).length === 0;
+  const isStep1Done = Object.keys(validateStep(1)).length === 0;
+  const isStep2Done = Object.keys(validateStep(2)).length === 0;
+
   /* ─── Render ── */
   return (
     <>
       <div className="ob-shell">
         <div className="ob-card">
           <BrandBar />
-          <Stepper current={step} />
+          <Stepper
+            current={step}
+            completed={[
+              isStep0Done,
+              isStep0Done && isStep1Done,
+              isStep0Done && isStep1Done && isStep2Done
+            ]}
+          />
 
           {/* ── Step 0: Business Details ── */}
-          {step === 0 && (
+          <div id="ob-section-0" className={`ob-section-wrapper ${step === 0 ? "step-active" : "step-inactive"}`}>
             <div className="ob-body">
               <h2 className="ob-section-title">Business Details</h2>
               <p className="ob-section-sub">Do you have a GSTIN Number?</p>
@@ -1777,7 +1860,7 @@ export default function OnboardingPage() {
               {(() => {
                 const isValid = !errors.gstin && form.gstin.length === 15 && gstinStatus !== 'exists';
                 return (
-                  <FormField label="GSTIN" required={!form.noGstin} error={!form.noGstin ? errors.gstin : undefined}>
+                  <FormField label="GSTIN" required={!form.noGstin} error={!form.noGstin && gstinStatus !== 'exists' && gstinStatus !== 'error' ? errors.gstin : undefined}>
                     <div style={{ position: 'relative' }}>
                       <input
                         className={`form-input ${!form.noGstin && errors.gstin ? 'input-error' : !form.noGstin && isValid ? 'input-valid' : ''}`}
@@ -1884,10 +1967,10 @@ export default function OnboardingPage() {
                 );
               })()}
             </div>
-          )}
+          </div>
 
           {/* ── Step 1: Pickup Address ── */}
-          {step === 1 && (
+          <div id="ob-section-1" className={`ob-section-wrapper ${step === 1 ? "step-active" : "step-inactive"}`}>
             <div className="ob-body">
               <div className="address-row">
                 <div>
@@ -1994,10 +2077,10 @@ export default function OnboardingPage() {
                 />
               </FormField>
             </div>
-          )}
+          </div>
 
           {/* ── Step 2: Bank Details ── */}
-          {step === 2 && (
+          <div id="ob-section-2" className={`ob-section-wrapper ${step === 2 ? "step-active" : "step-inactive"}`}>
             <div className="ob-body">
               <h2 className="ob-section-title">Bank Account Information</h2>
               <p className="ob-section-sub">For a successful bank verification, account name must match with the registered GSTIN name or trade name</p>
@@ -2173,13 +2256,28 @@ export default function OnboardingPage() {
               })()}
 
               {/* ── FAQ Section ── */}
+              <div className="faq-divider" />
               <FaqAccordion />
+
+              {/* Mobile-only submit error banner and final actions inside the scrollable container */}
+              {submitError && (
+                <p className="error-message ob-mobile-submit-error" style={{ margin: '16px 0 12px', textAlign: 'center' }}>
+                  {submitError}
+                </p>
+              )}
+
+              <div className="ob-mobile-section-actions ob-mobile-final-actions">
+                <button className="btn-logout" type="button" onClick={handleLogoutClick}>Logout</button>
+                <button className="btn-continue" type="button" onClick={handleMobileSubmit} disabled={submitLoading}>
+                  {submitLoading ? 'Submitting...' : 'Submit'}
+                </button>
+              </div>
             </div>
-          )}
+          </div>
 
           {/* Submit error banner — only shown on step 2 */}
           {submitError && step === 2 && (
-            <p className="error-message" style={{ margin: '0 0 12px', textAlign: 'center' }}>
+            <p className="error-message ob-desktop-submit-error" style={{ margin: '0 0 12px', textAlign: 'center' }}>
               {submitError}
             </p>
           )}

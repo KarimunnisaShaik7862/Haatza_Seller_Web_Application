@@ -89,6 +89,17 @@ const [decadeStart, setDecadeStart] = useState(Math.floor(today.getFullYear() / 
         })
       );
 
+      // Sort returns descending by creation/modification dates or local localStorage updates
+      enrichedReturns.sort((a, b) => {
+        const localUpdateA = Number(localStorage.getItem(`haatza_return_updated_${a.TableID}`) || localStorage.getItem(`haatza_return_updated_${a.tableId}`) || 0);
+        const localUpdateB = Number(localStorage.getItem(`haatza_return_updated_${b.TableID}`) || localStorage.getItem(`haatza_return_updated_${b.tableId}`) || 0);
+
+        const timeA = localUpdateA || new Date(a.updatedAt || a.createdAt || a.exchangeDate || a.returnDate || a.createdDate || 0).getTime();
+        const timeB = localUpdateB || new Date(b.updatedAt || b.createdAt || b.exchangeDate || b.returnDate || b.createdDate || 0).getTime();
+        
+        return timeB - timeA;
+      });
+
       setReturnsList(enrichedReturns);
     } catch (err) {
       console.error("Error in loadReturns workflow:", err);

@@ -245,6 +245,10 @@ const [showSlipPopup, setShowSlipPopup] = useState(false);
       const res = await updateOrdersstatus(details?.orderId, sellerId, "Order Confirmed");
       console.log("[handleAcceptOrder] API Response:", res);
       
+      // Store local update timestamp to sort order to top
+      if (details?.orderId) localStorage.setItem(`haatza_order_updated_${details.orderId}`, String(Date.now()));
+      if (details?.tableId) localStorage.setItem(`haatza_order_updated_${details.tableId}`, String(Date.now()));
+
       showToastMsg("Order Confirmed Successfully!", "success");
       setShowAcceptModal(false);
       
@@ -416,6 +420,9 @@ const [showSlipPopup, setShowSlipPopup] = useState(false);
         // Do NOT call createShipment again here — only update status.
         try {
           await updateOrdersstatus(details?.orderId, sellerId, "Shipping Pickup Scheduled");
+          // Store local update timestamp to sort order to top
+          if (details?.orderId) localStorage.setItem(`haatza_order_updated_${details.orderId}`, String(Date.now()));
+          if (details?.tableId) localStorage.setItem(`haatza_order_updated_${details.tableId}`, String(Date.now()));
         } catch (statusErr) {
           console.error("[handleCreateShipment] Failed to update order status:", statusErr);
         }

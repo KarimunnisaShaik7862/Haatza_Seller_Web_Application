@@ -1406,7 +1406,11 @@ const CreateCampaignPage = () => {
 
         showToast("Campaign updated successfully!");
         setTimeout(() => {
-          navigate("/advertisement");
+          navigate("/advertisement", {
+            state: {
+              justCreated: { ...payload, ...(response?.message || response?.data || response || {}) }
+            }
+          });
         }, 1500);
       } catch (err) {
         console.error("[CreateCampaignPage] Update failed:", err);
@@ -1459,7 +1463,11 @@ const CreateCampaignPage = () => {
         if (isSuccess) {
           showToast(response?.message?.message || response?.message || "Campaign created successfully");
           setTimeout(() => {
-            navigate("/advertisement");
+            navigate("/advertisement", {
+              state: {
+                justCreated: { ...payload, ...(response?.message || response?.data || response || {}) }
+              }
+            });
           }, 1500);
         } else if (response?.status === "error") {
           const errMsg = response?.message?.message || response?.message?.error || response?.message || "Failed to create campaign";
@@ -1467,7 +1475,11 @@ const CreateCampaignPage = () => {
         } else {
           showToast("Campaign created successfully!");
           setTimeout(() => {
-            navigate("/advertisement");
+            navigate("/advertisement", {
+              state: {
+                justCreated: { ...payload, ...(response?.message || response?.data || response || {}) }
+              }
+            });
           }, 1500);
         }
       } catch (err) {

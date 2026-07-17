@@ -666,6 +666,9 @@ body {
     --sidebar-width: 260px;
     --toggle-top: calc(var(--navbar-height) + 16px);
   }
+  .sidebar:has(.lcm-positioner) {
+    z-index: 99999 !important;
+  }
 
   .app-container.sidebar-expanded .main-content {
     margin-left: var(--sidebar-width);

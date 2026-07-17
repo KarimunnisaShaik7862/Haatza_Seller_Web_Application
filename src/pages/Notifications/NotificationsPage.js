@@ -33,7 +33,15 @@ const NotificationsPage = () => {
         time: n.time || "Recently",
         read: Boolean(n.read || n.status === "read"),
         type: n.type || "system",
+        createdAt: n.createdAt || n.createdDate || n.time || 0
       }));
+
+      // Sort notifications descending by received date
+      mapped.sort((a, b) => {
+        const timeA = new Date(a.createdAt).getTime();
+        const timeB = new Date(b.createdAt).getTime();
+        return timeB - timeA;
+      });
 
       setNotifications(mapped);
     } catch (err) {

@@ -150,6 +150,7 @@ const HelpPage = () => {
         status: t.status || "Open",
         description: t.description || "",
         createdDate: t.createdDate || t.createdAt || new Date().toISOString(),
+        lastModified: t.updatedAt || t.updatedDate || t.createdDate || t.createdAt || new Date().toISOString()
       }));
 
       // Dedupe by ticketId/id
@@ -270,8 +271,8 @@ const HelpPage = () => {
 
       return matchesSearch && matchesStatus && matchesPriority;
     }).sort((a, b) => {
-      if (sortBy === "date-desc") return new Date(b.createdDate) - new Date(a.createdDate);
-      if (sortBy === "date-asc") return new Date(a.createdDate) - new Date(b.createdDate);
+      if (sortBy === "date-desc") return new Date(b.lastModified) - new Date(a.lastModified);
+      if (sortBy === "date-asc") return new Date(a.lastModified) - new Date(b.lastModified);
       if (sortBy === "priority-high") {
         const order = { high: 3, medium: 2, low: 1 };
         return (order[b.priority.toLowerCase()] || 0) - (order[a.priority.toLowerCase()] || 0);

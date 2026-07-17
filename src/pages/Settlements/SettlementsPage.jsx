@@ -621,6 +621,14 @@ const SettlementsPage = () => {
       console.log("Settlement API Response:", response);
 
       const payments = extractPaymentsFromResponse(response);
+      
+      // Sort settlements descending by payment date/creation date
+      payments.sort((a, b) => {
+        const timeA = new Date(a.paymentDate || a.createdAt || a.createdDate || 0).getTime();
+        const timeB = new Date(b.paymentDate || b.createdAt || b.createdDate || 0).getTime();
+        return timeB - timeA;
+      });
+
       setRawTransactions(payments);
     } catch (err) {
       if (

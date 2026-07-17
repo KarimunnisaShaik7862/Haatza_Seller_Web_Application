@@ -133,6 +133,11 @@ export default function CancelShipmentPage() {
 
     try {
       await updateOrdersstatus(details?.orderId, sellerId, "Order Cancelled");
+      
+      // Store local update timestamp to sort order to top
+      if (details?.orderId) localStorage.setItem(`haatza_order_updated_${details.orderId}`, String(Date.now()));
+      if (details?.tableId) localStorage.setItem(`haatza_order_updated_${details.tableId}`, String(Date.now()));
+
       showToastMsg("Order cancelled successfully", "success"); 
 
       setTimeout(() => {

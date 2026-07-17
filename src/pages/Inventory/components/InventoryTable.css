@@ -226,13 +226,17 @@
     color: #374151;
   }
   
+  .inv-table tbody tr.inv-table-empty-row {
+    display: block !important;
+    width: 100% !important;
+  }
+  
   /* Empty row display cell */
   .inv-table td.inv-table-empty {
-    display: table-cell !important;
-    grid-column: span 2;
+    display: block !important;
     text-align: center;
     padding: 32px 16px !important;
-    float: none;
-    width: 100%;
+    width: 100% !important;
+    box-sizing: border-box;
   }
 }

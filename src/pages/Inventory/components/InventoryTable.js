@@ -73,7 +73,7 @@ const InventoryTable = ({ items = [], onQuantityChange, disabled = false }) => {
         </thead>
         <tbody>
           {items.length === 0 ? (
-            <tr>
+            <tr className="inv-table-empty-row">
               <td colSpan="5" className="inv-table-empty">
                 No inventory items found matching the filter criteria.
               </td>

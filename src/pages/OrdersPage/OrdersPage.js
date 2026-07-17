@@ -100,6 +100,18 @@ const [decadeStart, setDecadeStart] = useState(Math.floor(today.getFullYear() / 
     try {
       const response = await fetchSellerOrders(sellerId);
       const list = Array.isArray(response) ? response : response?.message?.results || response?.items || response?.orders || [];
+      
+      // Sort orders descending by created/updated date properties or local localStorage updates
+      list.sort((a, b) => {
+        const localUpdateA = Number(localStorage.getItem(`haatza_order_updated_${a.orderId}`) || localStorage.getItem(`haatza_order_updated_${a.tableId}`) || 0);
+        const localUpdateB = Number(localStorage.getItem(`haatza_order_updated_${b.orderId}`) || localStorage.getItem(`haatza_order_updated_${b.tableId}`) || 0);
+        
+        const timeA = localUpdateA || new Date(a.updatedAt || a.updatedDate || a.lastModified || a.createdDate || a.createdAt || 0).getTime();
+        const timeB = localUpdateB || new Date(b.updatedAt || b.updatedDate || b.lastModified || b.createdDate || b.createdAt || 0).getTime();
+        
+        return timeB - timeA;
+      });
+
       setOrders(list);
     } catch (err) {
       console.error("Error fetching seller orders", err);

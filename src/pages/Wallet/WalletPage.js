@@ -345,7 +345,8 @@ const WalletPage = () => {
                         isCredit,
                         status: tx.status || "Completed",
                         isScratchCard: isScratchCardTransaction(tx),
-                        balance: getTransactionBalance(tx)
+                        balance: getTransactionBalance(tx),
+                        dateVal
                     };
                 });
 
@@ -367,10 +368,16 @@ const WalletPage = () => {
                         type: tx.type || "Campaign Spend",
                         amount: getCampaignSpendAmount(tx),
                         isCredit: false,
-                        status: tx.status || "Completed"
+                        status: tx.status || "Completed",
+                        dateVal
                     };
                 });
                 
+            // Sort wallet transactions descending by date
+            walletTransactions.sort((a, b) => new Date(b.dateVal || 0).getTime() - new Date(a.dateVal || 0).getTime());
+            
+            // Sort campaign spend history descending by date
+            campaignSpendTransactions.sort((a, b) => new Date(b.dateVal || 0).getTime() - new Date(a.dateVal || 0).getTime());
 
             setTransactions(walletTransactions);
             setCampaignHistory(campaignSpendTransactions);

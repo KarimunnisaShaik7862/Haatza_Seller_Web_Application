@@ -439,6 +439,11 @@ const InProgressListings = ({ embedded = false }) => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [priceFilter,  setPriceFilter]  = useState("all");
 
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [priceOpen, setPriceOpen] = useState(false);
+  const statusRef = useRef(null);
+  const priceRef = useRef(null);
+
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -452,6 +457,12 @@ const InProgressListings = ({ embedded = false }) => {
     const handleClickOutside = (event) => {
       if (datePickerRef.current && !datePickerRef.current.contains(event.target)) {
         setCalendarOpen(false);
+      }
+      if (statusRef.current && !statusRef.current.contains(event.target)) {
+        setStatusOpen(false);
+      }
+      if (priceRef.current && !priceRef.current.contains(event.target)) {
+        setPriceOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -612,6 +623,38 @@ const InProgressListings = ({ embedded = false }) => {
         );
         rest.forEach(r => { all = all.concat(r.products); });
       }
+
+      // Check if a product was just created or updated in the wizard/review step
+      const justCreated = location.state?.justCreated;
+      if (justCreated) {
+        const matchIndex = all.findIndex(p => 
+          (p.Table_ID && justCreated.Table_ID && p.Table_ID === justCreated.Table_ID) || 
+          (p._id && justCreated._id && p._id === justCreated._id) ||
+          (p.id && justCreated.id && p.id === justCreated.id)
+        );
+        if (matchIndex !== -1) {
+          all[matchIndex] = {
+            ...all[matchIndex],
+            ...justCreated,
+            updatedAt: new Date().toISOString(),
+            lastModified: new Date().toISOString()
+          };
+        } else {
+          all.unshift({
+            ...justCreated,
+            updatedAt: new Date().toISOString(),
+            lastModified: new Date().toISOString()
+          });
+        }
+      }
+
+      // Sort products by modification/creation date descending
+      all.sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.lastModified || a.createdDate || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.lastModified || b.createdDate || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+
       setAllProducts(all);
     } catch (err) {
       console.error("[InProgressListings] loadListings error:", err);
@@ -879,22 +922,59 @@ const InProgressListings = ({ embedded = false }) => {
           </div>
 
 
-          <select className="ip-select" value={statusFilter}
-            onChange={e => { setStatusFilter(e.target.value); setPage(1); }}>
-            <option value="all">All Status</option>
-            <option value="under review">Under Review</option>
-            <option value="update requested">Update Requested</option>
-          
-          </select>
+          {/* Status Dropdown */}
+          <div className="custom-dropdown-container" ref={statusRef} onClick={(e) => e.stopPropagation()}>
+            <div
+              className={`custom-dropdown-trigger ${statusOpen ? "active" : ""}`}
+              onClick={() => {
+                setStatusOpen(!statusOpen);
+                setPriceOpen(false);
+                setCalendarOpen(false);
+              }}
+            >
+              <span className="dropdown-val">
+                {statusFilter === "all" ? "All Status" :
+                 statusFilter === "under review" ? "Under Review" : "Update Requested"}
+              </span>
+              <ChevronDown size={14} className="dropdown-icon" />
+            </div>
+            {statusOpen && (
+              <div className="custom-dropdown-menu">
+                <div className={`custom-dropdown-item ${statusFilter === "all" ? "selected" : ""}`} onClick={() => { setStatusFilter("all"); setPage(1); setStatusOpen(false); }}>All Status</div>
+                <div className={`custom-dropdown-item ${statusFilter === "under review" ? "selected" : ""}`} onClick={() => { setStatusFilter("under review"); setPage(1); setStatusOpen(false); }}>Under Review</div>
+                <div className={`custom-dropdown-item ${statusFilter === "update requested" ? "selected" : ""}`} onClick={() => { setStatusFilter("update requested"); setPage(1); setStatusOpen(false); }}>Update Requested</div>
+              </div>
+            )}
+          </div>
 
-          <select className="ip-select" value={priceFilter}
-            onChange={e => { setPriceFilter(e.target.value); setPage(1); }}>
-            <option value="all">All Prices</option>
-            <option value="0-500">₹0 - ₹500</option>
-            <option value="500-1000">₹500 - ₹1000</option>
-            <option value="1000-5000">₹1000 - ₹5000</option>
-            <option value="5000+">₹5000+</option>
-          </select>
+          {/* Price Dropdown */}
+          <div className="custom-dropdown-container" ref={priceRef} onClick={(e) => e.stopPropagation()}>
+            <div
+              className={`custom-dropdown-trigger ${priceOpen ? "active" : ""}`}
+              onClick={() => {
+                setPriceOpen(!priceOpen);
+                setStatusOpen(false);
+                setCalendarOpen(false);
+              }}
+            >
+              <span className="dropdown-val">
+                {priceFilter === "all" ? "All Prices" :
+                 priceFilter === "0-500" ? "₹0 - ₹500" :
+                 priceFilter === "500-1000" ? "₹500 - ₹1000" :
+                 priceFilter === "1000-5000" ? "₹1000 - ₹5000" : "₹5000+"}
+              </span>
+              <ChevronDown size={14} className="dropdown-icon" />
+            </div>
+            {priceOpen && (
+              <div className="custom-dropdown-menu custom-dropdown-menu-right">
+                <div className={`custom-dropdown-item ${priceFilter === "all" ? "selected" : ""}`} onClick={() => { setPriceFilter("all"); setPage(1); setPriceOpen(false); }}>All Prices</div>
+                <div className={`custom-dropdown-item ${priceFilter === "0-500" ? "selected" : ""}`} onClick={() => { setPriceFilter("0-500"); setPage(1); setPriceOpen(false); }}>₹0 - ₹500</div>
+                <div className={`custom-dropdown-item ${priceFilter === "500-1000" ? "selected" : ""}`} onClick={() => { setPriceFilter("500-1000"); setPage(1); setPriceOpen(false); }}>₹500 - ₹1000</div>
+                <div className={`custom-dropdown-item ${priceFilter === "1000-5000" ? "selected" : ""}`} onClick={() => { setPriceFilter("1000-5000"); setPage(1); setPriceOpen(false); }}>₹1000 - ₹5000</div>
+                <div className={`custom-dropdown-item ${priceFilter === "5000+" ? "selected" : ""}`} onClick={() => { setPriceFilter("5000+"); setPage(1); setPriceOpen(false); }}>₹5000+</div>
+              </div>
+            )}
+          </div>
 
           <button className="ip-btn-refresh" onClick={() => loadListings(false)} disabled={loading}>
             <RefreshCw size={14} /> Refresh

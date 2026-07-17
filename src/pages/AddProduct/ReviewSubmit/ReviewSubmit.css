@@ -514,14 +514,15 @@
 
 .rsp-settle-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   padding: 8px 0;
+  gap: 12px;
 }
 .rsp-settle-row--bold { padding: 10px 0 0; }
-.rsp-settle-label { font-size: 13px; color: var(--rsp-text); }
+.rsp-settle-label { font-size: 13px; color: var(--rsp-text); word-break: break-word; overflow-wrap: break-word; }
 .rsp-settle-row--bold .rsp-settle-label { font-size: 14px; font-weight: 800; }
-.rsp-settle-value { font-size: 14px; font-weight: 600; }
+.rsp-settle-value { font-size: 14px; font-weight: 600; white-space: nowrap !important; flex-shrink: 0; text-align: right; }
 .rsp-settle-value--red     { color: var(--rsp-red); }
 .rsp-settle-value--green   { color: var(--rsp-green); }
 .rsp-settle-value--neutral { color: var(--rsp-text-2); }

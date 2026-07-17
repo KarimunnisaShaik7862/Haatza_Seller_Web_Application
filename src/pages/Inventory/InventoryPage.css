@@ -447,8 +447,8 @@
 .inv-modal {
   background: #fff;
   border-radius: 12px;
-  width: 90%;
-  max-width: 440px;
+  width: 310px;
+  max-width: 90%;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   overflow: hidden;
   animation: scaleIn 0.2s ease-out;
@@ -587,11 +587,16 @@
   }
 
   .inventory-update-bar {
-    left: 16px;
-    right: 16px;
+    left: var(--sidebar-width-mini, 72px) !important;
+    right: 0 !important;
+    width: auto !important;
     padding: 12px 16px 18px;
     border-radius: 0;
     box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);
+  }
+
+  .inv-modal-overlay {
+    left: var(--sidebar-width-mini, 72px) !important;
   }
 
   .inventory-update-bar button {
@@ -618,14 +623,23 @@
     font-size: 13px !important;
   }
   .inventory-update-bar {
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100%;
+    left: var(--sidebar-width-mini, 72px) !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: auto !important;
     padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
     background: #ffffff;
     box-shadow: 0 -6px 20px rgba(15, 23, 42, 0.1);
     border-top: 1px solid #e2e8f0;
     border-radius: 0;
   }
+  .inv-modal-overlay {
+    left: var(--sidebar-width-mini, 72px) !important;
+  }
+}
+
+/* Stacking context lift to overlay sidebar when inventory confirm modal is open */
+.main-content:has(.inv-modal-overlay) {
+  position: relative !important;
+  z-index: 999999 !important;
 }

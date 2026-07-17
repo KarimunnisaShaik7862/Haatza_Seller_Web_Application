@@ -6,8 +6,9 @@ import SignInPage    from "../pages/auth/SignInPage";
 import SignUpPage    from "../pages/auth/SignUpPage";
 import OtpPage       from "../pages/auth/OtpPage";
 import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage";
-import OnboardingPage from "../pages/Onboarding/Onboarding";
 import WarehouseGetStarted from "../pages/Warehouse/WarehouseGetStarted";
+
+const OnboardingPage = lazy(() => import("../pages/Onboarding/Onboarding"));
 
 // ─── Dashboard Shell (new layout with Outlet + session validation) ─────────────
 const DashboardLayout = lazy(() => import("../components/Layout/DashboardLayout/DashboardLayout"));

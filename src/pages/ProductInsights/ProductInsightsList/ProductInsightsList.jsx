@@ -92,6 +92,14 @@ export default function ProductInsightsList() {
       const email = getSellerEmail();
       const listRes = await fetchSellerListings({ email, page: 1, limit: 100, type: "mylisting" });
       const list = listRes?.products || [];
+      
+      // Sort listings descending by modification/creation date
+      list.sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || a.createdDate || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || b.createdDate || 0).getTime();
+        return timeB - timeA;
+      });
+
       setRawProducts(list);
     } catch (err) {
       console.error("Error loading products list:", err);

@@ -152,6 +152,13 @@ const InfluenceBranding = () => {
         console.error("Error applying branding overrides:", e);
       }
 
+      // Sort branding products descending by modification/creation date
+      fetchedList.sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || a.createdDate || a.lastModified || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || b.createdDate || b.lastModified || 0).getTime();
+        return timeB - timeA;
+      });
+
       setProducts(fetchedList);
     } catch (err) {
       console.error("Error loading products:", err);
